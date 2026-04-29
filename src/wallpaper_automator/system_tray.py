@@ -25,8 +25,6 @@ AUTO_MODE_COLOR = "#35FF89FF"
 MANUAL_MODE_COLOR = "#E9B200FF"
 
 
-
-
 class SystemTrayBridge(QObject):
     """
     Full-duplex compatibility layer.

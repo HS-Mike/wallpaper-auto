@@ -58,3 +58,6 @@ Thumbs.db
 
 # Wallpaper images (user-provided, not project code)
 wallpapers/
+
+#temp script
+temp.py

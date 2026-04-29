@@ -10,6 +10,7 @@ Optionally compresses large images and caches the result for performance.
 import os
 import hashlib
 import logging
+import ctypes
 from enum import Enum
 from os import PathLike
 from typing import Optional
@@ -23,6 +24,8 @@ from .base_resource import BaseResource
 
 
 logger = logging.getLogger(__name__)
+
+# ctypes.windll.shcore.SetProcessDpiAwareness(1)
 
 
 class WallpaperStyle(Enum):
@@ -130,8 +133,12 @@ class StaticWallpaper(BaseResource):
 
 def get_screen_size() -> tuple[int, int]:
     """Get current primary screen resolution in pixels (width, height)."""
-    width = win32api.GetSystemMetrics(0)
-    height = win32api.GetSystemMetrics(1)
+    user32 = ctypes.windll.user32
+    gdi32 = ctypes.windll.gdi32
+    dc = user32.GetDC(0)
+    width: int = gdi32.GetDeviceCaps(dc, 118)
+    height: int = gdi32.GetDeviceCaps(dc, 117)
+    user32.ReleaseDC(0, dc)
     return width, height
 
 
