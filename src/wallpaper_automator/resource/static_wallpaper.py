@@ -25,7 +25,7 @@ from .base_resource import BaseResource
 
 logger = logging.getLogger(__name__)
 
-# ctypes.windll.shcore.SetProcessDpiAwareness(1)
+logging.getLogger('PIL').setLevel(logging.WARNING)
 
 
 class WallpaperStyle(Enum):
