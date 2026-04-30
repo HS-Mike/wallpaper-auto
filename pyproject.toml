@@ -43,7 +43,9 @@ where = ["src"]
 
 [tool.setuptools]
 include_package_data = true
-package_data = {"wallpaper_automator": ["icon.svg"]}
+
+[tool.setuptools.package_data]
+wallpaper_automator = ["icon.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

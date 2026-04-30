@@ -155,6 +155,7 @@ class TestStaticWallpaperGetCachedPath:
 
         wp = StaticWallpaper(path=str(img_path))
         cached = wp._compress_path
+        assert isinstance(cached, str)
         assert cached.endswith(".png")
 
     def test_cached_path_exists_returns_directly(self, tmp_path, mock_screen_size):
@@ -299,11 +300,26 @@ class TestStaticWallpaperDemount:
 
 class TestGetScreenSize:
     def test_returns_width_height(self):
-        with patch("wallpaper_automator.resource.static_wallpaper.win32api.GetSystemMetrics", side_effect=[1920, 1080]) as mock_metrics:
+        with patch("wallpaper_automator.resource.static_wallpaper.ctypes.windll") as mock_windll:
+            mock_windll.gdi32.GetDeviceCaps.side_effect = [1920, 1080]
             w, h = get_screen_size()
             assert w == 1920
             assert h == 1080
-            assert mock_metrics.call_args_list == [call(0), call(1)]
+            mock_windll.user32.GetDC.assert_called_once_with(0)
+            assert mock_windll.gdi32.GetDeviceCaps.call_args_list == [
+                call(mock_windll.user32.GetDC.return_value, 118),
+                call(mock_windll.user32.GetDC.return_value, 117),
+            ]
+            mock_windll.user32.ReleaseDC.assert_called_once_with(
+                0, mock_windll.user32.GetDC.return_value
+            )
+
+    def test_releases_dc_on_success(self):
+        """DC handle is always released after getting screen size"""
+        with patch("wallpaper_automator.resource.static_wallpaper.ctypes.windll") as mock_windll:
+            mock_windll.gdi32.GetDeviceCaps.side_effect = [1920, 1080]
+            get_screen_size()
+            mock_windll.user32.ReleaseDC.assert_called_once()
 
 
 class TestGetCurrentWallpaper:
@@ -419,11 +435,8 @@ class TestStaticWallpaperEdgeCases:
 
         wp = StaticWallpaper(path=str(img_path))
         cached = wp._compress_path
-
+        assert isinstance(cached, str)
         with Image.open(cached) as result:
-            # scale = max(1920/500, 1080/2000) = max(3.84, 0.54) = 3.84
-            # new_w = int(500 * 3.84) = 1920
-            # new_h = int(2000 * 3.84) = 7680
             assert result.width == 1920
             assert result.height == 7680
 
