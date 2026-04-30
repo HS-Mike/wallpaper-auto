@@ -10,9 +10,10 @@ Usage:
 import datetime
 import logging
 import signal
+import time
 import sys
 
-from wallpaper_automator.time_monitor import DynamicTimeMonitor
+from wallpaper_automator.trigger.time_trigger import TimeTrigger
 
 # Configure logging
 logging.basicConfig(
@@ -29,11 +30,11 @@ def on_time_trigger() -> None:
 
 
 def main() -> None:
-    monitor = DynamicTimeMonitor()
-    monitor.register_callback(on_time_trigger)
+    monitor = TimeTrigger()
+    monitor.add_callback(on_time_trigger)
 
     # Mode 1: Fixed time triggers (daily at 09:00 and 18:00)
-    monitor.add_fixed_times([
+    monitor.update_fixed_times([
         datetime.time(9, 0),
         datetime.time(18, 0),
     ])
@@ -55,6 +56,9 @@ def main() -> None:
 
     logger.info("Time monitor started, press Ctrl+C to exit")
     monitor.activate()
+
+    while True:
+        time.sleep(1)
 
 
 if __name__ == "__main__":
