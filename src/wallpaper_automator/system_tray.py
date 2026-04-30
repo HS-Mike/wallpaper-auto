@@ -6,13 +6,12 @@ selection, mode switching (AUTO/MANUAL), and shutdown.
 """
 import logging
 import sys
+from importlib.resources import files
 from typing import Callable
 
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QVBoxLayout, QLabel, QWidgetAction
-from PySide6.QtGui import QIcon, QAction, QPixmap, QCursor, QRgba64
-from PySide6.QtCore import QCoreApplication
-from PySide6.QtGui import QAction, QPainter, QPixmap, QColor, QIcon
-from PySide6.QtCore import Qt, QObject, Signal, QTimer
+from PySide6.QtGui import QIcon, QAction, QPixmap, QCursor, QPainter, QColor
+from PySide6.QtCore import QCoreApplication, Qt, QObject, Signal, QTimer
 
 from .task import Mode
 from .models import Rule
@@ -100,12 +99,8 @@ class WallpaperSwitchSystemTray():
         self._tray.activated.connect(self._on_tray_activated)
         self._tray.setToolTip("wallpaper automtor")
 
-        icon = QIcon.fromTheme("preferences-desktop-wallpaper")
-        if icon.isNull():
-            icon = QIcon.fromTheme("wallpaper")
-        if icon.isNull():
-            pixmap = QPixmap(32, 32)
-            icon = QIcon(pixmap)
+        icon_path = str(files("wallpaper_automator").joinpath("icon.svg"))
+        icon = QIcon(icon_path)
         self._tray.setIcon(icon)
 
         self._tray.show()

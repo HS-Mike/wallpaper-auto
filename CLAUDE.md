@@ -16,10 +16,6 @@ python -m wallpaper_automator -c /path/to/config.yaml
 # Install in dev mode
 pip install -e ".[dev]"
 
-# Build executable (PyInstaller)
-pip install pyinstaller
-pyinstaller --onefile --windowed --name WallpaperAutomator src/wallpaper_automator/__main__.py
-
 # Run tests
 pytest                                                        # all tests with coverage
 pytest -k "TestRuleEngine"                                     # single test class
