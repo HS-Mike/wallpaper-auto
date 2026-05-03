@@ -83,6 +83,7 @@ trigger:
 #   is_today_workday: true | false
 #   in_time_range: ["HH:MM", "HH:MM"]
 #   in_geo_range:   { lat: <float>, lon: <float>, radius: <km_float> }
+#   day_of_week_is: [0, 1, 2, 3, 4, 5, 6]  # 0=Monday ... 6=Sunday
 # ---------------------------------------------------------------------------
 rule:
 
@@ -118,6 +119,12 @@ rule:
         lat: 31.23
         lon: 121.47
         radius: 0.5
+    target: "office_view"
+
+  # ── Example 5: Day-of-week rule ──────────────────────────────────────────
+  - name: "weekend_vibes"
+    condition:
+      day_of_week_is: [5, 6]    # Saturday, Sunday
     target: "office_view"
 
 

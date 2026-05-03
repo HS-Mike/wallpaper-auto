@@ -12,6 +12,7 @@ from .evaluator.wifi_ssid_evaluator import WIFISsidEvaluator
 from .evaluator.workday_evaluator import WorkdayEvaluator
 from .evaluator.time_range_evaluator import TimeRangeEvaluator
 from .evaluator.geo_evaluator import GeoEvaluator
+from .evaluator.weekday_evaluator import WeekdayEvaluator
 
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ _BUILTIN_EVALUATORS: dict[str, BaseEvaluator] = {
     "is_today_workday": WorkdayEvaluator(),
     "in_time_range": TimeRangeEvaluator(),
     "in_geo_range": GeoEvaluator(),
+    "day_of_week_is": WeekdayEvaluator(),
 }
 
 

@@ -10,6 +10,7 @@ Automatically switches Windows desktop wallpapers based on configurable conditio
   - `network`: Current connected WiFi name
   - `location`: GPS coordinates (via IP geolocation)
   - `workday_only`: Whether it's a workday
+  - `weekday`: Day-of-week check (0=Monday ... 6=Sunday)
   - `time_range`: Time range (supports crossing midnight)
 - **System tray control**: System tray menu for manual wallpaper switching and pause/resume auto-switching
 - **Thread-safe**: Each monitoring module runs independently without blocking others
@@ -186,6 +187,7 @@ condition:
   in_time_range: ["09:00", "18:00"]         # param: [start, end]
   in_geo_range: { lat: 31.23, lon: 121.47, radius: 0.5 }  # param: dict
   is_today_workday: true                    # param: bool
+  day_of_week_is: [5, 6]                    # param: list[int]  0=Mon ... 6=Sun
 ```
 
 ### Custom Components
