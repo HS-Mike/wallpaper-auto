@@ -57,7 +57,7 @@ class WorkdayEvaluator(BaseEvaluator):
         if not isinstance(param, bool):
             raise ValueError(f"invalid {self.__class__.__name__} param")
         should_today_be_workday: bool = param
-        res = is_workday(datetime.datetime.now()) 
+        res = is_workday(datetime.datetime.now().date()) 
         if res is None:
             return False
         return res ==  should_today_be_workday
