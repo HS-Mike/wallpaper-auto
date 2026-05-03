@@ -14,11 +14,27 @@ Automatically switches Windows desktop wallpapers based on configurable conditio
 - **System tray control**: System tray menu for manual wallpaper switching and pause/resume auto-switching
 - **Thread-safe**: Each monitoring module runs independently without blocking others
 
-## Installation
+## Quick Start
 
-```bash
-pip install -e .
-```
+1. Download the project to your local machine and enter the directory
+
+2. Install the package:
+
+   ```bash
+   pip install -e .
+   ```
+
+3. Generate a starter config file:
+
+   ```bash
+   python -m wallpaper_automator init-config
+   ```
+
+4. Edit config.yaml with your wallpaper paths and rules, then run:
+
+   ```bash
+   python -m wallpaper_automator
+   ```
 
 ## Configuration
 
