@@ -91,6 +91,13 @@ python -m wallpaper_automator
 python -m wallpaper_automator -c /path/to/config.yaml
 ```
 
+Or start programmatically from Python:
+
+```python
+from wallpaper_automator import run_service
+run_service("config.yaml")
+```
+
 ## How Config Parameters Flow to Components
 
 Each component type can accept configuration via a `config` block in the YAML file. The key-value pairs are unpacked as keyword arguments to the component's constructor.
@@ -160,17 +167,35 @@ After running, the app displays an icon in the system tray:
 - **Auto mode**: Resume auto-switching
 - **Pause**: Stop auto-switching
 
+## Programmatic Usage
+
+You can start the service from Python code using `run_service()`. This is the recommended way when registering custom components.
+
+```python
+from wallpaper_automator import run_service
+
+# Start with the default config.yaml
+run_service("config.yaml")
+
+# With custom components registered inline
+run_service(
+    "config.yaml",
+    custom_triggers={"my_trigger": MyTrigger},
+    custom_resources={"my_resource": MyResource},
+    custom_evaluators={"my_evaluator": MyEvaluator()},
+)
+```
+
 ## Custom Components
 
-All three component types are extensible. Register custom implementations before starting `WallpaperController`.
+All three component types are extensible. All base classes and registration entrypoints are importable from the top-level `wallpaper_automator` package.
 
 ### Custom Resource
 
-Extend `BaseResource` and register it so the config loader can instantiate it by name.
+Extend `BaseResource` and register it before starting the service.
 
 ```python
-from wallpaper_automator.resource.base_resource import BaseResource
-from wallpaper_automator.resource_manager import ResourceManager
+from wallpaper_automator import BaseResource, ResourceManager, run_service
 
 class UnsplashResource(BaseResource):
     def __init__(self, query: str = "nature", style: str = "fill"):
@@ -186,8 +211,8 @@ class UnsplashResource(BaseResource):
         # Restore previous wallpaper
         ...
 
-# Register before starting
 ResourceManager.register_resource("unsplash", UnsplashResource)
+run_service("config.yaml")
 ```
 
 ```yaml
@@ -201,11 +226,10 @@ resource:
 
 ### Custom Trigger
 
-Extend `BaseTrigger` or `BaseThreadTrigger` and register it.
+Extend `BaseTrigger` or `BaseThreadTrigger` and register it before starting the service.
 
 ```python
-from wallpaper_automator.trigger.base_trigger import BaseThreadTrigger
-from wallpaper_automator.trigger_manager import TriggerManager
+from wallpaper_automator import BaseThreadTrigger, TriggerManager, run_service
 
 class UsbPlugTrigger(BaseThreadTrigger):
     def run(self):
@@ -216,6 +240,7 @@ class UsbPlugTrigger(BaseThreadTrigger):
             self.stop_event.wait(timeout=5)
 
 TriggerManager.register_trigger("usb_plug", UsbPlugTrigger)
+run_service("config.yaml")
 ```
 
 ```yaml
@@ -226,11 +251,10 @@ trigger:
 
 ### Custom Evaluator
 
-Implement `BaseEvaluator` (a callable interface) and register it with the rule engine.
+Implement `BaseEvaluator` (a callable interface) and register it with the rule engine before starting the service.
 
 ```python
-from wallpaper_automator.evaluator.base_evaluator import BaseEvaluator
-from wallpaper_automator.rule_engine import RuleEngine
+from wallpaper_automator import BaseEvaluator, RuleEngine, run_service
 
 class BatteryLevelEvaluator(BaseEvaluator):
     def __call__(self, param: dict) -> bool:
@@ -239,6 +263,7 @@ class BatteryLevelEvaluator(BaseEvaluator):
         return current < param["below"]
 
 RuleEngine.register_evaluator("battery_below", BatteryLevelEvaluator())
+run_service("config.yaml")
 ```
 
 ```yaml
@@ -253,7 +278,9 @@ rule:
 
 ```
 src/wallpaper_automator/
-├── __main__.py                # Entry point — CLI arg parsing, launches controller
+├── __init__.py                # Package root — re-exports public API (run_service, base classes)
+├── __main__.py                # CLI entry point — arg parsing, delegates to run_service()
+├── service.py                 # run_service() — programmatic startup with custom component support
 ├── init_config.py             # Starter config template generator (init-config subcommand)
 ├── wallpaper_controller.py    # Orchestrator — owns worker loop, routes trigger → rule → resource
 ├── config_store.py            # YAML config loader & validator (Pydantic)

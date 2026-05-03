@@ -196,4 +196,3 @@ def get_color(hex_str) -> QColor:
     if len(hex_str) == 8:
         hex_str = hex_str[6:] + hex_str[:6]
     return QColor(f"#{hex_str}")
-

@@ -76,8 +76,9 @@ from wallpaper_automator.rule_engine import RuleEngine
 ```
 wallpaper_automator/
 ├── src/wallpaper_automator/
-│   ├── __init__.py
-│   ├── __main__.py              # entry point
+│   ├── __init__.py              # package root — re-exports public API
+│   ├── __main__.py              # CLI entry point
+│   ├── service.py               # run_service() — programmatic startup
 │   ├── wallpaper_controller.py  # orchestrator, owns managers & worker loop
 │   ├── config_store.py          # YAML loading & validation via Pydantic
 │   ├── rule_engine.py           # AND/OR condition tree evaluation

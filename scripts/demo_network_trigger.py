@@ -35,9 +35,6 @@ def on_network_change() -> None:
 
 
 def main() -> None:
-    # Windows COM initialization (required for each thread)
-    pythoncom.CoInitialize()
-
     monitor = NetworkTrigger()
     monitor.add_callback(on_network_change)
 
