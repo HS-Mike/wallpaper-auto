@@ -43,10 +43,20 @@ See `python -m wallpaper_automator init-config --help` for all options. You can 
 # 1. Wallpaper resource pool
 resource:
   work_wallpaper:                         # Resource ID — referenced by rules & fallback
-    name: static_wallpaper                # Resource type (extensible)
+    name: static_wallpaper                # Single-image wallpaper
     config:
       path: "C:/path/to/wallpaper.jpg"
       style: fill                         # fill / fit / stretch / center / tile
+
+  carousel:                               # Multi-image cycling wallpaper
+    name: dynamic_wallpaper
+    config:
+      paths:                              # List of images to cycle through
+        - "C:/Pictures/morning.jpg"
+        - "C:/Pictures/afternoon.jpg"
+      style: fill
+      interval: 300                       # Seconds between switches (default 300)
+      random: false                       # true = random order, false = sequential
 
 # 2. Trigger configuration
 trigger:
@@ -123,17 +133,30 @@ trigger:
 ### Resources
 
 ```yaml
+# Static — single image
 resource:
   custom_name:
     name: static_wallpaper    # Resource type → constructor lookup
     config:
       path: "C:/img.jpg"     # → StaticWallpaper(path="C:/img.jpg", style="fill")
       style: fill
+
+# Dynamic — cycles through multiple images on a timer
+  carousel:
+    name: dynamic_wallpaper
+    config:
+      paths:
+        - "C:/img1.jpg"
+        - "C:/img2.jpg"
+      style: fill
+      interval: 300           # → DynamicWallpaper(paths=[...], interval=300, random=False)
+      random: false
 ```
 
 | Resource | Constructor Parameters | Description |
 |----------|----------------------|-------------|
 | `static_wallpaper` | `path` (str), `style` (str) | Static image wallpaper |
+| `dynamic_wallpaper` | `paths` (list[str]), `style` (str), `interval` (int, default 300), `random` (bool, default False) | Multi-image cycling wallpaper |
 
 The shorthand form (`black: "C:/img.jpg"`) is expanded to `static_wallpaper` with the string as the `path`.
 
@@ -306,7 +329,9 @@ src/wallpaper_automator/
 │
 ├── resource/                  # Wallpaper resource implementations
 │   ├── base_resource.py       #   BaseResource abstract class with temp cache mgmt
-│   └── static_wallpaper.py    #   Static image wallpaper (win32 SPI) with auto-compress
+│   ├── wallpaper_utils.py     #   Shared Windows API helpers (set_wallpaper, etc.)
+│   ├── static_wallpaper.py    #   Single-image wallpaper (win32 SPI) with auto-compress
+│   └── dynamic_wallpaper.py   #   Multi-image cycling wallpaper with timer thread
 │
 └── util/                      # Shared utilities
     └── callback_register.py   #   Thread-safe callback registry mixin

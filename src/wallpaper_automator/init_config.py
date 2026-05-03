@@ -41,6 +41,18 @@ resource:
   # Shorthand — path only; name and style are inferred
   black: "C:/Users/You/Pictures/black.jpg"
 
+  # ── Dynamic wallpaper (cycles through multiple images) ─────────────────
+  # carousel:
+  #   name: dynamic_wallpaper
+  #   config:
+  #     paths:
+  #       - "C:/Users/You/Pictures/morning.jpg"
+  #       - "C:/Users/You/Pictures/afternoon.jpg"
+  #       - "C:/Users/You/Pictures/evening.jpg"
+  #     style: fill
+  #     interval: 300          # seconds between switches (default 300)
+  #     random: false          # true = random order, false = sequential
+
 
 # ---------------------------------------------------------------------------
 # Triggers  (what events cause re-evaluation)

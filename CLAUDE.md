@@ -100,8 +100,10 @@ wallpaper_automator/
 │   │   ├── time_range_evaluator.py
 │   │   └── geo_evaluator.py
 │   └── resource/
-│       ├── base_resource.py     # BaseResource
-│       └── static_wallpaper.py  # Apply/restore wallpapers
+│       ├── base_resource.py         # BaseResource
+│       ├── wallpaper_utils.py       # Shared Windows API helpers & WallpaperStyle
+│       ├── static_wallpaper.py      # Single-image wallpaper
+│       └── dynamic_wallpaper.py     # Multi-image cycling wallpaper
 ├── tests/
 │   ├── unit/                    # unit tests (pytest)
 │   └── conftest.py              # shared fixtures
@@ -119,7 +121,7 @@ The app has three pluggable component types, each with a base class and built-in
 |-----------|-----------|-------------------------|---------|
 | **Trigger** | `trigger/base_trigger.py::BaseTrigger` / `BaseThreadTrigger` | `NetworkTrigger`, `TimeTrigger`, `WindowsSessionTrigger` | Monitor system events and fire callbacks |
 | **Evaluator** | `evaluator/base_evaluator.py::BaseEvaluator` | `WIFISsidEvaluator`, `WorkdayEvaluator`, `TimeRangeEvaluator`, `GeoEvaluator` | Check a single condition and return bool |
-| **Resource** | `resource/base_resource.py::BaseResource` | `StaticWallpaper` | Apply/demount a wallpaper |
+| **Resource** | `resource/base_resource.py::BaseResource` | `StaticWallpaper`, `DynamicWallpaper` | Apply/demount a wallpaper |
 
 Custom implementations can be registered at runtime via the `register_trigger`/`register_resource` class methods on `TriggerManager`/`ResourceManager`.
 
@@ -154,7 +156,7 @@ When a trigger fires, it calls back through `TriggerManager → WallpaperControl
 ### Configuration
 
 YAML config with three sections:
-1. `resource`: wallpaper pool (path + style)
+1. `resource`: wallpaper pool — `static_wallpaper` takes a single `path`, `dynamic_wallpaper` takes a `paths` list + `interval` + `random`
 2. `trigger`: enable/disable trigger types (network_change, time_change, windows_session_change)
 3. `rule`: ordered rules with conditions and target wallpaper ID
 4. `fallback`: default wallpaper when no rule matches
@@ -174,5 +176,6 @@ Rules are evaluated in order; the first matching rule's target is applied. Condi
 - Pydantic `BaseModel` for all config/data validation (frozen models for task types)
 - `CallbackRegister` is used as a mixin for trigger callbacks
 - `WallpaperController` owns all lifecycle — no external mutation of managers
-- `StaticWallpaper.mount()` saves the current wallpaper so `demount()` can restore it
+- `StaticWallpaper.mount()` saves the current wallpaper so `demount()` can restore it; `DynamicWallpaper` does the same and internally cycles through images on a timer
+- `DynamicWallpaper` uses a `threading.Event.wait(timeout=interval)` loop in a daemon thread for image cycling
 - Image compression caching uses a process-level temp directory cleaned via `atexit`
