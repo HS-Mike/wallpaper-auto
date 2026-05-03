@@ -2,44 +2,28 @@
 Static image wallpaper resource.
 
 Mounts a single image file as the Windows desktop wallpaper with configurable
-scaling style (fill, fit, stretch, center, tile). 
+scaling style (fill, fit, stretch, center, tile).
 
-In some situations, windows fail to load wallpaper if it is too large. 
-Optionally compresses large images and caches the result for performance. 
+In some situations, windows fail to load wallpaper if it is too large.
+Optionally compresses large images and caches the result for performance.
 """
-import os
-import hashlib
 import logging
-import ctypes
-from enum import Enum
 from os import PathLike
 from typing import Optional
 
-import win32gui
-import win32con
-import win32api
-from PIL import Image
-
 from .base_resource import BaseResource
-
+from .wallpaper_utils import (
+    WallpaperStyle,
+    check_need_cache,
+    get_cache_key,
+    get_compress_cached_path,
+    get_current_wallpaper,
+    get_current_wallpaper_style,
+    get_screen_size,
+    set_wallpaper,
+)
 
 logger = logging.getLogger(__name__)
-
-logging.getLogger('PIL').setLevel(logging.WARNING)
-
-
-class WallpaperStyle(Enum):
-    """
-    Registry values for wallpaper scaling mode (combination of WallpaperStyle and TileWallpaper)
-
-    WallpaperStyle: 0=center/tile, 2=stretch, 6=fit, 10=fill
-    TileWallpaper: 0=no tile, 1=tile
-    """
-    FILL = ("10", "0")
-    FIT = ("6", "0")
-    STRETCH = ("2", "0")
-    CENTER = ("0", "0")
-    TILE = ("0", "1")
 
 
 class StaticWallpaper(BaseResource):
@@ -68,18 +52,11 @@ class StaticWallpaper(BaseResource):
 
     def _check_need_cache(self) -> bool:
         """Check if the image is large enough to need compression caching."""
-        if not self.allow_compress:
-            return False
-        with Image.open(self.image_path) as img:
-            return img.width > self._screen_size[0] * 1.2 or img.height > self._screen_size[1] * 1.2
+        return check_need_cache(self.image_path, self._screen_size, self.allow_compress)
 
     def _get_cache_key(self, target_size: tuple[int, int]) -> str:
         """Generate a cache key based on image path, mtime, target size, and format."""
-        with Image.open(self.image_path) as img:
-            fmt = img.format or "PNG"
-        mtime = str(os.path.getmtime(self.image_path))
-        key_str = f"{self.image_path}_{mtime}_{target_size[0]}x{target_size[1]}_{fmt}"
-        return hashlib.md5(key_str.encode()).hexdigest()
+        return get_cache_key(self.image_path, target_size)
 
     def _get_compress_cached_path(self) -> str:
         """
@@ -89,22 +66,7 @@ class StaticWallpaper(BaseResource):
         The cached image is resized to fit within screen dimensions.
         Uses the same format as the original image for the cached file.
         """
-        with Image.open(self.image_path) as img:
-            ext = img.format.lower() if img.format else "png"
-            if img.width == 0 or img.height == 0:
-                raise ValueError(f"Invalid image: {self.image_path}")
-            cache_key = self._get_cache_key(self._screen_size)
-            cache_path = os.path.join(self.cache_dir, f"{cache_key}.{ext}")
-
-            if os.path.exists(cache_path):
-                return cache_path
-
-            scale = max(self._screen_size[0] / img.width, self._screen_size[1] / img.height)
-            new_w = int(img.width * scale)
-            new_h = int(img.height * scale)
-            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS, reducing_gap=3.0)
-            img.save(cache_path, ext.upper() if ext.upper() in ("PNG", "JPEG", "JPG") else "PNG")
-        return cache_path
+        return get_compress_cached_path(self.image_path, self._screen_size, self.cache_dir)
 
     def mount(self) -> None:
         """
@@ -128,65 +90,8 @@ class StaticWallpaper(BaseResource):
         """Restore the original wallpaper and style."""
         if self._original_wallpaper and self._original_style:
             set_wallpaper(self._original_wallpaper, self._original_style)
-            logger.debug(f"restore origin wallpaper: {self._original_wallpaper}, style: {self._original_style}")
-
-
-def get_screen_size() -> tuple[int, int]:
-    """Get current primary screen resolution in pixels (width, height)."""
-    user32 = ctypes.windll.user32
-    gdi32 = ctypes.windll.gdi32
-    dc = user32.GetDC(0)
-    width: int = gdi32.GetDeviceCaps(dc, 118)
-    height: int = gdi32.GetDeviceCaps(dc, 117)
-    user32.ReleaseDC(0, dc)
-    return width, height
-
-
-def get_current_wallpaper() -> str:
-    """Get the file path of the current desktop wallpaper from registry."""
-    key = win32api.RegOpenKeyEx(
-        win32con.HKEY_CURRENT_USER,  # type: ignore
-        "Control Panel\\Desktop",
-        0,
-        win32con.KEY_QUERY_VALUE,  # type: ignore
-    )
-    try:
-        value, _ = win32api.RegQueryValueEx(key, "Wallpaper")
-        return value
-    finally:
-        win32api.RegCloseKey(key)
-
-
-def get_current_wallpaper_style() -> tuple[str, str]:
-    """Get current wallpaper scaling style from registry."""
-    key = win32api.RegOpenKeyEx(
-        win32con.HKEY_CURRENT_USER, # type: ignore
-        "Control Panel\\Desktop",
-        0,
-        win32con.KEY_QUERY_VALUE, # type: ignore
-    )
-    try:
-        wallpaper_style, _ = win32api.RegQueryValueEx(key, "WallpaperStyle")
-        tile_wallpaper, _ = win32api.RegQueryValueEx(key, "TileWallpaper")
-        style_tuple = (str(wallpaper_style), str(tile_wallpaper))
-        return style_tuple
-    finally:
-        win32api.RegCloseKey(key)
-
-
-def set_wallpaper(image_path: PathLike | str, style: tuple[str, str]) -> None:
-    """
-    Set wallpaper via registry and SystemParametersInfo
-    """
-    if not os.path.exists(image_path):
-        raise FileNotFoundError(f"{image_path} is not exist")
-
-    abs_path = os.path.abspath(image_path).replace("/", "\\")
-    wallpaper_style, tile_wallpaper = style
-
-    key = win32api.RegOpenKeyEx(win32con.HKEY_CURRENT_USER, "Control Panel\\Desktop", 0, win32con.KEY_SET_VALUE)  # type: ignore[arg-type,attr-defined]
-    win32api.RegSetValueEx(key, "WallpaperStyle", 0, win32con.REG_SZ, wallpaper_style) 
-    win32api.RegSetValueEx(key, "TileWallpaper", 0, win32con.REG_SZ, tile_wallpaper)
-    win32api.RegCloseKey(key)
-
-    win32gui.SystemParametersInfo(win32con.SPI_SETDESKWALLPAPER, abs_path, 3)
+            logger.debug(
+                "restore origin wallpaper: %s, style: %s",
+                self._original_wallpaper,
+                self._original_style,
+            )
