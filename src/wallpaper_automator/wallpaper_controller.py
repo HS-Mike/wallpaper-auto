@@ -126,9 +126,12 @@ class WallpaperController:
         if self._tray is not None:
             self._tray.show()
 
+        self._mode = Mode.AUTO
+        self._resource_manager.mount(self._config_store.fallback_resource_id)
+        self.update_system_tray()
+
         self._worker_loop_thread = threading.Thread(target=self._worker_loop)
         self._worker_loop_thread.start()
-        self._mode = Mode.AUTO
         self.evaluate()
         self._trigger_manager.activate()
 

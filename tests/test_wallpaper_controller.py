@@ -14,6 +14,13 @@ from wallpaper_automator.models import Rule
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
+def _mock_config_for_start(controller):
+    """Give the controller a fake config so ``start()`` can read ``fallback_resource_id``."""
+    mock_cs = MagicMock()
+    mock_cs.fallback_resource_id = "fallback"
+    controller._config_store = mock_cs
+
+
 def _cleanup_worker(controller):
     """Safety net: kill the worker thread if ``stop()`` was never reached."""
     if controller._worker_loop_thread is not None:
@@ -30,14 +37,12 @@ def controller():
 
 @pytest.fixture
 def started_controller(controller):
-    """Start the controller with key behaviours patched; auto-stop after test.
-
-    Also patches ``activate()`` so that ``start()`` cannot raise after the
-    worker thread is created — making the fixture safe against thread leaks.
-    """
+    """Start the controller with key behaviours patched; auto-stop after test."""
+    _mock_config_for_start(controller)
     with (
         patch.object(controller, "evaluate"),
         patch.object(controller._trigger_manager, "activate"),
+        patch.object(controller._resource_manager, "mount"),
         patch("signal.signal"),
     ):
         controller.start()
@@ -338,7 +343,9 @@ class TestWallpaperControllerStart:
 
     def test_registers_signal_handlers(self, controller):
         try:
+            _mock_config_for_start(controller)
             with (
+                patch.object(controller._resource_manager, "mount"),
                 patch.object(controller, "evaluate"),
                 patch("signal.signal") as mock_signal,
             ):
@@ -356,7 +363,9 @@ class TestWallpaperControllerStart:
         controller._tray = mock_tray
 
         try:
+            _mock_config_for_start(controller)
             with (
+                patch.object(controller._resource_manager, "mount"),
                 patch.object(controller, "evaluate"),
                 patch("signal.signal"),
             ):
@@ -367,7 +376,9 @@ class TestWallpaperControllerStart:
 
     def test_calls_evaluate_and_activates_triggers(self, controller):
         try:
+            _mock_config_for_start(controller)
             with (
+                patch.object(controller._resource_manager, "mount"),
                 patch.object(controller, "evaluate") as mock_eval,
                 patch.object(controller._trigger_manager, "activate") as mock_activate,
                 patch("signal.signal"),
@@ -388,7 +399,12 @@ class TestWallpaperControllerStop:
 
     def test_stop_joins_thread_and_cleans_up(self, controller):
         try:
-            with patch("signal.signal"), patch.object(controller, "evaluate"):
+            _mock_config_for_start(controller)
+            with (
+                patch("signal.signal"),
+                patch.object(controller._resource_manager, "mount"),
+                patch.object(controller, "evaluate"),
+            ):
                 controller.start()
             controller.stop()
             assert controller._worker_loop_thread is None
@@ -399,8 +415,10 @@ class TestWallpaperControllerStop:
 
     def test_stop_deactivates_triggers_and_demounts_resource(self, controller):
         try:
+            _mock_config_for_start(controller)
             with (
                 patch("signal.signal"),
+                patch.object(controller._resource_manager, "mount"),
                 patch.object(controller, "evaluate"),
             ):
                 controller.start()
@@ -420,8 +438,10 @@ class TestWallpaperControllerStop:
         mock_tray._app = app
         controller._tray = mock_tray
         try:
+            _mock_config_for_start(controller)
             with (
                 patch("signal.signal"),
+                patch.object(controller._resource_manager, "mount"),
                 patch.object(controller, "evaluate"),
             ):
                 controller.start()
