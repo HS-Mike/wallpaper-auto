@@ -53,8 +53,9 @@ Thumbs.db
 # Local config overrides (user-specific, not checked in)
 *.local
 
-# Claude Code (local settings only — CLAUDE.md is tracked intentionally)
+# Claude Code
 .claude/
+./CLAUDE.md
 
 # Wallpaper images (user-provided, not project code)
 wallpapers/
