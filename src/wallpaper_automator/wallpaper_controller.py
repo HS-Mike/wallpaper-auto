@@ -50,6 +50,7 @@ class WallpaperController:
             elif task.type == TaskType.MODE_SWITCH:
                 if task.target_mode == Mode.AUTO:
                     self._trigger_manager.resume()
+                    self.evaluate()
                 elif task.target_mode == Mode.MANUAL:
                     self._trigger_manager.pause()
                 else:
