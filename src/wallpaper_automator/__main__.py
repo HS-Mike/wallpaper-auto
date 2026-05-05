@@ -10,6 +10,7 @@ import logging
 import sys
 
 from .init_config import generate_template
+from .process_mutex import ProcessMutex
 from .service import run_service
 
 
@@ -61,4 +62,9 @@ if __name__ == "__main__":
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
     else:
-        run_service(args.config)
+        try:
+            with ProcessMutex("wallpaper_automator"):
+                run_service(args.config)
+        except RuntimeError:
+            print("Another instance is already running.", file=sys.stderr)
+            sys.exit(1)
