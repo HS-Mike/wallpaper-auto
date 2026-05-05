@@ -55,7 +55,7 @@ Thumbs.db
 
 # Claude Code
 .claude/
-./CLAUDE.md
+CLAUDE.md
 
 # Wallpaper images (user-provided, not project code)
 wallpapers/
