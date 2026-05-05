@@ -4,6 +4,7 @@ Shared Windows wallpaper utilities.
 Provides Windows API functions for wallpaper management, the WallpaperStyle
 enum, and image compression helpers used by multiple resource types.
 """
+
 import ctypes
 import hashlib
 import logging
@@ -18,7 +19,7 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-logging.getLogger('PIL').setLevel(logging.WARNING)
+logging.getLogger("PIL").setLevel(logging.WARNING)
 
 
 class WallpaperStyle(Enum):
@@ -28,6 +29,7 @@ class WallpaperStyle(Enum):
     WallpaperStyle: 0=center/tile, 2=stretch, 6=fit, 10=fill
     TileWallpaper: 0=no tile, 1=tile
     """
+
     FILL = ("10", "0")
     FIT = ("6", "0")
     STRETCH = ("2", "0")

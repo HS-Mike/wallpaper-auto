@@ -1,6 +1,7 @@
 """
 Tests for dynamic_wallpaper.py — DynamicWallpaper resource.
 """
+
 import time
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +13,7 @@ from wallpaper_automator.resource.wallpaper_utils import WallpaperStyle
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
+
 
 def _create_images(tmp_path, count=3, size=(100, 100)):
     """Create *count* small test images and return their paths as strings."""
@@ -31,6 +33,7 @@ def _create_large_image(tmp_path, name="large.png", size=(4000, 3000)):
 
 
 # ── TestDynamicWallpaperInit ───────────────────────────────────────────────
+
 
 class TestDynamicWallpaperInit:
     def test_empty_paths_raises(self, mock_utils_screen_size):
@@ -93,19 +96,6 @@ class TestDynamicWallpaperInit:
         wp = DynamicWallpaper(paths=paths)
         assert wp._screen_size == (1920, 1080)
 
-    def test_compressed_paths_len_matches_paths(self, tmp_path, mock_utils_screen_size):
-        """_compressed_paths has an entry for every input path."""
-        paths = _create_images(tmp_path, count=4)
-        wp = DynamicWallpaper(paths=paths)
-        assert len(wp._compressed_paths) == 4
-
-    def test_compressed_paths_identity_when_small(self, tmp_path, mock_utils_screen_size):
-        """Small images should map to themselves (no compression)."""
-        paths = _create_images(tmp_path, count=3, size=(100, 100))
-        wp = DynamicWallpaper(paths=paths)
-        for p in paths:
-            assert wp._compressed_paths[p] == p
-
     def test_unknown_string_style_raises(self, tmp_path, mock_utils_screen_size):
         """Invalid style string raises KeyError."""
         paths = _create_images(tmp_path, count=1)
@@ -114,6 +104,7 @@ class TestDynamicWallpaperInit:
 
 
 # ── TestDynamicWallpaperMount ──────────────────────────────────────────────
+
 
 class TestDynamicWallpaperMount:
     def test_mount_saves_original_wallpaper(self, tmp_path, mock_utils_mount_deps):
@@ -164,6 +155,7 @@ class TestDynamicWallpaperMount:
 
 
 # ── TestDynamicWallpaperDemount ────────────────────────────────────────────
+
 
 class TestDynamicWallpaperDemount:
     def test_demount_restores_original(self, tmp_path, mock_utils_mount_deps):
@@ -238,6 +230,7 @@ class TestDynamicWallpaperDemount:
 
 # ── TestDynamicWallpaperCycling ────────────────────────────────────────────
 
+
 class TestDynamicWallpaperCycling:
     def test_advance_index_sequential(self, tmp_path, mock_utils_mount_deps):
         """_advance_index cycles forward sequentially."""
@@ -308,11 +301,13 @@ class TestDynamicWallpaperCycling:
 
 # ── TestDynamicWallpaperEdgeCases ──────────────────────────────────────────
 
+
 class TestDynamicWallpaperEdgeCases:
     def test_nonexistent_path_raises(self, tmp_path, mock_utils_screen_size):
-        """Path to a nonexistent file raises FileNotFoundError during init."""
+        """Path to a nonexistent file raises FileNotFoundError when accessed via _get_compressed."""
+        wp = DynamicWallpaper(paths=[str(tmp_path / "nonexistent.png")])
         with pytest.raises(FileNotFoundError):
-            DynamicWallpaper(paths=[str(tmp_path / "nonexistent.png")])
+            wp._get_compressed(wp.paths[0])
 
     def test_compress_large_images(self, tmp_path, mock_utils_screen_size):
         """Large images are compressed; compressed paths differ from originals."""
@@ -322,12 +317,12 @@ class TestDynamicWallpaperEdgeCases:
         Image.new("RGB", (100, 100)).save(small)
 
         wp = DynamicWallpaper(paths=[large1, large2, small])
-        assert wp._compressed_paths[small] == small  # not compressed
-        assert wp._compressed_paths[large1] != large1  # compressed
-        assert wp._compressed_paths[large2] != large2  # compressed
+        assert wp._get_compressed(small) == small  # not compressed
+        assert wp._get_compressed(large1) != large1  # compressed
+        assert wp._get_compressed(large2) != large2  # compressed
 
     def test_cache_dir_created_when_needed(self, tmp_path, mock_utils_screen_size):
-        """Cache directory is created when at least one image needs compression."""
+        """Cache directory is created when allow_compress is True (default)."""
         large = _create_large_image(tmp_path, size=(4000, 3000))
         small = str(tmp_path / "small.png")
         Image.new("RGB", (100, 100)).save(small)
@@ -338,9 +333,9 @@ class TestDynamicWallpaperEdgeCases:
         assert wp.cache_dir is not None
 
     def test_no_cache_dir_when_not_needed(self, tmp_path, mock_utils_screen_size):
-        """No cache directory when all images are small."""
+        """No cache directory when allow_compress is False."""
         paths = _create_images(tmp_path, count=2, size=(100, 100))
-        wp = DynamicWallpaper(paths=paths)
+        wp = DynamicWallpaper(paths=paths, allow_compress=False)
         assert wp.temp_file is False
         with pytest.raises(ValueError, match="cache dir is unavailable"):
             _ = wp.cache_dir  # should raise
@@ -352,7 +347,7 @@ class TestDynamicWallpaperEdgeCases:
         Image.new("RGB", (100, 100)).save(small)
 
         wp = DynamicWallpaper(paths=[large, small])
-        assert wp._get_current_image_path() == wp._compressed_paths[wp.paths[0]]
+        assert wp._get_current_image_path() == wp._get_compressed(wp.paths[0])
 
     def test_interval_zero_allows_cycling(self, tmp_path, mock_utils_mount_deps):
         """interval=0 is handled — thread can be stopped cleanly."""

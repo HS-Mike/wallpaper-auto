@@ -5,6 +5,7 @@ Mounts and cycles through a collection of images on a configurable interval,
 optionally in random order. Each image can be independently compressed and
 cached like the static wallpaper resource.
 """
+
 import logging
 import random
 import threading
@@ -64,22 +65,10 @@ class DynamicWallpaper(BaseResource):
         self.allow_compress = allow_compress
         self._screen_size = get_screen_size()
 
-        # Determine whether any image needs compression (to decide cache dir)
-        need_cache_dir = any(
-            check_need_cache(p, self._screen_size, self.allow_compress)
-            for p in self.paths
-        )
-        super().__init__(temp_dir=need_cache_dir)
+        super().__init__(temp_dir=self.allow_compress)
 
-        # Build compressed-path dict: original → compressed (or identity)
+        # Lazily populated compressed-path dict: original → compressed (or identity)
         self._compressed_paths: dict[str, str] = {}
-        for p in self.paths:
-            if check_need_cache(p, self._screen_size, self.allow_compress):
-                cached = get_compress_cached_path(p, self._screen_size, self.cache_dir)
-                self._compressed_paths[p] = cached
-                logger.info("compress %s to %s", p, cached)
-            else:
-                self._compressed_paths[p] = p
 
         # Threading state
         self._stop_event = threading.Event()
@@ -95,7 +84,18 @@ class DynamicWallpaper(BaseResource):
 
     def _get_current_image_path(self) -> str:
         """Return the compressed (or original) path for the current index."""
-        return self._compressed_paths[self.paths[self._index]]
+        return self._get_compressed(self.paths[self._index])
+
+    def _get_compressed(self, original_path: str) -> str:
+        """Get compressed path for an image, compressing lazily on first access."""
+        if original_path not in self._compressed_paths:
+            if check_need_cache(original_path, self._screen_size, self.allow_compress):
+                cached = get_compress_cached_path(original_path, self._screen_size, self.cache_dir)
+                logger.info("compress %s to %s", original_path, cached)
+                self._compressed_paths[original_path] = cached
+            else:
+                self._compressed_paths[original_path] = original_path
+        return self._compressed_paths[original_path]
 
     def _advance_index(self) -> None:
         """Move to the next image index (sequential or random)."""

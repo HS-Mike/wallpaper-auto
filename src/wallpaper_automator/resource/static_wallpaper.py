@@ -7,6 +7,7 @@ scaling style (fill, fit, stretch, center, tile).
 In some situations, windows fail to load wallpaper if it is too large.
 Optionally compresses large images and caches the result for performance.
 """
+
 import logging
 from os import PathLike
 from typing import Optional
@@ -42,11 +43,7 @@ class StaticWallpaper(BaseResource):
         self._screen_size = get_screen_size()
         self._need_cache: bool = self._check_need_cache()
         super().__init__(temp_dir=self._need_cache)
-        if self._need_cache is True:
-            self._compress_path = self._get_compress_cached_path()
-            logger.info(f"compress {self.image_path} to {self._compress_path}")
-        else:
-            self._compress_path = None
+        self._compress_path: Optional[str] = None
         self._original_wallpaper: Optional[str] = None
         self._original_style: Optional[tuple[str, str]] = None
 
@@ -77,14 +74,20 @@ class StaticWallpaper(BaseResource):
         """
         self._original_wallpaper = get_current_wallpaper()
         self._original_style = get_current_wallpaper_style()
-        logger.debug(f"origin wallpaper: {self._original_wallpaper}, style: {self._original_style}")
-        if self._need_cache is True:
-            assert self._compress_path
+        logger.debug(
+            "origin wallpaper: %s, style: %s",
+            self._original_wallpaper,
+            self._original_style,
+        )
+        if self._need_cache:
+            if self._compress_path is None:
+                self._compress_path = self._get_compress_cached_path()
+                logger.info("compress %s to %s", self.image_path, self._compress_path)
             image_path = self._compress_path
         else:
             image_path = self.image_path
         set_wallpaper(image_path, self.style.value)
-        logger.debug(f"mount wallpaper: {image_path}")
+        logger.debug("mount wallpaper: %s", image_path)
 
     def demount(self) -> None:
         """Restore the original wallpaper and style."""

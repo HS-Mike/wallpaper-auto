@@ -29,7 +29,9 @@ class _BaseResourceMeta(ABCMeta):
 
     """
 
-    _base_cache_dir = os.path.join(tempfile.gettempdir(), f"wallpaper_automator_cache_{os.getpid()}")
+    _base_cache_dir = os.path.join(
+        tempfile.gettempdir(), f"wallpaper_automator_cache_{os.getpid()}"
+    )
     _base_cache_initialized = False
 
     def __new__(mcs, name, bases, namespace):

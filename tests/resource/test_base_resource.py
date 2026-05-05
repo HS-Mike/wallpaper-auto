@@ -6,24 +6,32 @@ from wallpaper_automator.resource.base_resource import _BaseResourceMeta, BaseRe
 
 
 class MockResource(BaseResource):
-    def mount(self, allow_compress: bool = True): pass
-    def demount(self, allow_compress: bool = True): pass
+    def mount(self, allow_compress: bool = True):
+        pass
+
+    def demount(self, allow_compress: bool = True):
+        pass
 
 
 class TestBaseResource:
-
     def test_metaclass_initialization(self):
         """Metaclass initializes the base cache directory only once."""
         with patch("os.makedirs") as mock_makedirs:
             _BaseResourceMeta._base_cache_initialized = False
 
             class TestSub1(BaseResource):
-                def mount(self, allow_compress=True): pass
-                def demount(self, allow_compress=True): pass
+                def mount(self, allow_compress=True):
+                    pass
+
+                def demount(self, allow_compress=True):
+                    pass
 
             class TestSub2(BaseResource):
-                def mount(self, allow_compress=True): pass
-                def demount(self, allow_compress=True): pass
+                def mount(self, allow_compress=True):
+                    pass
+
+                def demount(self, allow_compress=True):
+                    pass
 
             assert mock_makedirs.call_count >= 1
             called_paths = [args[0] for args, kwargs in mock_makedirs.call_args_list]
@@ -55,7 +63,6 @@ class TestBaseResource:
 
 
 class TestResource:
-
     def test_real_directory_creation(self, tmp_path):
         """Verify a real directory is created on the filesystem."""
         res = MockResource(temp_dir=True)
