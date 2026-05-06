@@ -128,6 +128,7 @@ class WallpaperController:
             self._tray.show()
 
         self._mode = Mode.AUTO
+        logger.info("mount fallback resource")
         self._resource_manager.mount(self._config_store.fallback_resource_id)
         self.update_system_tray()
 

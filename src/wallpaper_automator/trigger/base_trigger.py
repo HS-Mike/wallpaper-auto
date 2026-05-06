@@ -18,13 +18,13 @@ from pydantic import BaseModel
 from ..util import callback_register
 
 
-class BaseTrigger(callback_register.CallbackRegister[[], None], ABC):
+class BaseTrigger(callback_register.CallbackRegister[["BaseTrigger"], None], ABC):
 
     def __init__(self):
         super().__init__()
 
     def trigger(self): 
-        self.trigger_callback()
+        self.trigger_callback(self)
 
     def activate(self): ...
 

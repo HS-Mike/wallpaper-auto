@@ -60,7 +60,8 @@ class TriggerManager(CallbackRegister[[], None]):
                 raise ValueError(f"trigger {i.name} not found")
             trigger = trigger_cls(**i.config)
 
-            def _trigger_manager_cb(*args, **kwargs) -> None:
+            def _trigger_manager_cb(t: BaseTrigger) -> None:
+                logger.debug(f"{t.__class__.__name__} call")
                 self.trigger_callback()
 
             trigger.add_callback(_trigger_manager_cb)

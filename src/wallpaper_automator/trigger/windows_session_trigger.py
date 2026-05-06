@@ -51,6 +51,7 @@ class WindowsSessionTrigger(BaseThreadTrigger):
     @override
     def activate(self):
         super().start()
+        logger.debug(f"{self.__class__.__name__} activate")
 
     @override
     def deactivate(self):
@@ -58,6 +59,7 @@ class WindowsSessionTrigger(BaseThreadTrigger):
         if self.hwnd:
             win32gui.PostMessage(self.hwnd, win32con.WM_CLOSE, 0, 0)
         self.join(timeout=3)
+        logger.debug(f"{self.__class__.__name__} deactivate")
 
     def _setup_window(self):
         """create a watch window in current threadi"""
@@ -101,7 +103,7 @@ class WindowsSessionTrigger(BaseThreadTrigger):
             with self.message_queue.mutex:
                 self.message_queue.queue.clear()
         self.message_queue.put((session_id, event))
-        self.trigger_callback()        
+        self.trigger()        
 
     @override
     def run(self):

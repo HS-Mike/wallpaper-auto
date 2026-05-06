@@ -31,8 +31,8 @@ class TimeTrigger(BaseThreadTrigger):
         self._reference_time: Optional[datetime.datetime] = None
 
         if times is not None:
-            parsed = [datetime.time.fromisoformat(t) if isinstance(t, str) else t for t in times]
-            self.update_fixed_times(parsed)
+            t = [datetime.time.fromisoformat(t) if isinstance(t, str) else t for t in times]
+            self.update_fixed_times(t)
 
         if interval is not None:
             self.set_interval(datetime.timedelta(seconds=interval))
@@ -101,11 +101,16 @@ class TimeTrigger(BaseThreadTrigger):
 
             next_event = min(candidates)
             return (next_event - now).total_seconds()
+    
+    def activate(self):
+        super().activate()
+        logger.debug(f"{self.__class__.__name__} activate")
 
     def deactivate(self) -> None:
         self._request_stop()
         self._update_event.set()
         super().join(timeout=3)
+        logger.debug(f"{self.__class__.__name__} deactivate")
 
     def run(self) -> None:
         """

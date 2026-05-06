@@ -73,8 +73,6 @@ class NetworkTrigger(BaseThreadTrigger):
 
         handles = (wintypes.HANDLE * 2)(net_event, self.exit_event)
 
-        logger.debug("NetworkTrigger started")
-
         try:
             while not self.stop_event.is_set():
                 res = iphlpapi.NotifyAddrChange(ctypes.byref(handle), ctypes.byref(overlap))
@@ -103,6 +101,7 @@ class NetworkTrigger(BaseThreadTrigger):
             kernel32.CloseHandle(self.exit_event)
         self.exit_event = kernel32.CreateEventW(None, False, False, None)
         super().activate()
+        logger.debug(f"{self.__class__.__name__} activate")
 
     def deactivate(self):
         if self.exit_event:
@@ -111,4 +110,5 @@ class NetworkTrigger(BaseThreadTrigger):
         if self.exit_event:
             kernel32.CloseHandle(self.exit_event)
             self.exit_event = None
+        logger.debug(f"{self.__class__.__name__} deactivate")
             
