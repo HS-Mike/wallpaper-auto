@@ -1,7 +1,9 @@
+"""Tests for base_resource.py — BaseResource metaclass and cache directory lifecycle."""
+
 import os
 import shutil
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 from wallpaper_automator.resource.base_resource import _BaseResourceMeta, BaseResource
 
 
@@ -41,12 +43,12 @@ class TestBaseResource:
         """Each instance gets its own UUID-based cache directory."""
         res1 = MockResource(temp_dir=True)
         res2 = MockResource(temp_dir=True)
-
-        assert res1.cache_dir != res2.cache_dir
-        assert os.path.basename(res1.cache_dir) != os.path.basename(res2.cache_dir)
-
-        shutil.rmtree(res1.cache_dir)
-        shutil.rmtree(res2.cache_dir)
+        try:
+            assert res1.cache_dir != res2.cache_dir
+            assert os.path.basename(res1.cache_dir) != os.path.basename(res2.cache_dir)
+        finally:
+            shutil.rmtree(res1.cache_dir, ignore_errors=True)
+            shutil.rmtree(res2.cache_dir, ignore_errors=True)
 
     def test_no_temp_dir_behavior(self):
         """temp_dir=False raises ValueError when accessing cache_dir."""
@@ -67,8 +69,8 @@ class TestResource:
         """Verify a real directory is created on the filesystem."""
         res = MockResource(temp_dir=True)
         path = res.cache_dir
-
-        assert os.path.exists(path)
-        assert os.path.isdir(path)
-
-        shutil.rmtree(path)
+        try:
+            assert os.path.exists(path)
+            assert os.path.isdir(path)
+        finally:
+            shutil.rmtree(path, ignore_errors=True)

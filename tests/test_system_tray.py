@@ -1,3 +1,5 @@
+"""Tests for system_tray.py — WallpaperSwitchSystemTray and tray menu rendering."""
+
 import pytest
 from PySide6.QtWidgets import QApplication
 

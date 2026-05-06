@@ -1,5 +1,7 @@
+"""Tests for geo_evaluator.py — IP geolocation and distance calculation."""
+
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 import math
 
 from wallpaper_automator.evaluator.geo_evaluator import (
@@ -11,7 +13,7 @@ from wallpaper_automator.evaluator.geo_evaluator import (
 )
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def clear_cache():
     """Clear the @cache on get_location_info_by_ip between tests."""
     get_location_info_by_ip.cache_clear()
@@ -34,6 +36,7 @@ SAMPLE_RESPONSE = {
 }
 
 
+@pytest.mark.usefixtures("clear_cache")
 class TestGetLocationByIp:
     def setup_mock(self, mock_get, data, exc=None):
         mock_response = MagicMock()
@@ -136,6 +139,7 @@ class TestHaversineDistance:
         assert expected_range[0] <= distance <= expected_range[1]
 
 
+@pytest.mark.usefixtures("clear_cache")
 class TestGeoEvaluator:
 
     def test_returns_bool(self, mock_ip_api):
@@ -154,6 +158,7 @@ class TestGeoEvaluator:
         assert not result
 
 
+@pytest.mark.usefixtures("clear_cache")
 class TestIntegrationGeo:
 
     def test_distance_from_shanghai(self, mock_ip_api):

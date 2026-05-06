@@ -1,3 +1,5 @@
+"""Tests for wallpaper_controller.py — controller lifecycle and task processing."""
+
 import signal
 
 import pytest
@@ -19,6 +21,17 @@ def _mock_config_for_start(controller):
     mock_cs = MagicMock()
     mock_cs.fallback_resource_id = "fallback"
     controller._config_store = mock_cs
+
+
+def _start_controller(controller):
+    """Start the controller with default patches applied."""
+    _mock_config_for_start(controller)
+    with (
+        patch("signal.signal"),
+        patch.object(controller._resource_manager, "mount"),
+        patch.object(controller, "evaluate"),
+    ):
+        controller.start()
 
 
 def _cleanup_worker(controller):
@@ -47,7 +60,12 @@ def started_controller(controller):
     ):
         controller.start()
     yield controller
-    controller.stop()
+    # Gracefully stop — the test may have already called stop()
+    try:
+        controller.stop()
+    except RuntimeError:
+        pass
+    _cleanup_worker(controller)
 
 
 # ── Initialisation ─────────────────────────────────────────────────────────
@@ -333,6 +351,14 @@ class TestWallpaperControllerTaskHelpers:
 
 # ── start / stop lifecycle ─────────────────────────────────────────────────
 
+def _safe_stop(controller):
+    """Call stop() but ignore the error if the thread wasn't started."""
+    try:
+        controller.stop()
+    except RuntimeError:
+        pass
+
+
 class TestWallpaperControllerStart:
     """start() – signal handlers, thread start, initial evaluation."""
 
@@ -343,52 +369,39 @@ class TestWallpaperControllerStart:
         assert controller._mode == Mode.AUTO
 
     def test_registers_signal_handlers(self, controller):
-        try:
-            _mock_config_for_start(controller)
-            with (
-                patch.object(controller._resource_manager, "mount"),
-                patch.object(controller, "evaluate"),
-                patch("signal.signal") as mock_signal,
-            ):
-                controller.start()
-            assert mock_signal.call_count == 2
-            mock_signal.assert_has_calls([
-                call(signal.SIGINT, ANY),
-                call(signal.SIGTERM, ANY),
-            ])
-        finally:
-            controller.stop()
+        _mock_config_for_start(controller)
+        with (
+            patch.object(controller._resource_manager, "mount"),
+            patch.object(controller, "evaluate"),
+            patch("signal.signal") as mock_signal,
+        ):
+            controller.start()
+        assert mock_signal.call_count == 2
+        mock_signal.assert_has_calls([
+            call(signal.SIGINT, ANY),
+            call(signal.SIGTERM, ANY),
+        ])
+        _safe_stop(controller)
 
     def test_shows_tray_when_set(self, controller):
         mock_tray = MagicMock()
         controller._tray = mock_tray
-
-        try:
-            _mock_config_for_start(controller)
-            with (
-                patch.object(controller._resource_manager, "mount"),
-                patch.object(controller, "evaluate"),
-                patch("signal.signal"),
-            ):
-                controller.start()
-            mock_tray.show.assert_called_once()
-        finally:
-            controller.stop()
+        _start_controller(controller)
+        mock_tray.show.assert_called_once()
+        _safe_stop(controller)
 
     def test_calls_evaluate_and_activates_triggers(self, controller):
-        try:
-            _mock_config_for_start(controller)
-            with (
-                patch.object(controller._resource_manager, "mount"),
-                patch.object(controller, "evaluate") as mock_eval,
-                patch.object(controller._trigger_manager, "activate") as mock_activate,
-                patch("signal.signal"),
-            ):
-                controller.start()
-            mock_eval.assert_called_once()
-            mock_activate.assert_called_once()
-        finally:
-            controller.stop()
+        _mock_config_for_start(controller)
+        with (
+            patch.object(controller._resource_manager, "mount"),
+            patch.object(controller, "evaluate") as mock_eval,
+            patch.object(controller._trigger_manager, "activate") as mock_activate,
+            patch("signal.signal"),
+        ):
+            controller.start()
+        mock_eval.assert_called_once()
+        mock_activate.assert_called_once()
+        _safe_stop(controller)
 
 
 class TestWallpaperControllerStop:
@@ -399,56 +412,32 @@ class TestWallpaperControllerStop:
             controller.stop()
 
     def test_stop_joins_thread_and_cleans_up(self, controller):
-        try:
-            _mock_config_for_start(controller)
-            with (
-                patch("signal.signal"),
-                patch.object(controller._resource_manager, "mount"),
-                patch.object(controller, "evaluate"),
-            ):
-                controller.start()
-            controller.stop()
-            assert controller._worker_loop_thread is None
-            # After stop the queue should be processed; no leftover tasks.
-            assert controller._task_queue.qsize() == 0
-        finally:
-            _cleanup_worker(controller)
+        _start_controller(controller)
+        controller.stop()
+        assert controller._worker_loop_thread is None
+        # After stop the queue should be processed; no leftover tasks.
+        assert controller._task_queue.qsize() == 0
+        _cleanup_worker(controller)
 
     def test_stop_deactivates_triggers_and_demounts_resource(self, controller):
-        try:
-            _mock_config_for_start(controller)
-            with (
-                patch("signal.signal"),
-                patch.object(controller._resource_manager, "mount"),
-                patch.object(controller, "evaluate"),
-            ):
-                controller.start()
-            with (
-                patch.object(controller._trigger_manager, "deactivate") as mock_deact,
-                patch.object(controller._resource_manager, "demount") as mock_demount,
-            ):
-                controller.stop()
-            mock_deact.assert_called_once()
-            mock_demount.assert_called_once()
-        finally:
-            _cleanup_worker(controller)
+        _start_controller(controller)
+        with (
+            patch.object(controller._trigger_manager, "deactivate") as mock_deact,
+            patch.object(controller._resource_manager, "demount") as mock_demount,
+        ):
+            controller.stop()
+        mock_deact.assert_called_once()
+        mock_demount.assert_called_once()
+        _cleanup_worker(controller)
 
     @pytest.mark.parametrize("app", [MagicMock(), None], ids=["with_app", "without_app"])
     def test_stop_hides_tray_and_optionally_quits_app(self, controller, app):
         mock_tray = MagicMock()
         mock_tray._app = app
         controller._tray = mock_tray
-        try:
-            _mock_config_for_start(controller)
-            with (
-                patch("signal.signal"),
-                patch.object(controller._resource_manager, "mount"),
-                patch.object(controller, "evaluate"),
-            ):
-                controller.start()
-            controller.stop()
-            mock_tray.hide.assert_called_once()
-            if app is not None:
-                app.quit.assert_called_once()
-        finally:
-            _cleanup_worker(controller)
+        _start_controller(controller)
+        controller.stop()
+        mock_tray.hide.assert_called_once()
+        if app is not None:
+            app.quit.assert_called_once()
+        _cleanup_worker(controller)

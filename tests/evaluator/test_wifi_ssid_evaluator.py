@@ -1,3 +1,5 @@
+"""Tests for wifi_ssid_evaluator.py — SSID detection and matching."""
+
 import subprocess
 
 import pytest

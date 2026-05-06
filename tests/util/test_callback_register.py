@@ -1,3 +1,5 @@
+"""Tests for callback_register.py — CallbackRegister add/remove/trigger lifecycle."""
+
 import pytest
 
 from wallpaper_automator.util.callback_register import CallbackRegister

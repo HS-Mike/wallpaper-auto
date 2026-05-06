@@ -1,3 +1,5 @@
+"""Tests for resource_manager.py — resource lifecycle and registration."""
+
 import pytest
 from unittest.mock import MagicMock, patch
 

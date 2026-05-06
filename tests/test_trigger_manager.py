@@ -1,3 +1,5 @@
+"""Tests for trigger_manager.py — trigger lifecycle and callback management."""
+
 import pytest
 from datetime import timedelta
 from unittest.mock import MagicMock, patch

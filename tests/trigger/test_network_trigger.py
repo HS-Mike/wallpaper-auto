@@ -1,77 +1,80 @@
+"""Tests for network_trigger.py — WiFi network change detection via WMI."""
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from wallpaper_automator.trigger.network_trigger import NetworkTrigger
 
 
+@pytest.fixture
+def mock_run_deps():
+    """Patch the four external dependencies common to ``run()`` tests
+    and set up the standard KERNEL32/IPHLPAPI return values."""
+    with (
+        patch("wallpaper_automator.trigger.network_trigger.pythoncom") as mock_pythoncom,
+        patch("wallpaper_automator.trigger.network_trigger.wmi"),
+        patch("wallpaper_automator.trigger.network_trigger.KERNEL32") as mock_KERNEL32,
+        patch("wallpaper_automator.trigger.network_trigger.IPHLPAPI") as mock_IPHLPAPI,
+    ):
+        mock_KERNEL32.CreateEventW.return_value = 0xCAFE
+        mock_IPHLPAPI.NotifyAddrChange.return_value = 0
+        yield mock_KERNEL32, mock_IPHLPAPI, mock_pythoncom
+
+
+@pytest.fixture
+def mock_kernel32():
+    with patch("wallpaper_automator.trigger.network_trigger.KERNEL32") as mock_k:
+        yield mock_k
+
+
 class TestNetworkTrigger:
     """Test NetworkTrigger core logic, fully isolated from WMI and Win32 API dependencies"""
 
-    def test_run_detects_network_change(self):
+    def test_run_detects_network_change(self, mock_run_deps):
         """Run method detects network fingerprint change and triggers"""
-        with (
-            patch('wallpaper_automator.trigger.network_trigger.pythoncom'),
-            patch('wallpaper_automator.trigger.network_trigger.wmi'),
-            patch('wallpaper_automator.trigger.network_trigger.KERNEL32') as mock_KERNEL32,
-            patch('wallpaper_automator.trigger.network_trigger.IPHLPAPI') as mock_IPHLPAPI,
-        ):
-            mock_KERNEL32.CreateEventW.return_value = 0xCAFE
-            mock_IPHLPAPI.NotifyAddrChange.return_value = 0
-            monitor = NetworkTrigger()
-            monitor._exit_event = 0xBEEF
+        mock_KERNEL32, mock_IPHLPAPI, _ = mock_run_deps
+        monitor = NetworkTrigger()
+        monitor._exit_event = 0xBEEF
 
-            with patch.object(monitor, 'trigger') as mock_trigger:
-                with patch.object(monitor, '_get_network_fingerprint') as mock_fingerprint:
-                    mock_fingerprint.side_effect = [
-                        {"eth_192.168.1.1"},  # initial fingerprint
-                        {"wifi_192.168.2.1"},  # after network change
-                    ]
-                    # first wait: network change (idx 0), second wait: exit (idx 1)
-                    mock_KERNEL32.WaitForMultipleObjects.side_effect = [0, 1]
+        with patch.object(monitor, 'trigger') as mock_trigger:
+            with patch.object(monitor, '_get_network_fingerprint') as mock_fingerprint:
+                mock_fingerprint.side_effect = [
+                    {"eth_192.168.1.1"},  # initial fingerprint
+                    {"wifi_192.168.2.1"},  # after network change
+                ]
+                # first wait: network change (idx 0), second wait: exit (idx 1)
+                mock_KERNEL32.WaitForMultipleObjects.side_effect = [0, 1]
 
-                    monitor.run()
-
-                    mock_trigger.assert_called_once()
-                    assert monitor._last_gateways == {"wifi_192.168.2.1"}
-
-    def test_run_does_not_trigger_on_same_fingerprint(self):
-        """Run method does not trigger when fingerprint hasn't changed after event"""
-        with (
-            patch('wallpaper_automator.trigger.network_trigger.pythoncom'),
-            patch('wallpaper_automator.trigger.network_trigger.wmi'),
-            patch('wallpaper_automator.trigger.network_trigger.KERNEL32') as mock_KERNEL32,
-            patch('wallpaper_automator.trigger.network_trigger.IPHLPAPI') as mock_IPHLPAPI,
-        ):
-            mock_KERNEL32.CreateEventW.return_value = 0xCAFE
-            mock_IPHLPAPI.NotifyAddrChange.return_value = 0
-            monitor = NetworkTrigger()
-            monitor._exit_event = 0xBEEF
-
-            with patch.object(monitor, 'trigger') as mock_trigger:
-                with patch.object(monitor, '_get_network_fingerprint', return_value={"same_gateway"}):
-                    mock_KERNEL32.WaitForMultipleObjects.side_effect = [0, 1]
-
-                    monitor.run()
-
-                    mock_trigger.assert_not_called()
-
-    def test_run_breaks_on_notify_addr_change_error(self):
-        """Run breaks loop when NotifyAddrChange returns an unexpected error"""
-        with (
-            patch('wallpaper_automator.trigger.network_trigger.pythoncom'),
-            patch('wallpaper_automator.trigger.network_trigger.wmi'),
-            patch('wallpaper_automator.trigger.network_trigger.KERNEL32') as mock_KERNEL32,
-            patch('wallpaper_automator.trigger.network_trigger.IPHLPAPI') as mock_IPHLPAPI,
-        ):
-            mock_KERNEL32.CreateEventW.return_value = 0xCAFE
-            mock_IPHLPAPI.NotifyAddrChange.return_value = 1  # error (not 0 or 997)
-            monitor = NetworkTrigger()
-            monitor._exit_event = 0xBEEF
-
-            with patch.object(monitor, '_get_network_fingerprint', return_value=set()):
                 monitor.run()
 
-                mock_KERNEL32.WaitForMultipleObjects.assert_not_called()
+                mock_trigger.assert_called_once()
+                assert monitor._last_gateways == {"wifi_192.168.2.1"}
+
+    def test_run_does_not_trigger_on_same_fingerprint(self, mock_run_deps):
+        """Run method does not trigger when fingerprint hasn't changed after event"""
+        mock_KERNEL32, mock_IPHLPAPI, _ = mock_run_deps
+        monitor = NetworkTrigger()
+        monitor._exit_event = 0xBEEF
+
+        with patch.object(monitor, 'trigger') as mock_trigger:
+            with patch.object(monitor, '_get_network_fingerprint', return_value={"same_gateway"}):
+                mock_KERNEL32.WaitForMultipleObjects.side_effect = [0, 1]
+
+                monitor.run()
+
+                mock_trigger.assert_not_called()
+
+    def test_run_breaks_on_notify_addr_change_error(self, mock_run_deps):
+        """Run breaks loop when NotifyAddrChange returns an unexpected error"""
+        mock_KERNEL32, mock_IPHLPAPI, _ = mock_run_deps
+        mock_IPHLPAPI.NotifyAddrChange.return_value = 1  # error (not 0 or 997)
+        monitor = NetworkTrigger()
+        monitor._exit_event = 0xBEEF
+
+        with patch.object(monitor, '_get_network_fingerprint', return_value=set()):
+            monitor.run()
+
+            mock_KERNEL32.WaitForMultipleObjects.assert_not_called()
 
     def test_get_network_fingerprint_logic(self):
         """Network fingerprint parsing extracts strings from WMI config"""
@@ -113,79 +116,68 @@ class TestNetworkTrigger:
 
             assert fingerprint == {"WiFi_10.0.0.1"}
 
-    def test_lifecycle_and_com_cleanup(self):
+    def test_lifecycle_and_com_cleanup(self, mock_run_deps):
         """COM init/uninit is called during run"""
-        with (
-            patch('wallpaper_automator.trigger.network_trigger.pythoncom') as mock_pythoncom,
-            patch('wallpaper_automator.trigger.network_trigger.wmi'),
-            patch('wallpaper_automator.trigger.network_trigger.KERNEL32') as mock_KERNEL32,
-            patch('wallpaper_automator.trigger.network_trigger.IPHLPAPI') as mock_IPHLPAPI,
-        ):
-            mock_KERNEL32.CreateEventW.return_value = 0xCAFE
-            mock_IPHLPAPI.NotifyAddrChange.return_value = 0
-            mock_KERNEL32.WaitForMultipleObjects.return_value = 1  # immediate exit
-            monitor = NetworkTrigger()
-            monitor._exit_event = 0xBEEF
+        mock_KERNEL32, mock_IPHLPAPI, mock_pythoncom = mock_run_deps
+        mock_KERNEL32.WaitForMultipleObjects.return_value = 1  # immediate exit
+        monitor = NetworkTrigger()
+        monitor._exit_event = 0xBEEF
 
-            with patch.object(monitor, '_get_network_fingerprint', return_value=set()):
-                monitor.run()
+        with patch.object(monitor, '_get_network_fingerprint', return_value=set()):
+            monitor.run()
 
-                mock_pythoncom.CoInitialize.assert_called_once()
-                mock_pythoncom.CoUninitialize.assert_called_once()
-                # CloseHandle is called for net_event in finally block
-                mock_KERNEL32.CloseHandle.assert_called_once()
+            mock_pythoncom.CoInitialize.assert_called_once()
+            mock_pythoncom.CoUninitialize.assert_called_once()
+            # CloseHandle is called for net_event in finally block
+            mock_KERNEL32.CloseHandle.assert_called_once()
 
-    def test_activate_creates_exit_event(self):
+    def test_activate_creates_exit_event(self, mock_kernel32):
         """activate creates exit_event and delegates to super"""
-        with patch('wallpaper_automator.trigger.network_trigger.KERNEL32') as mock_KERNEL32:
-            mock_KERNEL32.CreateEventW.return_value = 0xCAFE
-            monitor = NetworkTrigger()
+        mock_kernel32.CreateEventW.return_value = 0xCAFE
+        monitor = NetworkTrigger()
 
-            with patch('threading.Thread.start') as mock_start:
-                monitor.activate()
+        with patch('threading.Thread.start') as mock_start:
+            monitor.activate()
 
-                mock_KERNEL32.CreateEventW.assert_called_once_with(None, False, False, None)
-                assert monitor._exit_event == 0xCAFE
-                mock_start.assert_called_once()
+            mock_kernel32.CreateEventW.assert_called_once_with(None, False, False, None)
+            assert monitor._exit_event == 0xCAFE
+            mock_start.assert_called_once()
 
-    def test_activate_closes_old_handle(self):
+    def test_activate_closes_old_handle(self, mock_kernel32):
         """activate closes existing exit_event handle before creating new one"""
-        with patch('wallpaper_automator.trigger.network_trigger.KERNEL32') as mock_KERNEL32:
-            mock_KERNEL32.CreateEventW.return_value = 0xBEEF
-            monitor = NetworkTrigger()
-            monitor._exit_event = 0xDEAD
+        mock_kernel32.CreateEventW.return_value = 0xBEEF
+        monitor = NetworkTrigger()
+        monitor._exit_event = 0xDEAD
 
-            with patch('threading.Thread.start'):
-                monitor.activate()
+        with patch('threading.Thread.start'):
+            monitor.activate()
 
-                mock_KERNEL32.CloseHandle.assert_any_call(0xDEAD)
-                mock_KERNEL32.CreateEventW.assert_called_once()
-                assert monitor._exit_event == 0xBEEF
+            mock_kernel32.CloseHandle.assert_any_call(0xDEAD)
+            mock_kernel32.CreateEventW.assert_called_once()
+            assert monitor._exit_event == 0xBEEF
 
-    def test_deactivate_signals_and_cleans_up_handle(self):
+    def test_deactivate_signals_and_cleans_up_handle(self, mock_kernel32):
         """deactivate signals the exit event, joins thread, and closes handle"""
-        with patch('wallpaper_automator.trigger.network_trigger.KERNEL32') as mock_KERNEL32:
-            monitor = NetworkTrigger()
-            monitor._exit_event = 0xCAFE
+        monitor = NetworkTrigger()
+        monitor._exit_event = 0xCAFE
 
-            with patch('threading.Thread.join') as mock_super_deactivate:
-                with patch.object(monitor, '_request_stop'):
-                    monitor.deactivate()
+        with patch('threading.Thread.join') as mock_super_deactivate:
+            with patch.object(monitor, '_request_stop'):
+                monitor.deactivate()
 
-                    mock_KERNEL32.SetEvent.assert_called_once_with(0xCAFE)
-                    mock_super_deactivate.assert_called_once_with(timeout=3)
-                    mock_KERNEL32.CloseHandle.assert_called_once_with(0xCAFE)
-                    assert monitor._exit_event is None
+                mock_kernel32.SetEvent.assert_called_once_with(0xCAFE)
+                mock_super_deactivate.assert_called_once_with(timeout=3)
+                mock_kernel32.CloseHandle.assert_called_once_with(0xCAFE)
+                assert monitor._exit_event is None
 
-    def test_deactivate_skips_when_no_exit_event(self):
+    def test_deactivate_skips_when_no_exit_event(self, mock_kernel32):
         """deactivate is safe when exit_event is None"""
-        with patch('wallpaper_automator.trigger.network_trigger.KERNEL32') as mock_KERNEL32:
-            monitor = NetworkTrigger()
-            assert monitor._exit_event is None
+        monitor = NetworkTrigger()
+        assert monitor._exit_event is None
 
-            with patch('threading.Thread.join'):
-                with patch.object(monitor, '_request_stop'):
-                    monitor.deactivate()
+        with patch('threading.Thread.join'):
+            with patch.object(monitor, '_request_stop'):
+                monitor.deactivate()
 
-                    mock_KERNEL32.SetEvent.assert_not_called()
-                    mock_KERNEL32.CloseHandle.assert_not_called()
+                mock_kernel32.SetEvent.assert_not_called()
+                mock_kernel32.CloseHandle.assert_not_called()

@@ -273,12 +273,12 @@ class TestDynamicWallpaperCycling:
         first_path = mock_set.call_args[0][0]
         assert first_path == paths[0]
 
-        # Wait for the thread to cycle (enough time for ~1-2 cycles)
-        time.sleep(0.09)
+        # Poll for the cycling thread to advance (up to 5 s to avoid flakiness)
+        deadline = time.monotonic() + 5.0
+        while mock_set.call_count < 2 and time.monotonic() < deadline:
+            time.sleep(0.02)
 
-        # set_wallpaper should have been called at least once more
-        assert mock_set.call_count >= 2
-        # The last call should have a *different* path (advancing forward)
+        assert mock_set.call_count >= 2, "Cycling thread did not advance"
         last_path = mock_set.call_args[0][0]
         assert last_path != paths[0]
 
@@ -356,8 +356,10 @@ class TestDynamicWallpaperEdgeCases:
         wp = DynamicWallpaper(paths=paths, interval=0)
 
         wp.mount()
-        # Allow one or two rapid cycles to pass
-        time.sleep(0.05)
+        # Poll for at least one cycle (interval=0 means tight loop)
+        deadline = time.monotonic() + 3.0
+        while mock_set.call_count < 1 and time.monotonic() < deadline:
+            time.sleep(0.01)
         wp.demount()
 
         # Thread should have stopped cleanly

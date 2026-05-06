@@ -156,7 +156,3 @@ class TestWindowsSessionTriggerStop:
         trigger.join(timeout=2)
 
         assert not trigger.is_alive()
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

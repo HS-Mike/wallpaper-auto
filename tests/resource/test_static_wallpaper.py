@@ -1,3 +1,5 @@
+"""Tests for static_wallpaper.py — StaticWallpaper mount/demount and caching."""
+
 from unittest.mock import MagicMock, patch, call
 
 import pytest

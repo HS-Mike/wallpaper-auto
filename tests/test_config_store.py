@@ -36,6 +36,30 @@ def _make_valid_yaml(**overrides) -> str:
     return yaml.dump(data)
 
 
+_MINIMAL = {
+    "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
+    "trigger": [{"name": "windows_session"}],
+    "rule": [],
+    "fallback": "a",
+}
+
+
+def _make_minimal_yaml(**overrides) -> str:
+    """Return a minimal valid YAML config string, with optional key overrides.
+
+    Tests that vary a single field can pass the modified key as an override
+    instead of repeating the full boilerplate dict.
+    Pass ``key=None`` to omit a key entirely from the generated YAML.
+    """
+    data = dict(_MINIMAL)
+    for k, v in overrides.items():
+        if v is None:
+            data.pop(k, None)
+        else:
+            data[k] = v
+    return yaml.dump(data)
+
+
 # ── fixtures ─────────────────────────────────────────────────────────────
 
 @pytest.fixture
@@ -165,63 +189,37 @@ class TestLoadErrors:
     def test_missing_fallback(self, store: ConfigStore, tmp_path):
         """load should fail when fallback key is missing."""
         path = tmp_path / "no_fallback.yaml"
-        path.write_text(yaml.dump({
-            "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
-            "trigger": [{"name": "windows_session"}],
-            "rule": [],
-        }), encoding="utf-8")
+        path.write_text(_make_minimal_yaml(fallback=None), encoding="utf-8")
         with pytest.raises(ValueError):
             store.load(str(path))
 
     def test_missing_resource(self, store: ConfigStore, tmp_path):
         path = tmp_path / "no_resource.yaml"
-        path.write_text(yaml.dump({
-            "trigger": [{"name": "windows_session"}],
-            "rule": [],
-            "fallback": "a",
-        }), encoding="utf-8")
+        path.write_text(_make_minimal_yaml(resource=None), encoding="utf-8")
         with pytest.raises(ValueError):
             store.load(str(path))
 
     def test_missing_trigger(self, store: ConfigStore, tmp_path):
         path = tmp_path / "no_trigger.yaml"
-        path.write_text(yaml.dump({
-            "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
-            "rule": [],
-            "fallback": "a",
-        }), encoding="utf-8")
+        path.write_text(_make_minimal_yaml(trigger=None), encoding="utf-8")
         with pytest.raises(ValueError):
             store.load(str(path))
 
     def test_missing_rule(self, store: ConfigStore, tmp_path):
         path = tmp_path / "no_rule.yaml"
-        path.write_text(yaml.dump({
-            "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
-            "trigger": [{"name": "windows_session"}],
-            "fallback": "a",
-        }), encoding="utf-8")
+        path.write_text(_make_minimal_yaml(rule=None), encoding="utf-8")
         with pytest.raises(ValueError):
             store.load(str(path))
 
     def test_fallback_target_not_found(self, store: ConfigStore, tmp_path):
         path = tmp_path / "bad_fallback.yaml"
-        path.write_text(yaml.dump({
-            "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
-            "trigger": [{"name": "windows_session"}],
-            "rule": [],
-            "fallback": "nonexistent_resource",
-        }), encoding="utf-8")
+        path.write_text(_make_minimal_yaml(fallback="nonexistent_resource"), encoding="utf-8")
         with pytest.raises(ValueError, match="Fallback target.*not found"):
             store.load(str(path))
 
     def test_rule_target_not_found(self, store: ConfigStore, tmp_path):
         path = tmp_path / "bad_rule_target.yaml"
-        path.write_text(yaml.dump({
-            "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
-            "trigger": [{"name": "windows_session"}],
-            "rule": [{"name": "bad", "condition": {"network": "WiFi"}, "target": "unknown"}],
-            "fallback": "a",
-        }), encoding="utf-8")
+        path.write_text(_make_minimal_yaml(rule=[{"name": "bad", "condition": {"network": "WiFi"}, "target": "unknown"}]), encoding="utf-8")
         with pytest.raises(ValueError, match="targets unknown resource"):
             store.load(str(path))
 
@@ -234,32 +232,22 @@ class TestLoadValidation:
     def test_condition_invalid_single_key(self, store: ConfigStore, tmp_path):
         """A condition dict with more than one key should be rejected."""
         path = tmp_path / "bad_condition.yaml"
-        path.write_text(yaml.dump({
-            "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
-            "trigger": [{"name": "windows_session"}],
-            "rule": [{
-                "name": "r",
-                "condition": {"network": "WiFi", "time_range": ["00:00", "12:00"]},
-                "target": "a",
-            }],
-            "fallback": "a",
-        }), encoding="utf-8")
+        path.write_text(_make_minimal_yaml(rule=[{
+            "name": "r",
+            "condition": {"network": "WiFi", "time_range": ["00:00", "12:00"]},
+            "target": "a",
+        }]), encoding="utf-8")
         with pytest.raises(ValueError, match="only one key"):
             store.load(str(path))
 
     def test_empty_condition_node(self, store: ConfigStore, tmp_path):
         """An empty condition dict should be rejected."""
         path = tmp_path / "empty_cond.yaml"
-        path.write_text(yaml.dump({
-            "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
-            "trigger": [{"name": "windows_session"}],
-            "rule": [{
-                "name": "r",
-                "condition": {},
-                "target": "a",
-            }],
-            "fallback": "a",
-        }), encoding="utf-8")
+        path.write_text(_make_minimal_yaml(rule=[{
+            "name": "r",
+            "condition": {},
+            "target": "a",
+        }]), encoding="utf-8")
         with pytest.raises(ValueError, match="only one key"):
             store.load(str(path))
 

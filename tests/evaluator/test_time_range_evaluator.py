@@ -1,3 +1,5 @@
+"""Tests for time_range_evaluator.py — time range matching with overnight support."""
+
 import datetime as real_dt
 from unittest.mock import patch
 
