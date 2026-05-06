@@ -14,6 +14,7 @@ import time
 import sys
 
 from wallpaper_automator.trigger.time_trigger import TimeTrigger
+from wallpaper_automator.trigger.base_trigger import BaseTrigger
 
 # Configure logging
 logging.basicConfig(
@@ -23,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def on_time_trigger() -> None:
+def on_time_trigger(trigger: BaseTrigger) -> None:
     """Time trigger callback"""
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[Trigger] Current time: {now}")
