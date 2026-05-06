@@ -9,8 +9,8 @@ Automatically switches Windows desktop wallpapers based on configurable conditio
 - **Condition types**:
   - `network`: Current connected WiFi name
   - `location`: GPS coordinates (via IP geolocation)
-  - `workday_only`: Whether it's a workday
-  - `weekday`: Day-of-week check (0=Monday ... 6=Sunday)
+  - `is_today_workday`: Whether it's a workday
+  - `day_of_week_is`: Day-of-week check (0=Monday ... 6=Sunday)
   - `time_range`: Time range (supports crossing midnight)
 - **System tray control**: System tray menu for manual wallpaper switching and pause/resume auto-switching
 - **Thread-safe**: Each monitoring module runs independently without blocking others
@@ -274,11 +274,11 @@ from wallpaper_automator import BaseThreadTrigger, TriggerManager, run_service
 
 class UsbPlugTrigger(BaseThreadTrigger):
     def run(self):
-        while not self.stop_event.is_set():
+        while not self._stop_event.is_set():
             # Poll for USB insertion/removal
             ...
             self.trigger()
-            self.stop_event.wait(timeout=5)
+            self._stop_event.wait(timeout=5)
 
 TriggerManager.register_trigger("usb_plug", UsbPlugTrigger)
 run_service("config.yaml")
@@ -323,6 +323,7 @@ src/wallpaper_automator/
 ├── __main__.py                # CLI entry point — arg parsing, delegates to run_service()
 ├── service.py                 # run_service() — programmatic startup with custom component support
 ├── init_config.py             # Starter config template generator (init-config subcommand)
+├── process_mutex.py           # Single-instance enforcement via named mutex
 ├── wallpaper_controller.py    # Orchestrator — owns worker loop, routes trigger → rule → resource
 ├── config_store.py            # YAML config loader & validator (Pydantic)
 ├── models.py                  # Pydantic data models for config, conditions, rules
@@ -342,6 +343,7 @@ src/wallpaper_automator/
 │   ├── base_evaluator.py      #   BaseEvaluator callable interface
 │   ├── wifi_ssid_evaluator.py #   netsh-based WiFi SSID matching
 │   ├── workday_evaluator.py   #   Holiday API (timor.tech) workday detection
+│   ├── weekday_evaluator.py   #   Day-of-week check (0=Monday … 6=Sunday)
 │   ├── time_range_evaluator.py#   Time range check (supports midnight crossing)
 │   └── geo_evaluator.py       #   IP geolocation + Haversine distance check
 │
