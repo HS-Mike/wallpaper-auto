@@ -124,13 +124,11 @@ class WallpaperController:
         signal.signal(signal.SIGINT, lambda sig, frame: self.stop())
         signal.signal(signal.SIGTERM, lambda sig, frame: self.stop())
 
+        self._mode = Mode.AUTO
+        
         if self._tray is not None:
             self._tray.show()
 
-        self._mode = Mode.AUTO
-        logger.info("mount fallback resource")
-        self._resource_manager.mount(self._config_store.fallback_resource_id)
-        self.update_system_tray()
 
         self._worker_loop_thread = threading.Thread(target=self._worker_loop)
         self._worker_loop_thread.start()
