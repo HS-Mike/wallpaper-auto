@@ -237,7 +237,7 @@ class TestBridgeUpdateUiMethod:
     """The update_ui() method emits signals. Tests may need qtbot."""
 
     def test_emit_signal_with_all_args(self, bridge, qtbot):
-        rule = Rule(name="test", condition=ConditionNode(any_condition="any"), target="tgt")
+        rule = Rule(name="test", condition=ConditionNode.model_validate({"wifi_ssid_is": "OfficeWiFi"}), target="tgt")
 
         with qtbot.waitSignal(bridge.update_ui_signal, timeout=1000) as blocker:
             bridge.update_ui(["r1", "r2"], Mode.AUTO, rule, "r1")
