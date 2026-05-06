@@ -35,7 +35,7 @@ class RuleEngine:
         self._rules: list[Rule] = []
 
     @classmethod
-    def register_evaluator(cls, name: str, evaluator: BaseEvaluator):
+    def register_evaluator(cls, name: str, evaluator: BaseEvaluator) -> None:
         """Register a custom condition evaluator.
 
         Register before starting WallpaperAutomator so the rule engine
