@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "wallpaper_automator" 
 version = "0.1.0"
-description = "Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, location, workday)"
+description = "Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, location, day of week)"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
@@ -25,9 +25,7 @@ dependencies = [
     "pywin32>=306",
     "Pillow>=10.0",
     "requests>=2.28",
-    "fake_useragent>=1.4",
     "wmi>=1.5",
-    "tenacity>=8.0",
 ]
 
 [project.optional-dependencies]

@@ -80,7 +80,6 @@ trigger:
 #
 # Available leaf evaluators:
 #   wifi_ssid_is: <ssid_string>
-#   is_today_workday: true | false
 #   in_time_range: ["HH:MM", "HH:MM"]
 #   in_geo_range:   { lat: <float>, lon: <float>, radius: <km_float> }
 #   day_of_week_is: [0, 1, 2, 3, 4, 5, 6]  # 0=Monday ... 6=Sunday
@@ -98,18 +97,18 @@ rule:
     condition:
       and:
         - wifi_ssid_is: "Company_WiFi"
-        - is_today_workday: true
+        - day_of_week_is: [0, 1, 2, 3, 4]    # Monday to Friday
         - in_time_range: ["09:00", "18:00"]
     target: "office_view"
 
   # ── Example 3: Nested combinators (any of the inner groups) ──────────────
-  - name: "night_or_weekend"
+  - name: "night_or_weekend_morning"
     condition:
       or:
         - in_time_range: ["22:00", "06:00"]
         - and:
-            - is_today_workday: false
-            - in_time_range: ["00:00", "23:59"]
+            - day_of_week_is: [5, 6]    # Saturday, Sunday
+            - in_time_range: ["06:00", "12:00"]
     target: "black"
 
   # ── Example 4: Geo-location rule ─────────────────────────────────────────

@@ -1,6 +1,6 @@
 # Wallpaper Automator
 
-Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, location, workday).
+Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, location, day of week).
 
 ## Features
 
@@ -9,7 +9,6 @@ Automatically switches Windows desktop wallpapers based on configurable conditio
 - **Condition types**:
   - `network`: Current connected WiFi name
   - `location`: GPS coordinates (via IP geolocation)
-  - `is_today_workday`: Whether it's a workday
   - `day_of_week_is`: Day-of-week check (0=Monday ... 6=Sunday)
   - `time_range`: Time range (supports crossing midnight)
 - **System tray control**: System tray menu for manual wallpaper switching and pause/resume auto-switching
@@ -94,7 +93,7 @@ rule:
     condition:
       and:                                # AND/OR combinators supported
         - in_time_range: ["23:00", "06:00"]
-        - is_today_workday: true
+        - day_of_week_is: [0, 1, 2, 3, 4] # Monday to Friday
     target: "dark_wallpaper"
   - name: "Traveling"
     condition:
@@ -186,7 +185,6 @@ condition:
   wifi_ssid_is: "Company_WiFi"             # param: SSID string
   in_time_range: ["09:00", "18:00"]         # param: [start, end]
   in_geo_range: { lat: 31.23, lon: 121.47, radius: 0.5 }  # param: dict
-  is_today_workday: true                    # param: bool
   day_of_week_is: [5, 6]                    # param: list[int]  0=Mon ... 6=Sun
 ```
 
@@ -297,22 +295,32 @@ Implement `BaseEvaluator` (a callable interface) and register it with the rule e
 ```python
 from wallpaper_automator import BaseEvaluator, RuleEngine, run_service
 
-class BatteryLevelEvaluator(BaseEvaluator):
-    def __call__(self, param: dict) -> bool:
-        # param: {"below": 20}
-        current = get_battery_percent()
-        return current < param["below"]
+class WorkdayEvaluator(BaseEvaluator):
+    def __call__(self, param: bool) -> bool:
+        # Check an external API to determine if today is a workday
+        import datetime
+        import requests
 
-RuleEngine.register_evaluator("battery_below", BatteryLevelEvaluator())
+        today = datetime.date.today().isoformat()
+        try:
+            resp = requests.get(
+                f"https://api.example.com/workday/{today}",
+                timeout=5,
+            )
+            return resp.json()["is_workday"] == param
+        except Exception:
+            return False
+
+RuleEngine.register_evaluator("is_today_workday", WorkdayEvaluator())
 run_service("config.yaml")
 ```
 
 ```yaml
 rule:
-  - name: "Low battery"
+  - name: "Workday"
     condition:
-      battery_below: { below: 20 }
-    target: "power_saver_wallpaper"
+      is_today_workday: true
+    target: "work_wallpaper"
 ```
 
 ## Project Structure
@@ -342,7 +350,6 @@ src/wallpaper_automator/
 ├── evaluator/                 # Condition evaluator implementations
 │   ├── base_evaluator.py      #   BaseEvaluator callable interface
 │   ├── wifi_ssid_evaluator.py #   netsh-based WiFi SSID matching
-│   ├── workday_evaluator.py   #   Holiday API (timor.tech) workday detection
 │   ├── weekday_evaluator.py   #   Day-of-week check (0=Monday … 6=Sunday)
 │   ├── time_range_evaluator.py#   Time range check (supports midnight crossing)
 │   └── geo_evaluator.py       #   IP geolocation + Haversine distance check
@@ -365,10 +372,7 @@ src/wallpaper_automator/
 - PySide6 — system tray UI
 - pywin32 — Windows wallpaper API (SystemParametersInfo) & session monitoring
 - Pillow — image resize/compress for wallpaper caching
-- requests — IP geolocation & workday API calls
-- tenacity — retry logic for API calls
-- wmi — WMI-based network change monitoring
-- fake-useragent — disguises API requests
+- requests — IP geolocation API calls
 
 ## License
 
