@@ -2,7 +2,7 @@
 Wallpaper Automator - Automatically switch Windows desktop wallpapers based on conditions.
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from .evaluator.base_evaluator import BaseEvaluator
 from .resource.base_resource import BaseResource
@@ -26,7 +26,7 @@ __all__ = [
 def run_service(
     config_path: Optional[str] = None,
     *,
-    log_level: str = "DEBUG",
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "DEBUG",
     custom_triggers: Optional[dict[str, type[BaseTrigger]]] = None,
     custom_resources: Optional[dict[str, type[BaseResource]]] = None,
     custom_evaluators: Optional[dict[str, BaseEvaluator]] = None,
