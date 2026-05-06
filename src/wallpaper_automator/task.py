@@ -1,7 +1,6 @@
 """
 Task classes transmit across components.
 """
-import dataclasses
 from enum import Enum
 from typing import Literal, Annotated, Union
 

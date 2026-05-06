@@ -34,7 +34,7 @@ class ResourceManager:
         self._active_resource_id: str | None = None
     
     @classmethod
-    def register_resource(cls, resource_name: str, resource: type[BaseResource]):
+    def register_resource(cls, resource_name: str, resource: type[BaseResource]) -> None:
         """
         Register a custom resource class.
         Register the subclass before starting WallpaperAutomator.

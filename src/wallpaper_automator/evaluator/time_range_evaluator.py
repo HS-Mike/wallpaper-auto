@@ -14,7 +14,7 @@ class TimeRangeEvaluator(BaseEvaluator):
     def __call__(
         self,
         param: list[str]
-    ):
+    ) -> bool:
         if not isinstance(param, (list, tuple)) or len(param) != 2:
             raise ValueError("param must be a list/tuple of exactly 2 time strings (HH:MM)")
         if not all(isinstance(s, str) for s in param):

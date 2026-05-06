@@ -61,7 +61,7 @@ class TestWindowsSessionTriggerWndProc:
         trigger = WindowsSessionTrigger()
         trigger.add_callback(lambda _: None)
 
-        result = trigger.WndProc(0, 0x02B1, 0x7, 1234)
+        result = trigger.wnd_proc(0, 0x02B1, 0x7, 1234)
 
         item = trigger.message_queue.get_nowait()
         assert item[0] == 1234
@@ -71,7 +71,7 @@ class TestWindowsSessionTriggerWndProc:
         trigger = WindowsSessionTrigger()
         trigger.add_callback(lambda _: None)
 
-        trigger.WndProc(0, 0x0100, 0, 0)
+        trigger.wnd_proc(0, 0x0100, 0, 0)
 
         assert trigger.message_queue.empty()
 
@@ -129,7 +129,7 @@ class TestWindowsSessionTriggerStop:
         trigger = WindowsSessionTrigger()
         trigger._setup_window()
 
-        result = trigger.WndProc(trigger.hwnd, win32con.WM_CLOSE, 0, 0)
+        result = trigger.wnd_proc(trigger.hwnd, win32con.WM_CLOSE, 0, 0)
 
         assert result == 0
         mock_ts.WTSUnRegisterSessionNotification.assert_called_with(trigger.hwnd)
@@ -140,7 +140,7 @@ class TestWindowsSessionTriggerStop:
         trigger = WindowsSessionTrigger()
         trigger._setup_window()
 
-        result = trigger.WndProc(trigger.hwnd, win32con.WM_DESTROY, 0, 0)
+        result = trigger.wnd_proc(trigger.hwnd, win32con.WM_DESTROY, 0, 0)
 
         assert result == 0
         mock_gui.PostQuitMessage.assert_called_with(0)

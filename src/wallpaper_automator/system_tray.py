@@ -9,7 +9,7 @@ import sys
 from importlib.resources import files
 from typing import Callable
 
-from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QVBoxLayout, QLabel, QWidgetAction
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PySide6.QtGui import QIcon, QAction, QPixmap, QCursor, QPainter, QColor
 from PySide6.QtCore import QCoreApplication, Qt, QObject, Signal, QTimer
 
@@ -42,7 +42,7 @@ class SystemTrayBridge(QObject):
 
     # --- external communication to tray (Thread-Safe) ---
     
-    def update_ui(self, r_ids, mode, rule, active_id):
+    def update_ui(self, r_ids, mode, rule, active_id) -> None:
         self.update_ui_signal.emit(r_ids, mode, rule, active_id)
 
     def register_set_mode_handler(self, cb: Callable[[Mode], None]):
@@ -59,19 +59,19 @@ class SystemTrayBridge(QObject):
 
     # --- internal communication to external (Thread-Safe) ---
 
-    def request_select_resource(self, resource_id: str):
+    def request_select_resource(self, resource_id: str) -> None:
         if self._on_select_resource_handler:
             self._on_select_resource_handler(resource_id)
 
-    def request_set_mode(self, mode):
+    def request_set_mode(self, mode) -> None:
         if self._on_set_mode_handler:
             self._on_set_mode_handler(mode)
     
-    def request_update_ui(self):
+    def request_update_ui(self) -> None:
         if self._on_update_ui_handler:
             self._on_update_ui_handler()
 
-    def request_quit(self):
+    def request_quit(self) -> None:
         if self._on_quit_handler:
             self._on_quit_handler()
 

@@ -7,13 +7,11 @@ Provides BaseTrigger (callback-only interface) and BaseThreadTrigger
 All resource class must inherit from BaseResource and implement activate, deactivate, and trigger interface.
 
 In case of BaseThreadTrigger, subclass must override run method and manage a loop inside. 
-Exit loop according to self.stop_event.
+Exit loop according to self._stop_event.
 """
 import threading
 from abc import ABC, abstractmethod
-from typing import override, Any
-
-from pydantic import BaseModel
+from typing import override
 
 from ..util import callback_register
 
@@ -23,12 +21,12 @@ class BaseTrigger(callback_register.CallbackRegister[["BaseTrigger"], None], ABC
     def __init__(self):
         super().__init__()
 
-    def trigger(self): 
+    def trigger(self) -> None:
         self.trigger_callback(self)
 
-    def activate(self): ...
+    def activate(self) -> None: ...
 
-    def deactivate(self): ...
+    def deactivate(self) -> None: ...
 
 
 class BaseThreadTrigger(threading.Thread, BaseTrigger):
@@ -37,15 +35,15 @@ class BaseThreadTrigger(threading.Thread, BaseTrigger):
         threading.Thread.__init__(self)
         BaseTrigger.__init__(self)
         self.daemon = True
-        self.stop_event = threading.Event()
+        self._stop_event = threading.Event()
 
     @override
-    def activate(self):
+    def activate(self) -> None:
         super().start()
-        self.stop_event.clear()
+        self._stop_event.clear()
 
     @override
-    def deactivate(self):
+    def deactivate(self) -> None:
         self._request_stop()
         super().join(timeout=3)
 
@@ -56,4 +54,4 @@ class BaseThreadTrigger(threading.Thread, BaseTrigger):
 
     def _request_stop(self) -> None:
         """Request to stop."""
-        self.stop_event.set()
+        self._stop_event.set()

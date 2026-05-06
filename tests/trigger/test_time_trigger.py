@@ -165,7 +165,7 @@ class TestActivateDeactivate:
         trigger = TimeTrigger()
         trigger.start()
         trigger.deactivate()
-        assert trigger.stop_event.is_set()
+        assert trigger._stop_event.is_set()
         assert trigger._update_event.is_set()
 
 
@@ -178,7 +178,7 @@ class TestBaseThreadTriggerDeactivate:
 
         class _MinimalTrigger(BaseThreadTrigger):
             def run(self):
-                while not self.stop_event.is_set():
+                while not self._stop_event.is_set():
                     threading.Event().wait(0.05)
 
         trigger = _MinimalTrigger()
@@ -186,7 +186,7 @@ class TestBaseThreadTriggerDeactivate:
         assert trigger.is_alive()
 
         trigger.deactivate()
-        assert trigger.stop_event.is_set()
+        assert trigger._stop_event.is_set()
         assert not trigger.is_alive()
 
 

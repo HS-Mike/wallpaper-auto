@@ -37,7 +37,7 @@ def get_current_ssid() -> str | None:
 
 class WIFISsidEvaluator(BaseEvaluator):
 
-    def __call__(self, param: str):
+    def __call__(self, param: str) -> bool:
         if not isinstance(param, str):
             raise ValueError(f"invalid {self.__class__.__name__} param")
         return param == get_current_ssid()

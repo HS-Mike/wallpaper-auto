@@ -47,7 +47,7 @@ def get_location_info_by_ip(timeout: float = 3) -> LocationInfo | None:
 R = 6371  # Earth's mean radius in kilometers
 
 
-def haversine_distance(lat1, lon1, lat2, lon2):
+def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
     Calculate the distance between two lat/lon coordinates (Haversine formula).
     Returns distance in kilometers.
@@ -93,7 +93,7 @@ class GeoEvaluator(BaseEvaluator):
 
         return cast(float, lat), cast(float, lon), cast(float, radius)
 
-    def __call__(self, param: dict):
+    def __call__(self, param: dict) -> bool:
         lat, lon, radius = self._validate_params(param)
 
         loc_info = get_location_info_by_ip()

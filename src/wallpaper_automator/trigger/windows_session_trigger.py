@@ -49,12 +49,12 @@ class WindowsSessionTrigger(BaseThreadTrigger):
         self.message_queue: queue.Queue[tuple[int, WindowsSessionEvent | None]] = queue.Queue(10)
 
     @override
-    def activate(self):
+    def activate(self) -> None:
         super().start()
         logger.debug(f"{self.__class__.__name__} activate")
 
     @override
-    def deactivate(self):
+    def deactivate(self) -> None:
         """send WM_CLOSE to stop PumpMessages"""
         if self.hwnd:
             win32gui.PostMessage(self.hwnd, win32con.WM_CLOSE, 0, 0)
@@ -67,7 +67,7 @@ class WindowsSessionTrigger(BaseThreadTrigger):
         hInstance = win32gui.GetModuleHandle(None)
 
         wc = win32gui.WNDCLASS()
-        wc.lpfnWndProc = self.WndProc   # type: ignore
+        wc.lpfnWndProc = self.wnd_proc   # type: ignore
         wc.lpszClassName = className    # type: ignore 
         wc.hInstance = hInstance        # type: ignore
         win32gui.RegisterClass(wc)
@@ -79,7 +79,7 @@ class WindowsSessionTrigger(BaseThreadTrigger):
         win32ts.WTSRegisterSessionNotification(self.hwnd, 1)
         logger.debug(f"window created in thread {threading.get_ident()} and monitor session change")
 
-    def WndProc(self, hwnd, msg, wParam, lParam):
+    def wnd_proc(self, hwnd, msg, wParam, lParam):
         if msg == 0x02B1:
             self.process_event(lParam, wParam)
         elif msg == win32con.WM_CLOSE:

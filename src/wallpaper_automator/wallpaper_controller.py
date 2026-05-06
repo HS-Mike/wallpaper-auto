@@ -77,7 +77,7 @@ class WallpaperController:
         self._trigger_manager.init(self._config_store.trigger)
         self._rule_engine.init(self._config_store.rule)
     
-    def update_system_tray(self):
+    def update_system_tray(self) -> None:
         if self._tray is not None:
             self._tray.bridge.update_ui(
                 self._resource_manager.resource_ids, 

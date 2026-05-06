@@ -57,7 +57,7 @@ class TimeTrigger(BaseThreadTrigger):
         logger.info(f"time trigger interval set to {interval} starting from {ref_time:%y-%m-%d %H:%M:%S}")
         self._update_event.set()
 
-    def clear_interval(self):
+    def clear_interval(self) -> None:
         """Clear set interval"""
         with self._lock:
             self._interval = None
@@ -102,7 +102,7 @@ class TimeTrigger(BaseThreadTrigger):
             next_event = min(candidates)
             return (next_event - now).total_seconds()
     
-    def activate(self):
+    def activate(self) -> None:
         super().activate()
         logger.debug(f"{self.__class__.__name__} activate")
 
@@ -117,14 +117,14 @@ class TimeTrigger(BaseThreadTrigger):
         Main loop: waits for the next scheduled trigger time, then fires.
         Respects both fixed-time and interval scheduling.
         """
-        while not self.stop_event.is_set():
+        while not self._stop_event.is_set():
             self._update_event.clear()
             wait_time = self._get_next_wait_time()
             if wait_time is None:
                 self._update_event.wait()
             else:
                 interrupted = self._update_event.wait(timeout=wait_time)
-                if self.stop_event.is_set():
+                if self._stop_event.is_set():
                     break
                 if not interrupted:
                     self.trigger()

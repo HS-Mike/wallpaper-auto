@@ -6,24 +6,24 @@ detecting WiFi or wired network switches, and fires callbacks on transitions.
 """
 import ctypes
 import logging
+import platform
 import time
 from ctypes import wintypes
 
 import pythoncom
 import wmi
-import platform
 
 from .base_trigger import BaseThreadTrigger
 
 logger = logging.getLogger(__name__)
 
-iphlpapi = ctypes.windll.iphlpapi
-kernel32 = ctypes.windll.kernel32
+IPHLPAPI = ctypes.windll.iphlpapi
+KERNEL32 = ctypes.windll.kernel32
 
 ULONG_PTR = ctypes.c_uint64 if platform.architecture()[0] == '64bit' else ctypes.c_uint32
 
 
-class OVERLAPPED(ctypes.Structure):
+class Overlapped(ctypes.Structure):
     _fields_ = [
         ("Internal", ULONG_PTR), ("InternalHigh", ULONG_PTR),
         ("Offset", wintypes.DWORD), ("OffsetHigh", wintypes.DWORD),
@@ -34,7 +34,7 @@ class OVERLAPPED(ctypes.Structure):
 class NetworkTrigger(BaseThreadTrigger):
     def __init__(self) -> None:
         super().__init__()
-        self.exit_event = None
+        self._exit_event = None
         self._last_gateways: set[str] = set()
 
     @staticmethod
@@ -66,21 +66,21 @@ class NetworkTrigger(BaseThreadTrigger):
 
     def _run_impl(self):
         self._last_gateways = self._get_network_fingerprint()
-        net_event = kernel32.CreateEventW(None, False, False, None)
-        overlap = OVERLAPPED()
+        net_event = KERNEL32.CreateEventW(None, False, False, None)
+        overlap = Overlapped()
         overlap.hEvent = net_event
         handle = wintypes.HANDLE()
 
-        handles = (wintypes.HANDLE * 2)(net_event, self.exit_event)
+        handles = (wintypes.HANDLE * 2)(net_event, self._exit_event)
 
         try:
-            while not self.stop_event.is_set():
-                res = iphlpapi.NotifyAddrChange(ctypes.byref(handle), ctypes.byref(overlap))
+            while not self._stop_event.is_set():
+                res = IPHLPAPI.NotifyAddrChange(ctypes.byref(handle), ctypes.byref(overlap))
                 if res != 0 and res != 997:
                     logger.error(f"NotifyAddrChange registration failed: {res}")
                     break
 
-                result = kernel32.WaitForMultipleObjects(2, handles, False, -1)
+                result = KERNEL32.WaitForMultipleObjects(2, handles, False, -1)
 
                 if result == 0:
                     time.sleep(0.2)
@@ -93,22 +93,22 @@ class NetworkTrigger(BaseThreadTrigger):
                     logger.debug("Exit signal received, stopping")
                     break
         finally:
-            kernel32.CloseHandle(net_event)
+            KERNEL32.CloseHandle(net_event)
             logger.info("NetworkTrigger thread exited safely")
 
-    def activate(self):
-        if self.exit_event:
-            kernel32.CloseHandle(self.exit_event)
-        self.exit_event = kernel32.CreateEventW(None, False, False, None)
+    def activate(self) -> None:
+        if self._exit_event:
+            KERNEL32.CloseHandle(self._exit_event)
+        self._exit_event = KERNEL32.CreateEventW(None, False, False, None)
         super().activate()
         logger.debug(f"{self.__class__.__name__} activate")
 
-    def deactivate(self):
-        if self.exit_event:
-            kernel32.SetEvent(self.exit_event)
+    def deactivate(self) -> None:
+        if self._exit_event:
+            KERNEL32.SetEvent(self._exit_event)
         super().deactivate()
-        if self.exit_event:
-            kernel32.CloseHandle(self.exit_event)
-            self.exit_event = None
+        if self._exit_event:
+            KERNEL32.CloseHandle(self._exit_event)
+            self._exit_event = None
         logger.debug(f"{self.__class__.__name__} deactivate")
             

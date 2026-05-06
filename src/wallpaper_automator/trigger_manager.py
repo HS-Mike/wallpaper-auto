@@ -26,7 +26,7 @@ _BUILTIN_TRIGGERS = {
 
 
 class TriggerManager(CallbackRegister[[], None]):
-    """Wallpaper resource manager, responsible for runtime mount/unmount and init resources from parsed config."""
+    """Manages trigger lifecycle — start, stop, and pause/resume triggers from parsed config."""
     _support_triggers: dict[str, type[BaseTrigger]] = _BUILTIN_TRIGGERS.copy()
 
     def __init__(self):
@@ -42,7 +42,7 @@ class TriggerManager(CallbackRegister[[], None]):
         return super().trigger_callback(*args, **kwargs)
     
     @classmethod
-    def register_trigger(cls, name, trigger_cls: type[BaseTrigger]):
+    def register_trigger(cls, name: str, trigger_cls: type[BaseTrigger]) -> None:
         """
         Register a custom trigger class.
         Register the subclass before starting WallpaperAutomator.
