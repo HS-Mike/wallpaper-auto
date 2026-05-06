@@ -227,37 +227,36 @@ run_service(
 
 ## Custom Components
 
-All three component types are extensible. All base classes and registration entrypoints are importable from the top-level `wallpaper_automator` package.
+All three component types are extensible. The recommended way to register custom components is by passing them to `run_service()` via the `custom_triggers`, `custom_resources`, and `custom_evaluators` keyword arguments. All base classes are importable from the top-level `wallpaper_automator` package.
 
 ### Custom Resource
 
-Extend `BaseResource` and register it before starting the service.
+Extend `BaseResource` and pass it through `run_service()`.
 
 ```python
-from wallpaper_automator import BaseResource, ResourceManager, run_service
+from wallpaper_automator import BaseResource, run_service
 
-class UnsplashResource(BaseResource):
+class OnlineResource(BaseResource):
     def __init__(self, query: str = "nature", style: str = "fill"):
         self.query = query
         self.style = style
         super().__init__(temp_dir=True)
 
     def mount(self):
-        # Download image from Unsplash API to self.cache_dir, then set as wallpaper
+        # Download image to self.cache_dir, then set as wallpaper
         ...
 
     def demount(self):
         # Restore previous wallpaper
         ...
 
-ResourceManager.register_resource("unsplash", UnsplashResource)
-run_service("config.yaml")
+run_service("config.yaml", custom_resources={"online": OnlineResource})
 ```
 
 ```yaml
 resource:
   daily:
-    name: unsplash
+    name: online
     config:
       query: "mountain"
       style: fill
@@ -265,10 +264,10 @@ resource:
 
 ### Custom Trigger
 
-Extend `BaseTrigger` or `BaseThreadTrigger` and register it before starting the service.
+Extend `BaseTrigger` or `BaseThreadTrigger` and pass it through `run_service()`.
 
 ```python
-from wallpaper_automator import BaseThreadTrigger, TriggerManager, run_service
+from wallpaper_automator import BaseThreadTrigger, run_service
 
 class UsbPlugTrigger(BaseThreadTrigger):
     def run(self):
@@ -278,8 +277,7 @@ class UsbPlugTrigger(BaseThreadTrigger):
             self.trigger()
             self._stop_event.wait(timeout=5)
 
-TriggerManager.register_trigger("usb_plug", UsbPlugTrigger)
-run_service("config.yaml")
+run_service("config.yaml", custom_triggers={"usb_plug": UsbPlugTrigger})
 ```
 
 ```yaml
@@ -290,10 +288,10 @@ trigger:
 
 ### Custom Evaluator
 
-Implement `BaseEvaluator` (a callable interface) and register it with the rule engine before starting the service.
+Implement `BaseEvaluator` (a callable interface) and pass an instance through `run_service()`.
 
 ```python
-from wallpaper_automator import BaseEvaluator, RuleEngine, run_service
+from wallpaper_automator import BaseEvaluator, run_service
 
 class WorkdayEvaluator(BaseEvaluator):
     def __call__(self, param: bool) -> bool:
@@ -311,8 +309,7 @@ class WorkdayEvaluator(BaseEvaluator):
         except Exception:
             return False
 
-RuleEngine.register_evaluator("is_today_workday", WorkdayEvaluator())
-run_service("config.yaml")
+run_service("config.yaml", custom_evaluators={"is_today_workday": WorkdayEvaluator()})
 ```
 
 ```yaml
@@ -321,6 +318,44 @@ rule:
     condition:
       is_today_workday: true
     target: "work_wallpaper"
+```
+
+### Registering All Three Together
+
+All custom component types can be registered in a single `run_service()` call:
+
+```python
+from wallpaper_automator import (
+    BaseResource,
+    BaseThreadTrigger,
+    BaseEvaluator,
+    run_service,
+)
+
+class MyResource(BaseResource): ...
+class MyTrigger(BaseThreadTrigger): ...
+class MyEvaluator(BaseEvaluator): ...
+
+run_service(
+    "config.yaml",
+    custom_triggers={"my_trigger": MyTrigger},
+    custom_resources={"my_resource": MyResource},
+    custom_evaluators={"my_evaluator": MyEvaluator()},
+)
+```
+
+### Alternative: Class-level Registration
+
+As an alternative, you can register components directly on the manager classes before calling `run_service()`. This is useful when the registration must happen before the configuration is loaded (e.g., in a plugin system).
+
+```python
+from wallpaper_automator import ResourceManager, RuleEngine, TriggerManager, run_service
+
+ResourceManager.register_resource("online", OnlineResource)
+TriggerManager.register_trigger("usb_plug", UsbPlugTrigger)
+RuleEngine.register_evaluator("is_today_workday", WorkdayEvaluator())
+
+run_service("config.yaml")
 ```
 
 ## Project Structure
