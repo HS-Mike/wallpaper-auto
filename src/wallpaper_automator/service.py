@@ -35,14 +35,11 @@ Usage (programmatic)::
 
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
-from typing import Optional
+from typing import Literal, Optional
 
 from .evaluator.base_evaluator import BaseEvaluator
-from .init_config import generate_template
-from .process_mutex import ProcessMutex
 from .resource.base_resource import BaseResource
 from .resource_manager import ResourceManager
 from .rule_engine import RuleEngine
@@ -52,16 +49,21 @@ from .trigger_manager import TriggerManager
 from .wallpaper_controller import WallpaperController
 
 
-def _setup_logging(level: str) -> None:
+_LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
+
+
+def _setup_logging(level: _LogLevel) -> None:
     """Configure the root logger for the CLI."""
     logging.basicConfig(
-        level=getattr(logging, level.upper()),
+        level=getattr(logging, level),
         format="%(asctime)s  %(levelname)-7s  %(thread)-6d  %(message)s",
     )
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _build_parser() -> "argparse.ArgumentParser":
     """Build the CLI argument parser."""
+    import argparse
+
     parser = argparse.ArgumentParser(prog="wallpaper-automator")
     parser.add_argument("-c", "--config", default="config.yaml", help="Path to config file")
     parser.add_argument(
@@ -96,7 +98,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def run_service(
     config_path: Optional[str] = None,  # noqa: UP045
-    log_level: str = "DEBUG",
+    log_level: _LogLevel = "DEBUG",
     custom_triggers: Optional[dict[str, type[BaseTrigger]]] = None,  # noqa: UP045
     custom_resources: Optional[dict[str, type[BaseResource]]] = None,  # noqa: UP045
     custom_evaluators: Optional[dict[str, BaseEvaluator]] = None,  # noqa: UP045
@@ -135,6 +137,9 @@ def run_service(
     """
     # ── CLI mode ──────────────────────────────────────────────────────
     if config_path is None:
+        from .init_config import generate_template  # noqa: PLC0415
+        from .process_mutex import ProcessMutex  # noqa: PLC0415
+
         parser = _build_parser()
         args = parser.parse_args()
 
@@ -150,6 +155,8 @@ def run_service(
 
         config_path = args.config
         log_level = args.log_level
+
+        _setup_logging(log_level)
 
         # Normal run: wrap in process mutex
         try:
@@ -178,14 +185,12 @@ def run_service(
 
 def _run_service_impl(
     config_path: str,
-    log_level: str,
+    log_level: _LogLevel = "DEBUG",
     custom_triggers: Optional[dict[str, type[BaseTrigger]]] = None,
     custom_resources: Optional[dict[str, type[BaseResource]]] = None,
     custom_evaluators: Optional[dict[str, BaseEvaluator]] = None,
 ) -> None:
     """Shared startup logic used by both CLI and programmatic modes."""
-
-    _setup_logging(log_level)
 
     if custom_triggers is not None:
         for name, cls in custom_triggers.items():

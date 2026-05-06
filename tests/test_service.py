@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, call, patch
 
-from wallpaper_automator.service import run_service
+import pytest
+
+from wallpaper_automator.service import _build_parser, _setup_logging, run_service
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -217,3 +220,218 @@ class TestMainDelegation:
 
         importlib.reload(main_mod)
         assert hasattr(main_mod, "run_service")
+
+
+# ── _setup_logging ───────────────────────────────────────────────────────────
+
+
+class TestSetupLogging:
+    """``_setup_logging()`` configures the root logger."""
+
+    def test_uses_basicConfig(self):
+        with patch("wallpaper_automator.service.logging.basicConfig") as mock_bc:
+            _setup_logging("INFO")
+        mock_bc.assert_called_once()
+
+    def test_sets_correct_level(self):
+        with patch("wallpaper_automator.service.logging.basicConfig") as mock_bc:
+            _setup_logging("WARNING")
+        assert mock_bc.call_args[1]["level"] == logging.WARNING
+
+    def test_default_level_is_debug(self):
+        with patch("wallpaper_automator.service.logging.basicConfig") as mock_bc:
+            _setup_logging("DEBUG")
+        assert mock_bc.call_args[1]["level"] == logging.DEBUG
+
+    def test_has_format_string(self):
+        with patch("wallpaper_automator.service.logging.basicConfig") as mock_bc:
+            _setup_logging("DEBUG")
+        fmt = mock_bc.call_args[1]["format"]
+        assert "%(asctime)s" in fmt
+        assert "%(levelname)" in fmt
+        assert "%(thread)" in fmt
+        assert "%(message)s" in fmt
+
+
+# ── _build_parser ────────────────────────────────────────────────────────────
+
+
+class TestBuildParser:
+    """``_build_parser()`` creates the CLI argument parser."""
+
+    def test_prog_name(self):
+        parser = _build_parser()
+        assert parser.prog == "wallpaper-automator"
+
+    def test_default_config_path(self):
+        parser = _build_parser()
+        args = parser.parse_args([])
+        assert args.config == "config.yaml"
+
+    def test_custom_config_via_c(self):
+        parser = _build_parser()
+        args = parser.parse_args(["-c", "my_config.yaml"])
+        assert args.config == "my_config.yaml"
+
+    def test_custom_config_via_long(self):
+        parser = _build_parser()
+        args = parser.parse_args(["--config", "prod.yaml"])
+        assert args.config == "prod.yaml"
+
+    def test_default_log_level(self):
+        parser = _build_parser()
+        args = parser.parse_args([])
+        assert args.log_level == "DEBUG"
+
+    def test_custom_log_level(self):
+        parser = _build_parser()
+        args = parser.parse_args(["-l", "INFO"])
+        assert args.log_level == "INFO"
+
+    def test_log_level_choices(self):
+        parser = _build_parser()
+        for level in ("DEBUG", "INFO", "WARNING", "ERROR"):
+            args = parser.parse_args(["-l", level])
+            assert args.log_level == level
+
+    def test_init_config_subcommand(self):
+        parser = _build_parser()
+        args = parser.parse_args(["init-config", "out.yaml"])
+        assert args.subcommand == "init-config"
+        assert args.output == "out.yaml"
+
+    def test_init_config_default_output(self):
+        parser = _build_parser()
+        args = parser.parse_args(["init-config"])
+        assert args.output == "config.yaml"
+
+    def test_init_config_with_force(self):
+        parser = _build_parser()
+        args = parser.parse_args(["init-config", "out.yaml", "-f"])
+        assert args.force is True
+
+    def test_init_config_without_force(self):
+        parser = _build_parser()
+        args = parser.parse_args(["init-config", "out.yaml"])
+        assert args.force is False
+
+
+# ── run_service CLI mode ─────────────────────────────────────────────────────
+
+
+class TestRunServiceCLIMode:
+    """``run_service()`` with ``config_path=None`` enters CLI mode."""
+
+    def test_cli_defaults(self):
+        """No CLI args: uses default config.yaml and DEBUG."""
+        with (
+            patch("sys.argv", ["wallpaper-automator"]),
+            patch("wallpaper_automator.process_mutex.ProcessMutex"),
+            patch("wallpaper_automator.service._run_service_impl") as mock_impl,
+        ):
+            run_service()
+
+        mock_impl.assert_called_once_with(
+            "config.yaml", "DEBUG", None, None, None,
+        )
+
+    def test_cli_config_and_log_level(self):
+        with (
+            patch("sys.argv", ["wp", "-c", "prod.yaml", "-l", "INFO"]),
+            patch("wallpaper_automator.process_mutex.ProcessMutex"),
+            patch("wallpaper_automator.service._run_service_impl") as mock_impl,
+        ):
+            run_service()
+
+        mock_impl.assert_called_once_with(
+            "prod.yaml", "INFO", None, None, None,
+        )
+
+    def test_cli_custom_triggers_forwarded(self):
+        """Custom component registrations are forwarded to _run_service_impl."""
+        t_cls, r_cls, e_inst = MagicMock(), MagicMock(), MagicMock()
+        with (
+            patch("sys.argv", ["wp"]),
+            patch("wallpaper_automator.process_mutex.ProcessMutex"),
+            patch("wallpaper_automator.service._run_service_impl") as mock_impl,
+        ):
+            run_service(
+                custom_triggers={"t1": t_cls},
+                custom_resources={"r1": r_cls},
+                custom_evaluators={"e1": e_inst},
+            )
+
+        mock_impl.assert_called_once_with(
+            "config.yaml", "DEBUG",
+            {"t1": t_cls}, {"r1": r_cls}, {"e1": e_inst},
+        )
+
+    def test_cli_init_config(self):
+        with (
+            patch("sys.argv", ["wp", "init-config", "out.yaml"]),
+            patch("wallpaper_automator.init_config.generate_template") as mock_gen,
+            patch("wallpaper_automator.service._run_service_impl") as mock_impl,
+        ):
+            run_service()
+
+        mock_gen.assert_called_once_with("out.yaml", force=False)
+        mock_impl.assert_not_called()
+
+    def test_cli_init_config_force(self):
+        with (
+            patch("sys.argv", ["wp", "init-config", "out.yaml", "-f"]),
+            patch("wallpaper_automator.init_config.generate_template") as mock_gen,
+        ):
+            run_service()
+
+        mock_gen.assert_called_once_with("out.yaml", force=True)
+
+    def test_cli_init_config_default_output(self):
+        with (
+            patch("sys.argv", ["wp", "init-config"]),
+            patch("wallpaper_automator.init_config.generate_template") as mock_gen,
+        ):
+            run_service()
+
+        mock_gen.assert_called_once_with("config.yaml", force=False)
+
+    def test_mutex_acquired_with_correct_name(self):
+        with (
+            patch("sys.argv", ["wp"]),
+            patch("wallpaper_automator.process_mutex.ProcessMutex") as mock_mutex_cls,
+            patch("wallpaper_automator.service._run_service_impl"),
+        ):
+            run_service()
+
+        mock_mutex_cls.assert_called_once_with("wallpaper_automator")
+
+
+class TestRunServiceCLIErrors:
+    """Error paths in CLI mode."""
+
+    def test_init_config_file_exists_exits(self):
+        with (
+            patch("sys.argv", ["wp", "init-config", "out.yaml"]),
+            patch(
+                "wallpaper_automator.init_config.generate_template",
+                side_effect=FileExistsError("already there"),
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            run_service()
+
+        assert exc_info.value.code == 1
+
+    def test_process_mutex_conflict_exits(self):
+        with (
+            patch("sys.argv", ["wp"]),
+            patch(
+                "wallpaper_automator.process_mutex.ProcessMutex",
+            ) as mock_mutex_cls,
+            patch("wallpaper_automator.service._run_service_impl"),
+        ):
+            mock_mutex_cls.return_value.__enter__.side_effect = RuntimeError("conflict")
+            with pytest.raises(SystemExit) as exc_info:
+                run_service()
+
+        assert exc_info.value.code == 1
