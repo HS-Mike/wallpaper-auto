@@ -217,4 +217,3 @@ class TestMainDelegation:
 
         importlib.reload(main_mod)
         assert hasattr(main_mod, "run_service")
-        assert hasattr(main_mod, "_setup_logging")

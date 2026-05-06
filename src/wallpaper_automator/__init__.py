@@ -24,8 +24,9 @@ __all__ = [
 
 
 def run_service(
-    config_path: str,
+    config_path: Optional[str] = None,
     *,
+    log_level: str = "DEBUG",
     custom_triggers: Optional[dict[str, type[BaseTrigger]]] = None,
     custom_resources: Optional[dict[str, type[BaseResource]]] = None,
     custom_evaluators: Optional[dict[str, BaseEvaluator]] = None,
@@ -41,6 +42,7 @@ def run_service(
 
     return _run_service(
         config_path,
+        log_level=log_level,
         custom_triggers=custom_triggers,
         custom_resources=custom_resources,
         custom_evaluators=custom_evaluators,

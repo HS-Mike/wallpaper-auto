@@ -133,6 +133,7 @@ class TestWallpaperControllerWorkerLoop:
 
     def test_mode_switch_auto_resumes_triggers(self, controller):
         controller._trigger_manager = MagicMock()
+        controller._config_store = MagicMock(fallback_resource_id="fallback")
         controller._task_queue.put(ModeSwitchTask(target_mode=Mode.AUTO))
         controller._task_queue.put(QuitTask())
 

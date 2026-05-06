@@ -15,7 +15,7 @@ class TestWindowsSessionTriggerProcessEvent:
     def test_process_event_lock(self, mock_win32):
         trigger = WindowsSessionTrigger()
         callback_called = []
-        trigger.add_callback(lambda: callback_called.append(True))
+        trigger.add_callback(lambda _: callback_called.append(True))
 
         trigger.process_event(0, 0x7)
 
@@ -26,7 +26,7 @@ class TestWindowsSessionTriggerProcessEvent:
 
     def test_process_event_unlock(self, mock_win32):
         trigger = WindowsSessionTrigger()
-        trigger.add_callback(lambda: None)
+        trigger.add_callback(lambda _: None)
 
         trigger.process_event(0, 0x8)
 
@@ -37,7 +37,7 @@ class TestWindowsSessionTriggerProcessEvent:
 
     def test_process_event_with_session_id(self, mock_win32):
         trigger = WindowsSessionTrigger()
-        trigger.add_callback(lambda: None)
+        trigger.add_callback(lambda _: None)
 
         trigger.process_event(1234, 0x7)
 
@@ -46,7 +46,7 @@ class TestWindowsSessionTriggerProcessEvent:
 
     def test_process_event_unknown_code_triggers_callback_with_none(self, mock_win32):
         trigger = WindowsSessionTrigger()
-        trigger.add_callback(lambda: None)
+        trigger.add_callback(lambda _: None)
 
         trigger.process_event(0x99, 999)
 
@@ -59,7 +59,7 @@ class TestWindowsSessionTriggerWndProc:
 
     def test_wndproc_handles_session_change_message(self, mock_win32):
         trigger = WindowsSessionTrigger()
-        trigger.add_callback(lambda: None)
+        trigger.add_callback(lambda _: None)
 
         result = trigger.WndProc(0, 0x02B1, 0x7, 1234)
 
@@ -69,7 +69,7 @@ class TestWindowsSessionTriggerWndProc:
 
     def test_wndproc_ignores_other_messages(self, mock_win32):
         trigger = WindowsSessionTrigger()
-        trigger.add_callback(lambda: None)
+        trigger.add_callback(lambda _: None)
 
         trigger.WndProc(0, 0x0100, 0, 0)
 
