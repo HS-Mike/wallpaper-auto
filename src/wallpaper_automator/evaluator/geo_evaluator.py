@@ -7,7 +7,7 @@ to compute whether the machine is within a given radius (in km) of a target coor
 
 import math
 from functools import cache
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 
 import requests
 
@@ -67,7 +67,7 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
 
 
 class GeoEvaluator(BaseEvaluator):
-    def _validate_params(self, param: dict) -> tuple[float, float, float]:
+    def _validate_params(self, param: dict[str, Any]) -> tuple[float, float, float]:
         lat = param.get("lat")
         lon = param.get("lon")
         radius = param.get("radius")
@@ -93,7 +93,7 @@ class GeoEvaluator(BaseEvaluator):
 
         return cast(float, lat), cast(float, lon), cast(float, radius)
 
-    def __call__(self, param: dict) -> bool:
+    def __call__(self, param: dict[str, Any]) -> bool:
         lat, lon, radius = self._validate_params(param)
 
         loc_info = get_location_info_by_ip()

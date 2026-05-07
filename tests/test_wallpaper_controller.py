@@ -79,7 +79,7 @@ class TestWallpaperControllerInit:
         assert controller._mode == Mode.UNSET
 
     def test_default_active_rule_is_unset(self, controller):
-        assert controller.active_rule == Mode.UNSET
+        assert controller.active_rule is None
 
     def test_worker_thread_not_started(self, controller):
         assert controller._worker_loop_thread is None

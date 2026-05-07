@@ -34,7 +34,7 @@ class _BaseResourceMeta(ABCMeta):
     )
     _base_cache_initialized = False
 
-    def __new__(mcs, name, bases, namespace):
+    def __new__(mcs, name, bases, namespace):  # type: ignore[no-untyped-def]
         """Create a new BaseResource subclass and initialize the cache once."""
         cls = super().__new__(mcs, name, bases, namespace)
         if not mcs._base_cache_initialized:

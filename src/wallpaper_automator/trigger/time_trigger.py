@@ -20,7 +20,7 @@ class TimeTrigger(BaseThreadTrigger):
         self,
         interval: int | float | None = None,
         times: list[str | datetime.time] | None = None,
-    ):
+    ) -> None:
         super().__init__()
         self._lock = threading.Lock()
         self._update_event = threading.Event()

@@ -188,12 +188,12 @@ def _run_service_impl(
     """Shared startup logic used by both CLI and programmatic modes."""
 
     if custom_triggers is not None:
-        for name, cls in custom_triggers.items():
-            TriggerManager.register_trigger(name, cls)
+        for name, trigger_cls in custom_triggers.items():
+            TriggerManager.register_trigger(name, trigger_cls)
 
     if custom_resources is not None:
-        for name, cls in custom_resources.items():
-            ResourceManager.register_resource(name, cls)
+        for name, resource_cls in custom_resources.items():
+            ResourceManager.register_resource(name, resource_cls)
 
     if custom_evaluators is not None:
         for name, instance in custom_evaluators.items():

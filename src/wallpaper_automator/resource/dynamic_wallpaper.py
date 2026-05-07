@@ -48,7 +48,7 @@ class DynamicWallpaper(BaseResource):
 
     def __init__(
         self,
-        paths: list[PathLike | str],
+        paths: list[PathLike[str] | str],
         style: WallpaperStyle | str = WallpaperStyle.FILL,
         interval: int = 300,
         random: bool = False,

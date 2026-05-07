@@ -40,7 +40,7 @@ class WindowsSessionEvent(Enum):
 
 
 class WindowsSessionTrigger(BaseThreadTrigger):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.daemon = True
         self.hwnd = None
@@ -59,15 +59,15 @@ class WindowsSessionTrigger(BaseThreadTrigger):
         self.join(timeout=3)
         logger.debug(f"{self.__class__.__name__} deactivate")
 
-    def _setup_window(self):
+    def _setup_window(self) -> None:
         """create a watch window in current threadi"""
         className = f"{self.__class__.__name__}_{id(self)}"  # noqa: N806
         hInstance = win32gui.GetModuleHandle(None)  # noqa: N806
 
         wc = win32gui.WNDCLASS()
-        wc.lpfnWndProc = self.wnd_proc  # type: ignore
-        wc.lpszClassName = className  # type: ignore
-        wc.hInstance = hInstance  # type: ignore
+        wc.lpfnWndProc = self.wnd_proc
+        wc.lpszClassName = className
+        wc.hInstance = hInstance
         win32gui.RegisterClass(wc)
 
         self.hwnd = win32gui.CreateWindow(
@@ -77,7 +77,7 @@ class WindowsSessionTrigger(BaseThreadTrigger):
         win32ts.WTSRegisterSessionNotification(self.hwnd, 1)
         logger.debug(f"window created in thread {threading.get_ident()} and monitor session change")
 
-    def wnd_proc(self, hwnd, msg, wParam, lParam):  # noqa: N803
+    def wnd_proc(self, hwnd: int, msg: int, wParam: int, lParam: int) -> int:  # noqa: N803
         if msg == WM_WTSSESSION_CHANGE:
             self.process_event(lParam, wParam)
         elif msg == win32con.WM_CLOSE:
@@ -87,9 +87,9 @@ class WindowsSessionTrigger(BaseThreadTrigger):
         elif msg == win32con.WM_DESTROY:
             win32gui.PostQuitMessage(0)
             return 0
-        return win32gui.DefWindowProc(hwnd, msg, wParam, lParam)
+        return int(win32gui.DefWindowProc(hwnd, msg, wParam, lParam))
 
-    def process_event(self, session_id, event_code):
+    def process_event(self, session_id: int, event_code: int) -> None:
         try:
             event = WindowsSessionEvent(event_code)
             logger.debug(f"Session {session_id} event={event.name}")
@@ -97,13 +97,13 @@ class WindowsSessionTrigger(BaseThreadTrigger):
             event = None
             logger.debug(f"Session {session_id} OTHER EVENT {event_code}")
 
-        if self.message_queue.full:
+        if self.message_queue.full():
             with self.message_queue.mutex:
                 self.message_queue.queue.clear()
         self.message_queue.put((session_id, event))
         self.trigger()
 
     @override
-    def run(self):
+    def run(self) -> None:
         self._setup_window()
         win32gui.PumpMessages()

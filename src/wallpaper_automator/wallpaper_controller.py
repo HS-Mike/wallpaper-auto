@@ -11,6 +11,7 @@ import signal
 import threading
 
 from .config_store import ConfigStore
+from .models import Rule
 from .resource_manager import ResourceManager
 from .rule_engine import RuleEngine
 from .system_tray import WallpaperSwitchSystemTray
@@ -21,11 +22,13 @@ logger = logging.getLogger(__name__)
 
 
 class WallpaperController:
-    def __init__(self):
+    active_rule: Rule | None
+
+    def __init__(self) -> None:
         self._mutex = threading.Lock()
         self._worker_loop_thread: threading.Thread | None = None
         self._task_queue: queue.Queue[Task] = queue.Queue()
-        self.active_rule = Mode.UNSET
+        self.active_rule = None
         self._config_path: str | None = None
         self._config_store: ConfigStore = ConfigStore()
         self._resource_manager: ResourceManager = ResourceManager()
@@ -37,7 +40,7 @@ class WallpaperController:
         self._tray: WallpaperSwitchSystemTray | None = None
         self._mode: Mode = Mode.UNSET
 
-    def _worker_loop(self):
+    def _worker_loop(self) -> None:
         logger.debug("worker loop thread start")
         while True:
             task = self._task_queue.get()

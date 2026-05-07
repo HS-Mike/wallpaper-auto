@@ -10,7 +10,7 @@ import logging
 import msvcrt
 import os
 import tempfile
-from typing import IO
+from typing import IO, Any
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class ProcessMutex:
     def __init__(self, name: str, lock_dir: str | None = None) -> None:
         base_dir = lock_dir or tempfile.gettempdir()
         self.lock_path: str = os.path.join(base_dir, f"{name}.lock")
-        self.handle: IO | None = None
+        self.handle: IO[Any] | None = None
 
     def lock(self) -> bool:
         """

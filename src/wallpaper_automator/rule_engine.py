@@ -29,7 +29,7 @@ class RuleEngine:
 
     _evaluators: dict[str, BaseEvaluator] = _BUILTIN_EVALUATORS.copy()
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._rules: list[Rule] = []
 
     @classmethod
@@ -43,7 +43,7 @@ class RuleEngine:
             raise ValueError("evaluator must be an instance of BaseEvaluator")
         cls._evaluators[name] = evaluator
 
-    def init(self, rules: list[Rule]):
+    def init(self, rules: list[Rule]) -> None:
         """Load a list of rules to be evaluated."""
         self._rules = rules
 

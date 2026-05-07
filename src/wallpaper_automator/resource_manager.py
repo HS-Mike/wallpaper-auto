@@ -27,7 +27,7 @@ class ResourceManager:
 
     _support_resources = _BUILTIN_RESOURCES.copy()
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._mutex = threading.Lock()
         self._resource_objects: dict[str, BaseResource] = {}
         self._active_resource_id: str | None = None

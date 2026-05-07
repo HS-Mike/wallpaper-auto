@@ -14,7 +14,7 @@ cb_R = TypeVar("cb_R")  # noqa: N816
 
 
 class CallbackRegister[**cb_P, cb_R]:
-    def __init__(self):
+    def __init__(self) -> None:
         self._callback_mutex = threading.Lock()
         self._callbacks: list[Callable[cb_P, cb_R]] = []
 

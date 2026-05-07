@@ -59,7 +59,7 @@ class NetworkTrigger(BaseThreadTrigger):
             logger.error(f"Failed to get network fingerprint: {e}")
             return set()
 
-    def run(self):
+    def run(self) -> None:
         """Initialize COM once for the thread's lifetime"""
         pythoncom.CoInitialize()
         try:
@@ -67,7 +67,7 @@ class NetworkTrigger(BaseThreadTrigger):
         finally:
             pythoncom.CoUninitialize()
 
-    def _run_impl(self):
+    def _run_impl(self) -> None:
         self._last_gateways = self._get_network_fingerprint()
         net_event = KERNEL32.CreateEventW(None, False, False, None)
         overlap = Overlapped()

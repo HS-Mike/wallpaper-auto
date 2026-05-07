@@ -19,7 +19,7 @@ from ..util import callback_register
 
 
 class BaseTrigger(callback_register.CallbackRegister[["BaseTrigger"], None], ABC):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
     def trigger(self) -> None:
@@ -31,7 +31,7 @@ class BaseTrigger(callback_register.CallbackRegister[["BaseTrigger"], None], ABC
 
 
 class BaseThreadTrigger(threading.Thread, BaseTrigger):
-    def __init__(self):
+    def __init__(self) -> None:
         threading.Thread.__init__(self)
         BaseTrigger.__init__(self)
         self.daemon = True

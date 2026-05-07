@@ -9,4 +9,4 @@ from typing import Any
 
 
 class BaseEvaluator:
-    def __call__(self, param: Any) -> bool: ...
+    def __call__(self, param: Any) -> bool: ...  # type: ignore[empty-body]

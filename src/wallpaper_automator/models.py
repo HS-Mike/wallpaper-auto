@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .resource.static_wallpaper import WallpaperStyle
+from .resource.wallpaper_utils import WallpaperStyle
 
 
 class TriggerConfig(BaseModel):
@@ -23,11 +23,14 @@ class ResourceConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def set_single_arg_default(cls, data):
+    def set_single_arg_default(cls, data: Any) -> dict[str, Any]:
+        # model_validator can receive raw data or parsed dict
+        if isinstance(data, dict):
+            return data
         if isinstance(data, str):
             cfg = {"path": data, "style": WallpaperStyle.FILL}
             return {"name": "static_wallpaper", "config": cfg}
-        return data
+        return data  # type: ignore[no-any-return]
 
 
 class ConditionNode(BaseModel):
@@ -67,7 +70,7 @@ class ConditionNode(BaseModel):
         return next(iter(self.model_extra.keys()))  # type: ignore
 
     @property
-    def evaluator_param(self) -> dict:
+    def evaluator_param(self) -> dict[str, Any]:
         if self.is_and or self.is_or:
             raise ValueError("and/or node invalid access")
         return next(iter(self.model_extra.values()))  # type: ignore
@@ -86,7 +89,7 @@ class ConfigModel(BaseModel):
     fallback: str
 
     @model_validator(mode="after")
-    def check_target_exist(self):
+    def check_target_exist(self) -> "ConfigModel":
         if self.fallback not in self.resource.keys():
             raise ValueError(f"Fallback target '{self.fallback}' not found in resource")
         for rule in self.rule:

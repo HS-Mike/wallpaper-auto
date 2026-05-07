@@ -18,7 +18,7 @@ from .util.callback_register import CallbackRegister
 logger = logging.getLogger(__name__)
 
 
-_BUILTIN_TRIGGERS = {
+_BUILTIN_TRIGGERS: dict[str, type[BaseTrigger]] = {
     "network": NetworkTrigger,
     "time": TimeTrigger,
     "windows_session": WindowsSessionTrigger,
@@ -30,13 +30,13 @@ class TriggerManager(CallbackRegister[[], None]):
 
     _support_triggers: dict[str, type[BaseTrigger]] = _BUILTIN_TRIGGERS.copy()
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
         self._triggers: list[BaseTrigger] = []
         self._paused = threading.Event()
 
-    def trigger_callback(self, *args, **kwargs) -> list[None]:
+    def trigger_callback(self, *args: object, **kwargs: object) -> list[None]:
         # supress triggers when manager pause
         if self._paused.is_set():
             return []

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class StaticWallpaper(BaseResource):
     def __init__(
         self,
-        path: PathLike | str,
+        path: PathLike[str] | str,
         style: WallpaperStyle | str = WallpaperStyle.FILL,
         allow_compress: bool = True,
         restore: bool = False,

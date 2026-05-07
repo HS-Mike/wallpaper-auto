@@ -51,14 +51,14 @@ def get_screen_size() -> tuple[int, int]:
 def get_current_wallpaper() -> str:
     """Get the file path of the current desktop wallpaper from registry."""
     key = win32api.RegOpenKeyEx(
-        win32con.HKEY_CURRENT_USER,  # type: ignore
+        win32con.HKEY_CURRENT_USER,
         "Control Panel\\Desktop",
         0,
-        win32con.KEY_QUERY_VALUE,  # type: ignore
+        win32con.KEY_QUERY_VALUE,
     )
     try:
         value, _ = win32api.RegQueryValueEx(key, "Wallpaper")
-        return value
+        return str(value)
     finally:
         win32api.RegCloseKey(key)
 
@@ -66,10 +66,10 @@ def get_current_wallpaper() -> str:
 def get_current_wallpaper_style() -> tuple[str, str]:
     """Get current wallpaper scaling style from registry."""
     key = win32api.RegOpenKeyEx(
-        win32con.HKEY_CURRENT_USER,  # type: ignore
+        win32con.HKEY_CURRENT_USER,
         "Control Panel\\Desktop",
         0,
-        win32con.KEY_QUERY_VALUE,  # type: ignore
+        win32con.KEY_QUERY_VALUE,
     )
     try:
         wallpaper_style, _ = win32api.RegQueryValueEx(key, "WallpaperStyle")
@@ -80,7 +80,7 @@ def get_current_wallpaper_style() -> tuple[str, str]:
         win32api.RegCloseKey(key)
 
 
-def set_wallpaper(image_path: PathLike | str, style: tuple[str, str]) -> None:
+def set_wallpaper(image_path: PathLike[str] | str, style: tuple[str, str]) -> None:
     """
     Set wallpaper via registry and SystemParametersInfo
     """
@@ -91,10 +91,10 @@ def set_wallpaper(image_path: PathLike | str, style: tuple[str, str]) -> None:
     wallpaper_style, tile_wallpaper = style
 
     key = win32api.RegOpenKeyEx(
-        win32con.HKEY_CURRENT_USER,  # type: ignore[arg-type,attr-defined]
+        win32con.HKEY_CURRENT_USER,
         "Control Panel\\Desktop",
         0,
-        win32con.KEY_SET_VALUE,  # type: ignore[attr-defined]
+        win32con.KEY_SET_VALUE,
     )
     win32api.RegSetValueEx(key, "WallpaperStyle", 0, win32con.REG_SZ, wallpaper_style)
     win32api.RegSetValueEx(key, "TileWallpaper", 0, win32con.REG_SZ, tile_wallpaper)
@@ -149,9 +149,9 @@ def get_compress_cached_path(
         scale = max(screen_size[0] / img.width, screen_size[1] / img.height)
         new_w = int(img.width * scale)
         new_h = int(img.height * scale)
-        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS, reducing_gap=3.0)
+        img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS, reducing_gap=3.0)
         ext_upper = ext.upper()
-        img.save(
+        img_resized.save(
             cache_path,
             ext_upper if ext_upper in ("PNG", "JPEG", "JPG") else "PNG",
         )

@@ -31,9 +31,9 @@ class SystemTrayBridge(QObject):
 
     # Signal: Logic layer -> UI layer (for updating the interface)
     # Params: resource_ids, mode, active_rule, active_resource_id
-    update_ui_signal = Signal(list, object, object, str)
+    update_ui_signal = Signal(list, object, object, object)
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         # Callback container: UI layer -> Logic layer (for executing actions)
         self._on_set_mode_handler: Callable[[Mode], None] | None = None
@@ -43,19 +43,19 @@ class SystemTrayBridge(QObject):
 
     # --- external communication to tray (Thread-Safe) ---
 
-    def update_ui(self, r_ids, mode, rule, active_id) -> None:
+    def update_ui(self, r_ids: object, mode: object, rule: object, active_id: str | None) -> None:
         self.update_ui_signal.emit(r_ids, mode, rule, active_id)
 
-    def register_set_mode_handler(self, cb: Callable[[Mode], None]):
+    def register_set_mode_handler(self, cb: Callable[[Mode], None]) -> None:
         self._on_set_mode_handler = cb
 
-    def register_select_resource_handler(self, cb: Callable[[str], None]):
+    def register_select_resource_handler(self, cb: Callable[[str], None]) -> None:
         self._on_select_resource_handler = cb
 
-    def register_quit_handler(self, cb: Callable[[], None]):
+    def register_quit_handler(self, cb: Callable[[], None]) -> None:
         self._on_quit_handler = cb
 
-    def register_update_ui_handler(self, cb: Callable[[], None]):
+    def register_update_ui_handler(self, cb: Callable[[], None]) -> None:
         self._on_update_ui_handler = cb
 
     # --- internal communication to external (Thread-Safe) ---
@@ -64,7 +64,7 @@ class SystemTrayBridge(QObject):
         if self._on_select_resource_handler:
             self._on_select_resource_handler(resource_id)
 
-    def request_set_mode(self, mode) -> None:
+    def request_set_mode(self, mode: Mode) -> None:
         if self._on_set_mode_handler:
             self._on_set_mode_handler(mode)
 
@@ -82,7 +82,7 @@ class WallpaperSwitchSystemTray:
     System tray interface.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._app: QCoreApplication = QApplication(sys.argv)
         self._tray: QSystemTrayIcon | None = None
         self._menu: QMenu | None = None
@@ -127,7 +127,7 @@ class WallpaperSwitchSystemTray:
         resource_ids: list[str],
         mode: Mode,
         active_rule: Rule | None,
-        active_resource_id: str,
+        active_resource_id: str | None,
     ) -> None:
         if self._menu is None:
             raise RuntimeError("menu not initialized")
@@ -178,7 +178,7 @@ class WallpaperSwitchSystemTray:
         sys.exit(self._app.exec())
 
 
-def create_dot_icon(color: QColor, size=10) -> QIcon:
+def create_dot_icon(color: QColor, size: int = 10) -> QIcon:
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
 
@@ -199,7 +199,7 @@ def create_dot_icon(color: QColor, size=10) -> QIcon:
     return icon
 
 
-def get_color(hex_str) -> QColor:
+def get_color(hex_str: str) -> QColor:
     hex_str = hex_str.lstrip("#")
     if len(hex_str) == 8:
         hex_str = hex_str[6:] + hex_str[:6]
