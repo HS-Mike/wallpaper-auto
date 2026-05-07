@@ -24,13 +24,14 @@ class ResourceConfig(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def set_single_arg_default(cls, data: Any) -> dict[str, Any]:
-        # model_validator can receive raw data or parsed dict
         if isinstance(data, dict):
             return data
         if isinstance(data, str):
             cfg = {"path": data, "style": WallpaperStyle.FILL}
             return {"name": "static_wallpaper", "config": cfg}
-        return data  # type: ignore[no-any-return]
+        raise TypeError(
+            f"ResourceConfig data must be a dict or string, got {type(data).__name__}"
+        )
 
 
 class ConditionNode(BaseModel):

@@ -130,6 +130,11 @@ class TestLoad:
         assert rule.condition.or_conditions is not None
         assert rule.condition.or_conditions[0].evaluator == "network"
 
+    def test_resource_config_invalid_type_raises(self):
+        """ResourceConfig raises TypeError for non-dict, non-str input."""
+        with pytest.raises(TypeError, match="ResourceConfig data must be a dict or string"):
+            ResourceConfig.model_validate(42)
+
     def test_load_complex_nested_conditions(self, store: ConfigStore, tmp_path):
         """Load a config with nested and/or condition structure."""
         yaml_str = yaml.dump(
