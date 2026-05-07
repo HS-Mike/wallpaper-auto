@@ -83,7 +83,6 @@ trigger:
 # Available leaf evaluators:
 #   wifi_ssid_is: <ssid_string>
 #   in_time_range: ["HH:MM", "HH:MM"]
-#   in_geo_range:   { lat: <float>, lon: <float>, radius: <km_float> }
 #   day_of_week_is: [0, 1, 2, 3, 4, 5, 6]  # 0=Monday ... 6=Sunday
 # ---------------------------------------------------------------------------
 rule:
@@ -113,16 +112,7 @@ rule:
             - in_time_range: ["06:00", "12:00"]
     target: "black"
 
-  # ── Example 4: Geo-location rule ─────────────────────────────────────────
-  - name: "near_home"
-    condition:
-      in_geo_range:
-        lat: 31.23
-        lon: 121.47
-        radius: 0.5
-    target: "office_view"
-
-  # ── Example 5: Day-of-week rule ──────────────────────────────────────────
+  # ── Example 4: Day-of-week rule ──────────────────────────────────────────
   - name: "weekend_vibes"
     condition:
       day_of_week_is: [5, 6]    # Saturday, Sunday

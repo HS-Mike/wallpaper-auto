@@ -1,6 +1,6 @@
 # Wallpaper Automator
 
-Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, location, day of week).
+Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, day of week).
 
 ## Features
 
@@ -8,7 +8,6 @@ Automatically switches Windows desktop wallpapers based on configurable conditio
 - **Flexible rules**: Supports AND/OR condition combinations, can evaluate multiple conditions simultaneously
 - **Condition types**:
   - `network`: Current connected WiFi name
-  - `location`: GPS coordinates (via IP geolocation)
   - `day_of_week_is`: Day-of-week check (0=Monday ... 6=Sunday)
   - `time_range`: Time range (supports crossing midnight)
 - **System tray control**: System tray menu for manual wallpaper switching and pause/resume auto-switching
@@ -97,11 +96,6 @@ rule:
         - in_time_range: ["23:00", "06:00"]
         - day_of_week_is: [0, 1, 2, 3, 4] # Monday to Friday
     target: "dark_wallpaper"
-  - name: "Traveling"
-    condition:
-      in_geo_range: { lat: 31.23, lon: 121.47, radius: 0.5 }
-    target: "travel_wallpaper"
-
 # 4. Fallback wallpaper (used when no rule matches)
 fallback: "default_wallpaper"
 ```
@@ -186,7 +180,6 @@ Evaluators don't use a `config` block — their parameters are defined inline in
 condition:
   wifi_ssid_is: "Company_WiFi"             # param: SSID string
   in_time_range: ["09:00", "18:00"]         # param: [start, end]
-  in_geo_range: { lat: 31.23, lon: 121.47, radius: 0.5 }  # param: dict
   day_of_week_is: [5, 6]                    # param: list[int]  0=Mon ... 6=Sun
 ```
 
@@ -292,34 +285,36 @@ trigger:
 
 Implement `BaseEvaluator` (a callable interface) and pass an instance through `run_service()`.
 
+For example, here is a geo-location evaluator that checks whether the current machine is within a given radius of a target location:
+
 ```python
 from wallpaper_automator import BaseEvaluator, run_service
 
-class WorkdayEvaluator(BaseEvaluator):
-    def __call__(self, param: bool) -> bool:
-        # Check an external API to determine if today is a workday
-        import datetime
-        import requests
+class GeoEvaluator(BaseEvaluator):
+    """Evaluate whether the current machine is within a given radius
+    of a target location."""
 
-        today = datetime.date.today().isoformat()
-        try:
-            resp = requests.get(
-                f"https://api.example.com/workday/{today}",
-                timeout=5,
-            )
-            return resp.json()["is_workday"] == param
-        except Exception:
-            return False
+    def __call__(self, param: dict) -> bool:
+        # 1. Validate input: param must contain lat, lon, radius
+        # 2. Resolve current location via IP geolocation API
+        # 3. Compute distance between current location and target
+        # 4. Return True if distance <= radius
+        ...
 
-run_service("config.yaml", custom_evaluators={"is_today_workday": WorkdayEvaluator()})
+run_service("config.yaml", custom_evaluators={"in_geo_range": GeoEvaluator()})
 ```
+
+The example above resolves the machine's public IP via a geolocation API, computes the distance using the Haversine formula, and returns ``True`` when the machine is within the configured radius. The actual API call and distance calculation are left as an exercise for the reader -- the pattern shown here is the extensibility contract: subclass ``BaseEvaluator``, implement ``__call__``, and pass an instance to ``run_service()``.
 
 ```yaml
 rule:
-  - name: "Workday"
+  - name: "Near home"
     condition:
-      is_today_workday: true
-    target: "work_wallpaper"
+      in_geo_range:
+        lat: 31.23
+        lon: 121.47
+        radius: 0.5
+    target: "home_wallpaper"
 ```
 
 ### Registering All Three Together
@@ -342,7 +337,7 @@ run_service(
     "config.yaml",
     custom_triggers={"my_trigger": MyTrigger},
     custom_resources={"my_resource": MyResource},
-    custom_evaluators={"my_evaluator": MyEvaluator()},
+    custom_evaluators={"in_geo_range": MyEvaluator()},
 )
 ```
 
@@ -355,7 +350,7 @@ from wallpaper_automator import ResourceManager, RuleEngine, TriggerManager, run
 
 ResourceManager.register_resource("online", OnlineResource)
 TriggerManager.register_trigger("usb_plug", UsbPlugTrigger)
-RuleEngine.register_evaluator("is_today_workday", WorkdayEvaluator())
+RuleEngine.register_evaluator("in_geo_range", GeoEvaluator())
 
 run_service("config.yaml")
 ```
@@ -388,8 +383,7 @@ src/wallpaper_automator/
 │   ├── base_evaluator.py      #   BaseEvaluator callable interface
 │   ├── wifi_ssid_evaluator.py #   netsh-based WiFi SSID matching
 │   ├── weekday_evaluator.py   #   Day-of-week check (0=Monday … 6=Sunday)
-│   ├── time_range_evaluator.py#   Time range check (supports midnight crossing)
-│   └── geo_evaluator.py       #   IP geolocation + Haversine distance check
+│   └── time_range_evaluator.py#   Time range check (supports midnight crossing)
 │
 ├── resource/                  # Wallpaper resource implementations
 │   ├── base_resource.py       #   BaseResource abstract class with temp cache mgmt
@@ -409,7 +403,6 @@ src/wallpaper_automator/
 - PySide6 — system tray UI
 - pywin32 — Windows wallpaper API (SystemParametersInfo) & session monitoring
 - Pillow — image resize/compress for wallpaper caching
-- requests — IP geolocation API calls
 
 ## License
 

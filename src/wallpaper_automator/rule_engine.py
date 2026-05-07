@@ -8,7 +8,6 @@ and returns the first matching rule.
 import logging
 
 from .evaluator.base_evaluator import BaseEvaluator
-from .evaluator.geo_evaluator import GeoEvaluator
 from .evaluator.time_range_evaluator import TimeRangeEvaluator
 from .evaluator.weekday_evaluator import WeekdayEvaluator
 from .evaluator.wifi_ssid_evaluator import WIFISsidEvaluator
@@ -19,7 +18,6 @@ logger = logging.getLogger(__name__)
 _BUILTIN_EVALUATORS: dict[str, BaseEvaluator] = {
     "wifi_ssid_is": WIFISsidEvaluator(),
     "in_time_range": TimeRangeEvaluator(),
-    "in_geo_range": GeoEvaluator(),
     "day_of_week_is": WeekdayEvaluator(),
 }
 

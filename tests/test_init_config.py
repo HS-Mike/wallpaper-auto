@@ -116,7 +116,7 @@ class TestConfigValidity:
                 branch = rule["condition"]
                 all_keys.add(next(iter(branch)))
 
-        expected = {"wifi_ssid_is", "in_time_range", "in_geo_range", "day_of_week_is"}
+        expected = {"wifi_ssid_is", "in_time_range", "day_of_week_is"}
         assert expected.issubset(all_keys), f"Missing evaluators: {expected - all_keys}"
 
     def test_template_has_and_or_conditions(self, tmp_path):
