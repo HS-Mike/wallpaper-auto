@@ -403,7 +403,7 @@ src/wallpaper_automator/
 
 ## Dependencies
 
-- Python 3.9+
+- Python 3.12+
 - PyYAML — config file parsing
 - Pydantic >=2.0 — config validation & data models
 - PySide6 — system tray UI
