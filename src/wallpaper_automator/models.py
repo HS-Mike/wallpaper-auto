@@ -29,9 +29,7 @@ class ResourceConfig(BaseModel):
         if isinstance(data, str):
             cfg = {"path": data, "style": WallpaperStyle.FILL}
             return {"name": "static_wallpaper", "config": cfg}
-        raise TypeError(
-            f"ResourceConfig data must be a dict or string, got {type(data).__name__}"
-        )
+        raise TypeError(f"ResourceConfig data must be a dict or string, got {type(data).__name__}")
 
 
 class ConditionNode(BaseModel):
