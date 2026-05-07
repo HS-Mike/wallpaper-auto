@@ -350,7 +350,7 @@ from wallpaper_automator import ResourceManager, RuleEngine, TriggerManager, run
 
 ResourceManager.register_resource("online", OnlineResource)
 TriggerManager.register_trigger("usb_plug", UsbPlugTrigger)
-RuleEngine.register_evaluator("in_geo_range", GeoEvaluator())
+RuleEngine.register_evaluator("my_evaluator", MyEvaluator())
 
 run_service("config.yaml")
 ```
