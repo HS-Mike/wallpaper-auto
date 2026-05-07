@@ -3,9 +3,9 @@
 import pytest
 from PySide6.QtWidgets import QApplication
 
+from wallpaper_automator.models import ConditionNode, Rule
 from wallpaper_automator.system_tray import WallpaperSwitchSystemTray
 from wallpaper_automator.task import Mode
-from wallpaper_automator.models import ConditionNode, Rule
 
 
 @pytest.fixture(autouse=True)
@@ -62,9 +62,9 @@ class TestMenuRendering:
                 name="Work",
                 condition=ConditionNode(**{"random_condition": "random_param"}),  # type: ignore
                 target="random_target",
-                ),
-            active_id
-            )
+            ),
+            active_id,
+        )
 
         actions = tray_app._menu.actions()
 
@@ -121,9 +121,11 @@ class TestCallbacks:
     def test_bridge_request_update_ui(self, tray_app):
         """Register and invoke update_ui handler through bridge."""
         called = False
+
         def handler():
             nonlocal called
             called = True
+
         tray_app.bridge.register_update_ui_handler(handler)
         tray_app.bridge.request_update_ui()
         assert called
@@ -135,6 +137,7 @@ class TestUtilityFunctions:
     def test_utility_functions(self):
         """Test helper functions."""
         from wallpaper_automator.system_tray import get_color
+
         color = get_color("#112233FF")  # FF moved to front -> #FF112233
         assert color.alpha() == 255
         assert color.red() == 0x11
@@ -146,6 +149,7 @@ class TestEdgeCases:
     def test_on_tray_activated_when_tray_or_menu_none(self):
         """_on_tray_activated handles None _tray/_menu gracefully."""
         from PySide6.QtWidgets import QSystemTrayIcon
+
         tray = _make_tray()
         tray._on_tray_activated(QSystemTrayIcon.ActivationReason.Trigger)
 
@@ -154,7 +158,7 @@ class TestEdgeCases:
         from PySide6.QtWidgets import QSystemTrayIcon
 
         exec_called = []
-        monkeypatch.setattr(tray_app._menu, 'exec', lambda pos: exec_called.append(True))
+        monkeypatch.setattr(tray_app._menu, "exec", lambda pos: exec_called.append(True))
 
         tray_app._on_tray_activated(QSystemTrayIcon.ActivationReason.Trigger)
         assert len(exec_called) == 1
@@ -171,14 +175,12 @@ class TestEdgeCases:
     def test_exec_starts_event_loop(self, monkeypatch):
         """exec() creates QTimer and calls _app.exec (lines 174-177)."""
         import sys
-        from PySide6.QtCore import QTimer
 
         exec_called = []
-        monkeypatch.setattr(sys, 'exit', lambda code: None)
+        monkeypatch.setattr(sys, "exit", lambda code: None)
 
         tray = _make_tray()
-        original_exec = tray._app.exec
-        monkeypatch.setattr(tray._app, 'exec', lambda: exec_called.append(True))
+        monkeypatch.setattr(tray._app, "exec", lambda: exec_called.append(True))
 
         tray.exec()
         assert len(exec_called) == 1

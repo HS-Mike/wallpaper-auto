@@ -35,6 +35,7 @@ Usage (programmatic)::
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 from typing import Literal, Optional
@@ -48,7 +49,6 @@ from .trigger.base_trigger import BaseTrigger
 from .trigger_manager import TriggerManager
 from .wallpaper_controller import WallpaperController
 
-
 _LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
@@ -60,9 +60,8 @@ def _setup_logging(level: _LogLevel) -> None:
     )
 
 
-def _build_parser() -> "argparse.ArgumentParser":
+def _build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
-    import argparse
 
     parser = argparse.ArgumentParser(prog="wallpaper-automator")
     parser.add_argument("-c", "--config", default="config.yaml", help="Path to config file")
@@ -153,7 +152,6 @@ def run_service(
                 sys.exit(1)
             return
 
-        config_path = args.config
         log_level = args.log_level
 
         _setup_logging(log_level)
@@ -162,8 +160,7 @@ def run_service(
         try:
             with ProcessMutex("wallpaper_automator"):
                 _run_service_impl(
-                    config_path,
-                    log_level,
+                    args.config,
                     custom_triggers,
                     custom_resources,
                     custom_evaluators,
@@ -176,7 +173,6 @@ def run_service(
     # ── Programmatic mode ─────────────────────────────────────────────
     _run_service_impl(
         config_path,
-        log_level,
         custom_triggers,
         custom_resources,
         custom_evaluators,
@@ -185,10 +181,9 @@ def run_service(
 
 def _run_service_impl(
     config_path: str,
-    log_level: _LogLevel = "DEBUG",
-    custom_triggers: Optional[dict[str, type[BaseTrigger]]] = None,
-    custom_resources: Optional[dict[str, type[BaseResource]]] = None,
-    custom_evaluators: Optional[dict[str, BaseEvaluator]] = None,
+    custom_triggers: dict[str, type[BaseTrigger]] | None = None,
+    custom_resources: dict[str, type[BaseResource]] | None = None,
+    custom_evaluators: dict[str, BaseEvaluator] | None = None,
 ) -> None:
     """Shared startup logic used by both CLI and programmatic modes."""
 

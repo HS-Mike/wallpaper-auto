@@ -1,12 +1,12 @@
 """Tests for resource_manager.py — resource lifecycle and registration."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
-from wallpaper_automator.resource_manager import ResourceManager, _BUILTIN_RESOURCES
-from wallpaper_automator.models import ResourceConfig
+import pytest
 
+from wallpaper_automator.models import ResourceConfig
 from wallpaper_automator.resource.base_resource import BaseResource
+from wallpaper_automator.resource_manager import _BUILTIN_RESOURCES, ResourceManager
 
 
 @pytest.fixture
@@ -46,10 +46,17 @@ class TestResourceManagerRegisterResource:
     The class must be BaseResource or a subclass thereof.
     """
 
-    @pytest.mark.parametrize("resource_cls", [
-        BaseResource,
-        type("CustomResource", (BaseResource,), {"mount": lambda s: None, "demount": lambda s: None}),
-    ])
+    @pytest.mark.parametrize(
+        "resource_cls",
+        [
+            BaseResource,
+            type(
+                "CustomResource",
+                (BaseResource,),
+                {"mount": lambda s: None, "demount": lambda s: None},
+            ),
+        ],
+    )
     def test_register_valid_class_succeeds(self, resource_cls):
         """BaseResource and its subclasses can be registered."""
         with patch.dict(ResourceManager._support_resources, clear=False):
@@ -88,8 +95,12 @@ class TestResourceManagerInitResources:
     def test_init_multiple_resources(self, mgr):
         """init creates multiple resources when given multiple config entries."""
         mock_cls = MagicMock(return_value=_mock_resource())
+        cfgs = {
+            "r1": ResourceConfig(name="mock", config={}),
+            "r2": ResourceConfig(name="mock", config={}),
+        }
         with patch.object(ResourceManager, "_support_resources", {"mock": mock_cls}):
-            mgr.init({"r1": ResourceConfig(name="mock", config={}), "r2": ResourceConfig(name="mock", config={})})
+            mgr.init(cfgs)
         assert len(mgr._resource_objects) == 2
 
     def test_init_unknown_resource_raises(self, mgr):
@@ -119,6 +130,7 @@ class TestResourceManagerInitResources:
     def test_init_with_static_wallpaper_real_image(self, mgr, tmp_path):
         """init creates a real StaticWallpaper when given a valid image path."""
         from PIL import Image
+
         from wallpaper_automator.resource.static_wallpaper import StaticWallpaper
 
         img_path = tmp_path / "test.jpg"

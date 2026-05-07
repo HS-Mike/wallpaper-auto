@@ -14,17 +14,16 @@ def evaluator():
 
 
 class TestTimeRangeEvaluator:
-
     # ── Normal range (start <= end) ──
 
     @pytest.mark.parametrize(
         "now_time,expected",
         [
-            (real_dt.time(8, 0), False),   # before
-            (real_dt.time(9, 0), True),    # at start (inclusive)
-            (real_dt.time(12, 0), True),   # within
+            (real_dt.time(8, 0), False),  # before
+            (real_dt.time(9, 0), True),  # at start (inclusive)
+            (real_dt.time(12, 0), True),  # within
             (real_dt.time(17, 30), True),  # at end (inclusive)
-            (real_dt.time(17, 31), False), # after (minute granularity)
+            (real_dt.time(17, 31), False),  # after (minute granularity)
             (real_dt.time(18, 0), False),  # after
         ],
     )
@@ -42,13 +41,13 @@ class TestTimeRangeEvaluator:
     @pytest.mark.parametrize(
         "now_time,expected",
         [
-            (real_dt.time(6, 30), True),   # at end (inclusive)
+            (real_dt.time(6, 30), True),  # at end (inclusive)
             (real_dt.time(6, 31), False),  # after end, before start
             (real_dt.time(12, 0), False),  # outside gap
             (real_dt.time(21, 0), False),  # before start
-            (real_dt.time(22, 0), True),   # at start (inclusive)
-            (real_dt.time(23, 0), True),   # after start
-            (real_dt.time(3, 0), True),    # before end
+            (real_dt.time(22, 0), True),  # at start (inclusive)
+            (real_dt.time(23, 0), True),  # after start
+            (real_dt.time(3, 0), True),  # before end
         ],
     )
     def test_overnight_range(self, evaluator, now_time, expected):
@@ -65,9 +64,9 @@ class TestTimeRangeEvaluator:
     @pytest.mark.parametrize(
         "now_time,expected",
         [
-            (real_dt.time(12, 0), True),   # matches the exact time
+            (real_dt.time(12, 0), True),  # matches the exact time
             (real_dt.time(12, 1), False),  # one minute off
-            (real_dt.time(11, 59), False), # one minute off the other way
+            (real_dt.time(11, 59), False),  # one minute off the other way
         ],
     )
     def test_start_equals_end(self, evaluator, now_time, expected):

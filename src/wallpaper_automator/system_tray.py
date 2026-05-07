@@ -4,18 +4,18 @@ System tray UI.
 Provides a PySide6-based system tray icon and menu for manual wallpaper
 selection, mode switching (AUTO/MANUAL), and shutdown.
 """
+
 import logging
 import sys
+from collections.abc import Callable
 from importlib.resources import files
-from typing import Callable
 
-from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
-from PySide6.QtGui import QIcon, QAction, QPixmap, QCursor, QPainter, QColor
-from PySide6.QtCore import QCoreApplication, Qt, QObject, Signal, QTimer
+from PySide6.QtCore import QCoreApplication, QObject, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QColor, QCursor, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from .task import Mode
 from .models import Rule
-
+from .task import Mode
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ class SystemTrayBridge(QObject):
     """
     Full-duplex compatibility layer.
     """
+
     # Signal: Logic layer -> UI layer (for updating the interface)
     # Params: resource_ids, mode, active_rule, active_resource_id
     update_ui_signal = Signal(list, object, object, str)
@@ -41,7 +42,7 @@ class SystemTrayBridge(QObject):
         self._on_update_ui_handler: Callable[[], None] | None = None
 
     # --- external communication to tray (Thread-Safe) ---
-    
+
     def update_ui(self, r_ids, mode, rule, active_id) -> None:
         self.update_ui_signal.emit(r_ids, mode, rule, active_id)
 
@@ -50,7 +51,7 @@ class SystemTrayBridge(QObject):
 
     def register_select_resource_handler(self, cb: Callable[[str], None]):
         self._on_select_resource_handler = cb
-    
+
     def register_quit_handler(self, cb: Callable[[], None]):
         self._on_quit_handler = cb
 
@@ -66,7 +67,7 @@ class SystemTrayBridge(QObject):
     def request_set_mode(self, mode) -> None:
         if self._on_set_mode_handler:
             self._on_set_mode_handler(mode)
-    
+
     def request_update_ui(self) -> None:
         if self._on_update_ui_handler:
             self._on_update_ui_handler()
@@ -76,7 +77,7 @@ class SystemTrayBridge(QObject):
             self._on_quit_handler()
 
 
-class WallpaperSwitchSystemTray():
+class WallpaperSwitchSystemTray:
     """
     System tray interface.
     """
@@ -120,18 +121,25 @@ class WallpaperSwitchSystemTray():
             self._tray = None
         if self._menu is not None:
             self._menu = None
-    
-    def update_menu(self, resource_ids: list[str], mode: Mode, active_rule: Rule | None, active_resource_id: str) -> None:
+
+    def update_menu(
+        self,
+        resource_ids: list[str],
+        mode: Mode,
+        active_rule: Rule | None,
+        active_resource_id: str,
+    ) -> None:
         if self._menu is None:
             raise RuntimeError("menu not initialized")
         self._menu.clear()
         self._action_groups.clear()
-        
+
         auto_switch_action = QAction("AUTO", self._menu)
         auto_switch_action.triggered.connect(lambda: self.bridge.request_set_mode(Mode.AUTO))
         self._menu.addAction(auto_switch_action)
         if mode == Mode.AUTO:
-            auto_switch_action.setToolTip(f"{'fallback' if active_rule is None else active_rule.name}")
+            tip = f"{'fallback' if active_rule is None else active_rule.name}"
+            auto_switch_action.setToolTip(tip)
             auto_switch_action.setIcon(create_dot_icon(get_color(AUTO_MODE_COLOR)))
             auto_switch_action.setEnabled(False)
         manual_switch_action = QAction("MANUAL", self._menu)
@@ -147,10 +155,10 @@ class WallpaperSwitchSystemTray():
             action = QAction(f"{rid}")
             action.triggered.connect(lambda checked, r=rid: self.bridge.request_select_resource(r))
             if rid == active_resource_id:
-                if mode == Mode.AUTO:  
-                    action.setIcon(create_dot_icon(get_color(AUTO_MODE_COLOR))) 
+                if mode == Mode.AUTO:
+                    action.setIcon(create_dot_icon(get_color(AUTO_MODE_COLOR)))
                 elif mode == Mode.MANUAL:
-                    action.setIcon(create_dot_icon(get_color(MANUAL_MODE_COLOR)))  
+                    action.setIcon(create_dot_icon(get_color(MANUAL_MODE_COLOR)))
             if mode == Mode.AUTO:
                 action.setEnabled(False)
             self._menu.addAction(action)
@@ -176,23 +184,23 @@ def create_dot_icon(color: QColor, size=10) -> QIcon:
 
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
+
     painter.setBrush(color)
     painter.setPen(Qt.PenStyle.NoPen)
-    
+
     margin = size // 4
     painter.drawEllipse(margin, margin, size - 2 * margin, size - 2 * margin)
     painter.end()
-    
+
     icon = QIcon()
     icon.addPixmap(pixmap, QIcon.Mode.Normal, QIcon.State.On)
     icon.addPixmap(pixmap, QIcon.Mode.Disabled, QIcon.State.On)
-    
+
     return icon
 
 
 def get_color(hex_str) -> QColor:
-    hex_str = hex_str.lstrip('#')
+    hex_str = hex_str.lstrip("#")
     if len(hex_str) == 8:
         hex_str = hex_str[6:] + hex_str[:6]
     return QColor(f"#{hex_str}")

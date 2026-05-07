@@ -228,7 +228,7 @@ class TestMainDelegation:
 class TestSetupLogging:
     """``_setup_logging()`` configures the root logger."""
 
-    def test_uses_basicConfig(self):
+    def test_uses_basicConfig(self):  # noqa: N802
         with patch("wallpaper_automator.service.logging.basicConfig") as mock_bc:
             _setup_logging("INFO")
         mock_bc.assert_called_once()
@@ -332,7 +332,10 @@ class TestRunServiceCLIMode:
             run_service()
 
         mock_impl.assert_called_once_with(
-            "config.yaml", "DEBUG", None, None, None,
+            "config.yaml",
+            None,
+            None,
+            None,
         )
 
     def test_cli_config_and_log_level(self):
@@ -344,7 +347,10 @@ class TestRunServiceCLIMode:
             run_service()
 
         mock_impl.assert_called_once_with(
-            "prod.yaml", "INFO", None, None, None,
+            "prod.yaml",
+            None,
+            None,
+            None,
         )
 
     def test_cli_custom_triggers_forwarded(self):
@@ -362,8 +368,10 @@ class TestRunServiceCLIMode:
             )
 
         mock_impl.assert_called_once_with(
-            "config.yaml", "DEBUG",
-            {"t1": t_cls}, {"r1": r_cls}, {"e1": e_inst},
+            "config.yaml",
+            {"t1": t_cls},
+            {"r1": r_cls},
+            {"e1": e_inst},
         )
 
     def test_cli_init_config(self):

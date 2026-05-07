@@ -4,14 +4,13 @@ Time-based trigger.
 Fires callbacks at configured fixed times of day or at regular intervals,
 supporting both one-shot time points and periodic intervals.
 """
-import logging
+
 import datetime
-import threading
+import logging
 import math
-from typing import List, Optional
+import threading
 
 from .base_trigger import BaseThreadTrigger
-
 
 logger = logging.getLogger(__name__)
 
@@ -19,16 +18,16 @@ logger = logging.getLogger(__name__)
 class TimeTrigger(BaseThreadTrigger):
     def __init__(
         self,
-        interval: Optional[int | float] = None,
-        times: Optional[list[str | datetime.time]] = None,
+        interval: int | float | None = None,
+        times: list[str | datetime.time] | None = None,
     ):
         super().__init__()
         self._lock = threading.Lock()
         self._update_event = threading.Event()
 
-        self._fixed_times: List[datetime.time] = []
-        self._interval: Optional[datetime.timedelta] = None
-        self._reference_time: Optional[datetime.datetime] = None
+        self._fixed_times: list[datetime.time] = []
+        self._interval: datetime.timedelta | None = None
+        self._reference_time: datetime.datetime | None = None
 
         if times is not None:
             t = [datetime.time.fromisoformat(t) if isinstance(t, str) else t for t in times]
@@ -37,7 +36,7 @@ class TimeTrigger(BaseThreadTrigger):
         if interval is not None:
             self.set_interval(datetime.timedelta(seconds=interval))
 
-    def update_fixed_times(self, times: List[datetime.time]) -> None:
+    def update_fixed_times(self, times: list[datetime.time]) -> None:
         """update fixed daily trigger time points. Call with [] to clear all."""
         with self._lock:
             # Merge and deduplicate, keeping order
@@ -45,7 +44,11 @@ class TimeTrigger(BaseThreadTrigger):
         logger.info(f"time trigger fixed times update: {self._fixed_times}")
         self._update_event.set()
 
-    def set_interval(self, interval: datetime.timedelta, reference_time: Optional[datetime.datetime] = None) -> None:
+    def set_interval(
+        self,
+        interval: datetime.timedelta,
+        reference_time: datetime.datetime | None = None,
+    ) -> None:
         """
         Set fixed interval triggering with reference time point.
         If reference_time is not provided, use current time reference_time
@@ -54,7 +57,11 @@ class TimeTrigger(BaseThreadTrigger):
             self._interval = interval
             self._reference_time = reference_time or datetime.datetime.now()
             ref_time = self._reference_time
-        logger.info(f"time trigger interval set to {interval} starting from {ref_time:%y-%m-%d %H:%M:%S}")
+        logger.info(
+            "time trigger interval set to %s starting from %s",
+            interval,
+            ref_time.strftime("%y-%m-%d %H:%M:%S"),
+        )
         self._update_event.set()
 
     def clear_interval(self) -> None:
@@ -74,7 +81,7 @@ class TimeTrigger(BaseThreadTrigger):
         """
         with self._lock:
             now = datetime.datetime.now()
-            candidates: List[datetime.datetime] = []
+            candidates: list[datetime.datetime] = []
             tolerance = datetime.timedelta(seconds=0.1)
 
             for t in self._fixed_times:
@@ -101,7 +108,7 @@ class TimeTrigger(BaseThreadTrigger):
 
             next_event = min(candidates)
             return (next_event - now).total_seconds()
-    
+
     def activate(self) -> None:
         super().activate()
         logger.debug(f"{self.__class__.__name__} activate")

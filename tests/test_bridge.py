@@ -7,9 +7,9 @@ Does NOT involve WallpaperSwitchSystemTray — only the bridge layer.
 import pytest
 from PySide6.QtCore import QObject
 
+from wallpaper_automator.models import ConditionNode, Rule
 from wallpaper_automator.system_tray import SystemTrayBridge
 from wallpaper_automator.task import Mode
-from wallpaper_automator.models import ConditionNode, Rule
 
 
 @pytest.fixture
@@ -108,27 +108,33 @@ class TestRegisterQuitHandler:
 
     def test_register_and_invoke(self, bridge):
         called = False
+
         def handler():
             nonlocal called
             called = True
+
         bridge.register_quit_handler(handler)
         bridge.request_quit()
         assert called
 
     def test_called_only_once_per_request(self, bridge):
         count = 0
+
         def handler():
             nonlocal count
             count += 1
+
         bridge.register_quit_handler(handler)
         bridge.request_quit()
         assert count == 1
 
     def test_register_none_disables(self, bridge):
         called = False
+
         def handler():
             nonlocal called
             called = True
+
         bridge.register_quit_handler(handler)
         bridge.register_quit_handler(None)
         bridge.request_quit()
@@ -143,18 +149,22 @@ class TestRegisterUpdateUiHandler:
 
     def test_register_and_invoke(self, bridge):
         called = False
+
         def handler():
             nonlocal called
             called = True
+
         bridge.register_update_ui_handler(handler)
         bridge.request_update_ui()
         assert called
 
     def test_invoke_multiple_times(self, bridge):
         count = 0
+
         def handler():
             nonlocal count
             count += 1
+
         bridge.register_update_ui_handler(handler)
         bridge.request_update_ui()
         bridge.request_update_ui()
@@ -163,9 +173,11 @@ class TestRegisterUpdateUiHandler:
 
     def test_register_none_disables(self, bridge):
         called = False
+
         def handler():
             nonlocal called
             called = True
+
         bridge.register_update_ui_handler(handler)
         bridge.register_update_ui_handler(None)
         bridge.request_update_ui()
@@ -218,6 +230,7 @@ class TestAllCallbacksIndependent:
 
     def test_partial_registration(self, bridge):
         mode_called = False
+
         def on_mode(m):
             nonlocal mode_called
             mode_called = True
@@ -226,9 +239,9 @@ class TestAllCallbacksIndependent:
         # Do NOT register other handlers
 
         bridge.request_set_mode(Mode.AUTO)
-        bridge.request_select_resource("x")   # should be noop
-        bridge.request_update_ui()             # should be noop
-        bridge.request_quit()                  # should be noop
+        bridge.request_select_resource("x")  # should be noop
+        bridge.request_update_ui()  # should be noop
+        bridge.request_quit()  # should be noop
 
         assert mode_called
 
@@ -237,7 +250,8 @@ class TestBridgeUpdateUiMethod:
     """The update_ui() method emits signals. Tests may need qtbot."""
 
     def test_emit_signal_with_all_args(self, bridge, qtbot):
-        rule = Rule(name="test", condition=ConditionNode.model_validate({"wifi_ssid_is": "OfficeWiFi"}), target="tgt")
+        cond = ConditionNode.model_validate({"wifi_ssid_is": "OfficeWiFi"})
+        rule = Rule(name="test", condition=cond, target="tgt")
 
         with qtbot.waitSignal(bridge.update_ui_signal, timeout=1000) as blocker:
             bridge.update_ui(["r1", "r2"], Mode.AUTO, rule, "r1")
@@ -301,7 +315,7 @@ class TestBridgeEdgeCases:
 
     def test_handler_raises_exception(self, bridge):
         """A handler raising should propagate to the caller."""
-        bridge.register_set_mode_handler(lambda m: 1/0)
+        bridge.register_set_mode_handler(lambda m: 1 / 0)
         with pytest.raises(ZeroDivisionError):
             bridge.request_set_mode(Mode.AUTO)
 

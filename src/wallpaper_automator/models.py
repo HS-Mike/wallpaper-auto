@@ -4,9 +4,10 @@ Pydantic data models for the wallpaper automator configuration.
 Includes models for triggers, resources, rules (with AND/OR condition trees),
 and the top-level config. Validates that all rule targets reference existing resources.
 """
+
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .resource.static_wallpaper import WallpaperStyle
 
@@ -20,16 +21,17 @@ class ResourceConfig(BaseModel):
     name: str
     config: dict[str, Any]
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
     def set_single_arg_default(cls, data):
         if isinstance(data, str):
-            return {"name": "static_wallpaper", "config": {"path": data, "style": WallpaperStyle.FILL}}
+            cfg = {"path": data, "style": WallpaperStyle.FILL}
+            return {"name": "static_wallpaper", "config": cfg}
         return data
 
 
 class ConditionNode(BaseModel):
-    model_config = ConfigDict(extra='allow', frozen=True)
+    model_config = ConfigDict(extra="allow", frozen=True)
 
     and_conditions: list["ConditionNode"] | None = Field(default=None, alias="and")
     or_conditions: list["ConditionNode"] | None = Field(default=None, alias="or")
@@ -43,7 +45,7 @@ class ConditionNode(BaseModel):
             raise ValueError("must provide only one key")
         return data
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def check_extra_structure(self) -> "ConditionNode":
         if not self.is_and and not self.is_or:
             if not self.model_extra:
@@ -62,13 +64,13 @@ class ConditionNode(BaseModel):
     def evaluator(self) -> str:
         if self.is_and or self.is_or:
             raise ValueError("and/or node invalid access")
-        return next(iter(self.model_extra.keys())) # type: ignore
+        return next(iter(self.model_extra.keys()))  # type: ignore
 
     @property
     def evaluator_param(self) -> dict:
         if self.is_and or self.is_or:
             raise ValueError("and/or node invalid access")
-        return next(iter(self.model_extra.values())) # type: ignore
+        return next(iter(self.model_extra.values()))  # type: ignore
 
 
 class Rule(BaseModel):

@@ -4,6 +4,7 @@ Day-of-week condition evaluator.
 Checks whether the current day matches a given list of weekday numbers
 (0=Monday, 6=Sunday), using only local ``datetime`` — no external API.
 """
+
 import datetime
 
 from .base_evaluator import BaseEvaluator
@@ -28,9 +29,7 @@ class WeekdayEvaluator(BaseEvaluator):
                 f"expected list[int], got {type(param).__name__}"
             )
         if not param:
-            raise ValueError(
-                f"invalid {WeekdayEvaluator.__name__} param: list must not be empty"
-            )
+            raise ValueError(f"invalid {WeekdayEvaluator.__name__} param: list must not be empty")
         for i, val in enumerate(param):
             if not isinstance(val, int) or isinstance(val, bool):
                 raise ValueError(

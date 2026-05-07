@@ -1,7 +1,9 @@
 """Tests for network_trigger.py — WiFi network change detection via WMI."""
+# ruff: noqa: N806 — mock names match uppercase Win32 constant names
+
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from wallpaper_automator.trigger.network_trigger import NetworkTrigger
 
@@ -36,8 +38,8 @@ class TestNetworkTrigger:
         monitor = NetworkTrigger()
         monitor._exit_event = 0xBEEF
 
-        with patch.object(monitor, 'trigger') as mock_trigger:
-            with patch.object(monitor, '_get_network_fingerprint') as mock_fingerprint:
+        with patch.object(monitor, "trigger") as mock_trigger:
+            with patch.object(monitor, "_get_network_fingerprint") as mock_fingerprint:
                 mock_fingerprint.side_effect = [
                     {"eth_192.168.1.1"},  # initial fingerprint
                     {"wifi_192.168.2.1"},  # after network change
@@ -56,8 +58,8 @@ class TestNetworkTrigger:
         monitor = NetworkTrigger()
         monitor._exit_event = 0xBEEF
 
-        with patch.object(monitor, 'trigger') as mock_trigger:
-            with patch.object(monitor, '_get_network_fingerprint', return_value={"same_gateway"}):
+        with patch.object(monitor, "trigger") as mock_trigger:
+            with patch.object(monitor, "_get_network_fingerprint", return_value={"same_gateway"}):
                 mock_KERNEL32.WaitForMultipleObjects.side_effect = [0, 1]
 
                 monitor.run()
@@ -71,14 +73,14 @@ class TestNetworkTrigger:
         monitor = NetworkTrigger()
         monitor._exit_event = 0xBEEF
 
-        with patch.object(monitor, '_get_network_fingerprint', return_value=set()):
+        with patch.object(monitor, "_get_network_fingerprint", return_value=set()):
             monitor.run()
 
             mock_KERNEL32.WaitForMultipleObjects.assert_not_called()
 
     def test_get_network_fingerprint_logic(self):
         """Network fingerprint parsing extracts strings from WMI config"""
-        with patch('wallpaper_automator.trigger.network_trigger.wmi') as mock_wmi:
+        with patch("wallpaper_automator.trigger.network_trigger.wmi") as mock_wmi:
             mock_config = MagicMock()
             mock_config.Description = "Realtek Ethernet"
             mock_config.DefaultIPGateway = ["192.168.1.1"]
@@ -90,7 +92,7 @@ class TestNetworkTrigger:
 
     def test_get_network_fingerprint_handles_exception(self):
         """Network fingerprint returns empty set on WMI exception"""
-        with patch('wallpaper_automator.trigger.network_trigger.wmi') as mock_wmi:
+        with patch("wallpaper_automator.trigger.network_trigger.wmi") as mock_wmi:
             mock_wmi.WMI.side_effect = Exception("COM error")
 
             fingerprint = NetworkTrigger._get_network_fingerprint()
@@ -99,7 +101,7 @@ class TestNetworkTrigger:
 
     def test_get_network_fingerprint_skips_no_gateway(self):
         """Network fingerprint skips adapters without a default gateway"""
-        with patch('wallpaper_automator.trigger.network_trigger.wmi') as mock_wmi:
+        with patch("wallpaper_automator.trigger.network_trigger.wmi") as mock_wmi:
             mock_config1 = MagicMock()
             mock_config1.Description = "WiFi"
             mock_config1.DefaultIPGateway = ["10.0.0.1"]
@@ -109,7 +111,8 @@ class TestNetworkTrigger:
             mock_config2.DefaultIPGateway = None  # no gateway
 
             mock_wmi.WMI.return_value.Win32_NetworkAdapterConfiguration.return_value = [
-                mock_config1, mock_config2,
+                mock_config1,
+                mock_config2,
             ]
 
             fingerprint = NetworkTrigger._get_network_fingerprint()
@@ -123,7 +126,7 @@ class TestNetworkTrigger:
         monitor = NetworkTrigger()
         monitor._exit_event = 0xBEEF
 
-        with patch.object(monitor, '_get_network_fingerprint', return_value=set()):
+        with patch.object(monitor, "_get_network_fingerprint", return_value=set()):
             monitor.run()
 
             mock_pythoncom.CoInitialize.assert_called_once()
@@ -136,7 +139,7 @@ class TestNetworkTrigger:
         mock_kernel32.CreateEventW.return_value = 0xCAFE
         monitor = NetworkTrigger()
 
-        with patch('threading.Thread.start') as mock_start:
+        with patch("threading.Thread.start") as mock_start:
             monitor.activate()
 
             mock_kernel32.CreateEventW.assert_called_once_with(None, False, False, None)
@@ -149,7 +152,7 @@ class TestNetworkTrigger:
         monitor = NetworkTrigger()
         monitor._exit_event = 0xDEAD
 
-        with patch('threading.Thread.start'):
+        with patch("threading.Thread.start"):
             monitor.activate()
 
             mock_kernel32.CloseHandle.assert_any_call(0xDEAD)
@@ -161,8 +164,8 @@ class TestNetworkTrigger:
         monitor = NetworkTrigger()
         monitor._exit_event = 0xCAFE
 
-        with patch('threading.Thread.join') as mock_super_deactivate:
-            with patch.object(monitor, '_request_stop'):
+        with patch("threading.Thread.join") as mock_super_deactivate:
+            with patch.object(monitor, "_request_stop"):
                 monitor.deactivate()
 
                 mock_kernel32.SetEvent.assert_called_once_with(0xCAFE)
@@ -175,8 +178,8 @@ class TestNetworkTrigger:
         monitor = NetworkTrigger()
         assert monitor._exit_event is None
 
-        with patch('threading.Thread.join'):
-            with patch.object(monitor, '_request_stop'):
+        with patch("threading.Thread.join"):
+            with patch.object(monitor, "_request_stop"):
                 monitor.deactivate()
 
                 mock_kernel32.SetEvent.assert_not_called()

@@ -1,6 +1,5 @@
 import time
 
-import pytest
 import win32con
 
 from wallpaper_automator.trigger.windows_session_trigger import (
@@ -61,7 +60,7 @@ class TestWindowsSessionTriggerWndProc:
         trigger = WindowsSessionTrigger()
         trigger.add_callback(lambda _: None)
 
-        result = trigger.wnd_proc(0, 0x02B1, 0x7, 1234)
+        trigger.wnd_proc(0, 0x02B1, 0x7, 1234)
 
         item = trigger.message_queue.get_nowait()
         assert item[0] == 1234

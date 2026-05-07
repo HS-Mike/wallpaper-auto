@@ -4,11 +4,13 @@ Base trigger classes.
 Provides BaseTrigger (callback-only interface) and BaseThreadTrigger
 (a background-thread variant) as the foundation for all trigger implementations.
 
-All resource class must inherit from BaseResource and implement activate, deactivate, and trigger interface.
+All resource class must inherit from BaseResource and implement activate,
+deactivate, and trigger interface.
 
-In case of BaseThreadTrigger, subclass must override run method and manage a loop inside. 
+In case of BaseThreadTrigger, subclass must override run method and manage a loop inside.
 Exit loop according to self._stop_event.
 """
+
 import threading
 from abc import ABC, abstractmethod
 from typing import override
@@ -17,7 +19,6 @@ from ..util import callback_register
 
 
 class BaseTrigger(callback_register.CallbackRegister[["BaseTrigger"], None], ABC):
-
     def __init__(self):
         super().__init__()
 
@@ -30,7 +31,6 @@ class BaseTrigger(callback_register.CallbackRegister[["BaseTrigger"], None], ABC
 
 
 class BaseThreadTrigger(threading.Thread, BaseTrigger):
-
     def __init__(self):
         threading.Thread.__init__(self)
         BaseTrigger.__init__(self)

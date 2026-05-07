@@ -10,7 +10,6 @@ import logging
 import random
 import threading
 from os import PathLike
-from typing import Optional
 
 from .base_resource import BaseResource
 from .wallpaper_utils import (
@@ -76,13 +75,13 @@ class DynamicWallpaper(BaseResource):
 
         # Threading state
         self._stop_event = threading.Event()
-        self._cycling_thread: Optional[threading.Thread] = None
+        self._cycling_thread: threading.Thread | None = None
         self._index = 0
         self._cycle_lock = threading.Lock()
 
         # Original wallpaper tracking
-        self._original_wallpaper: Optional[str] = None
-        self._original_style: Optional[tuple[str, str]] = None
+        self._original_wallpaper: str | None = None
+        self._original_style: tuple[str, str] | None = None
 
     # ---- Private helpers ---------------------------------------------------
 

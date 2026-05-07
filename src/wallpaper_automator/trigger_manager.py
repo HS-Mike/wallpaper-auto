@@ -4,16 +4,16 @@ Trigger manager.
 Manages all trigger instances, routes callbacks from any trigger to the wallpaper
 controller's evaluation loop, and provides pause/resume functionality.
 """
+
 import logging
 import threading
 
-from .util.callback_register import CallbackRegister
 from .models import TriggerConfig
 from .trigger.base_trigger import BaseTrigger
 from .trigger.network_trigger import NetworkTrigger
 from .trigger.time_trigger import TimeTrigger
 from .trigger.windows_session_trigger import WindowsSessionTrigger
-
+from .util.callback_register import CallbackRegister
 
 logger = logging.getLogger(__name__)
 
@@ -21,17 +21,18 @@ logger = logging.getLogger(__name__)
 _BUILTIN_TRIGGERS = {
     "network": NetworkTrigger,
     "time": TimeTrigger,
-    "windows_session": WindowsSessionTrigger
+    "windows_session": WindowsSessionTrigger,
 }
 
 
 class TriggerManager(CallbackRegister[[], None]):
     """Manages trigger lifecycle — start, stop, and pause/resume triggers from parsed config."""
+
     _support_triggers: dict[str, type[BaseTrigger]] = _BUILTIN_TRIGGERS.copy()
 
     def __init__(self):
         super().__init__()
-        
+
         self._triggers: list[BaseTrigger] = []
         self._paused = threading.Event()
 
@@ -40,7 +41,7 @@ class TriggerManager(CallbackRegister[[], None]):
         if self._paused.is_set():
             return []
         return super().trigger_callback(*args, **kwargs)
-    
+
     @classmethod
     def register_trigger(cls, name: str, trigger_cls: type[BaseTrigger]) -> None:
         """
@@ -50,7 +51,6 @@ class TriggerManager(CallbackRegister[[], None]):
         if not issubclass(trigger_cls, BaseTrigger):
             raise ValueError("trigger cls must inherit from BaseTrigger")
         cls._support_triggers[name] = trigger_cls
-        
 
     def init(self, trigger_config: list[TriggerConfig]) -> None:
         """Initialize triggers from resource config dictionary."""

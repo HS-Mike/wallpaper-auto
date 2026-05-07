@@ -1,20 +1,20 @@
 """Tests for wallpaper_controller.py — controller lifecycle and task processing."""
 
 import signal
+from unittest.mock import ANY, MagicMock, call, patch
 
 import pytest
-from unittest.mock import MagicMock, patch, call, ANY
 
-from wallpaper_automator.wallpaper_controller import WallpaperController
-from wallpaper_automator.task import Mode, QuitTask, ModeSwitchTask, ResourceSetTask
 from wallpaper_automator.config_store import ConfigStore
-from wallpaper_automator.trigger_manager import TriggerManager
+from wallpaper_automator.models import Rule
 from wallpaper_automator.resource_manager import ResourceManager
 from wallpaper_automator.rule_engine import RuleEngine
-from wallpaper_automator.models import Rule
-
+from wallpaper_automator.task import Mode, ModeSwitchTask, QuitTask, ResourceSetTask
+from wallpaper_automator.trigger_manager import TriggerManager
+from wallpaper_automator.wallpaper_controller import WallpaperController
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
 
 def _mock_config_for_start(controller):
     """Give the controller a fake config so ``start()`` can read ``fallback_resource_id``."""
@@ -43,6 +43,7 @@ def _cleanup_worker(controller):
 
 # ── Fixtures ───────────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def controller():
     return WallpaperController()
@@ -69,6 +70,7 @@ def started_controller(controller):
 
 
 # ── Initialisation ─────────────────────────────────────────────────────────
+
 
 class TestWallpaperControllerInit:
     """WallpaperController.__init__ and default state."""
@@ -100,6 +102,7 @@ class TestWallpaperControllerInit:
 
 # ── load_config ────────────────────────────────────────────────────────────
 
+
 class TestWallpaperControllerLoadConfig:
     """WallpaperController.load_config() delegates to every sub-manager."""
 
@@ -111,9 +114,9 @@ class TestWallpaperControllerLoadConfig:
         controller._config_store = mock_cs
 
         with (
-            patch.object(controller._resource_manager, "init") as rm_init,
-            patch.object(controller._trigger_manager, "init") as tm_init,
-            patch.object(controller._rule_engine, "init") as re_init,
+            patch.object(controller._resource_manager, "init"),
+            patch.object(controller._trigger_manager, "init"),
+            patch.object(controller._rule_engine, "init"),
         ):
             controller.load_config("some/path.yaml")
 
@@ -139,6 +142,7 @@ class TestWallpaperControllerLoadConfig:
 
 
 # ── Worker loop – task processing ──────────────────────────────────────────
+
 
 class TestWallpaperControllerWorkerLoop:
     """_worker_loop() processes tasks from the queue until it sees a QUIT."""
@@ -200,6 +204,7 @@ class TestWallpaperControllerWorkerLoop:
 
 
 # ── evaluate ───────────────────────────────────────────────────────────────
+
 
 class TestWallpaperControllerEvaluate:
     """evaluate() – condition evaluation & resource dispatch."""
@@ -284,6 +289,7 @@ class TestWallpaperControllerEvaluate:
 
 # ── update_system_tray ─────────────────────────────────────────────────────
 
+
 class TestWallpaperControllerUpdateSystemTray:
     """update_system_tray() delegates to the tray bridge."""
 
@@ -301,7 +307,10 @@ class TestWallpaperControllerUpdateSystemTray:
         controller.update_system_tray()
 
         mock_tray.bridge.update_ui.assert_called_once_with(
-            ["r1", "r2"], Mode.AUTO, None, "r1",
+            ["r1", "r2"],
+            Mode.AUTO,
+            None,
+            "r1",
         )
 
     def test_noop_when_tray_is_none(self, controller):
@@ -310,6 +319,7 @@ class TestWallpaperControllerUpdateSystemTray:
 
 
 # ── set_tray ───────────────────────────────────────────────────────────────
+
 
 class TestWallpaperControllerSetTray:
     """set_tray() wires up all tray → controller callbacks."""
@@ -333,6 +343,7 @@ class TestWallpaperControllerSetTray:
 
 # ── Task-queue helpers ─────────────────────────────────────────────────────
 
+
 class TestWallpaperControllerTaskHelpers:
     """add_set_mode_task / add_set_resource_id_task enqueue correct tasks."""
 
@@ -350,6 +361,7 @@ class TestWallpaperControllerTaskHelpers:
 
 
 # ── start / stop lifecycle ─────────────────────────────────────────────────
+
 
 def _safe_stop(controller):
     """Call stop() but ignore the error if the thread wasn't started."""
@@ -377,10 +389,12 @@ class TestWallpaperControllerStart:
         ):
             controller.start()
         assert mock_signal.call_count == 2
-        mock_signal.assert_has_calls([
-            call(signal.SIGINT, ANY),
-            call(signal.SIGTERM, ANY),
-        ])
+        mock_signal.assert_has_calls(
+            [
+                call(signal.SIGINT, ANY),
+                call(signal.SIGTERM, ANY),
+            ]
+        )
         _safe_stop(controller)
 
     def test_shows_tray_when_set(self, controller):

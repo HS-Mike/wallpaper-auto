@@ -3,14 +3,13 @@ Tests for dynamic_wallpaper.py — DynamicWallpaper resource.
 """
 
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from PIL import Image
 
 from wallpaper_automator.resource.dynamic_wallpaper import DynamicWallpaper
 from wallpaper_automator.resource.wallpaper_utils import WallpaperStyle
-
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 

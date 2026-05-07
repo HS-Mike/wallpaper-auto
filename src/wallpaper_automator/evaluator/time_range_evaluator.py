@@ -4,17 +4,14 @@ Time range condition evaluator.
 Checks whether the current local time falls within a specified HH:MM range.
 Supports overnight ranges (e.g., 23:00 to 05:00) that cross midnight.
 """
+
 import datetime
 
 from .base_evaluator import BaseEvaluator
 
 
 class TimeRangeEvaluator(BaseEvaluator):
-
-    def __call__(
-        self,
-        param: list[str]
-    ) -> bool:
+    def __call__(self, param: list[str]) -> bool:
         if not isinstance(param, (list, tuple)) or len(param) != 2:
             raise ValueError("param must be a list/tuple of exactly 2 time strings (HH:MM)")
         if not all(isinstance(s, str) for s in param):
@@ -28,4 +25,3 @@ class TimeRangeEvaluator(BaseEvaluator):
             return start_time <= curr <= end_time
         else:  # overnight
             return curr >= start_time or curr <= end_time
-        

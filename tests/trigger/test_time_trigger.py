@@ -1,7 +1,8 @@
 """Tests for time_trigger.py — interval and fixed-time scheduling."""
 
 import threading
-from datetime import time, timedelta, datetime as dt
+from datetime import datetime as dt
+from datetime import time, timedelta
 from unittest.mock import patch
 
 import pytest

@@ -7,7 +7,7 @@ name = "wallpaper_automator"
 version = "0.1.0"
 description = "Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, location, day of week)"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 authors = [
     { name = "Mike", email = "houlin.mike@gmail.com" }
 ]
@@ -17,6 +17,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
     "Environment :: Win32 (MS Windows)",
+    "Programming Language :: Python :: 3.12",
 ]
 
 dependencies = [
@@ -35,15 +36,14 @@ dev = [
     "pytest-cov>=4.0",
     "mypy>=1.0",
     "ruff>=0.1",
+    "types-requests",
+    "types-PyYAML",
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools]
-include_package_data = true
-
-[tool.setuptools.package_data]
+[tool.setuptools.package-data]
 wallpaper_automator = ["icon.svg"]
 
 [tool.pytest.ini_options]
@@ -60,7 +60,7 @@ show_missing = true
 precision = 2
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 disallow_untyped_defs = true
@@ -68,7 +68,7 @@ warn_unused_ignores = true
 exclude = ["tests/"]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]

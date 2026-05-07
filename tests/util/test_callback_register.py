@@ -21,7 +21,10 @@ class TestCallbackRegister:
 
     def test_remove_callback(self):
         cb = CallbackRegister()
-        handler = lambda: None
+
+        def handler():
+            return None
+
         cb.add_callback(handler)
         cb.remove_callback(handler)
         assert len(cb._callbacks) == 0

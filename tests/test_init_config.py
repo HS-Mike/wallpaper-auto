@@ -7,8 +7,8 @@ from wallpaper_automator.config_store import ConfigStore
 from wallpaper_automator.init_config import generate_template
 from wallpaper_automator.models import ConfigModel
 
-
 # ── helpers ──────────────────────────────────────────────────────────────
+
 
 def _collect_evaluator_keys(conditions: list) -> set[str]:
     """Recursively collect all leaf evaluator keys from a list of condition
@@ -41,6 +41,7 @@ def _root_children(rule: dict) -> list:
 
 
 # ── file creation ────────────────────────────────────────────────────────
+
 
 class TestFileCreation:
     """Verify that generate_template writes a file in various scenarios."""
@@ -81,6 +82,7 @@ class TestFileCreation:
 
 
 # ── config validity ──────────────────────────────────────────────────────
+
 
 class TestConfigValidity:
     """Verify the generated template is a valid wallpaper-automator config."""

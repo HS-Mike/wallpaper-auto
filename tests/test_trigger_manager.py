@@ -1,13 +1,14 @@
 """Tests for trigger_manager.py — trigger lifecycle and callback management."""
 
-import pytest
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
-from wallpaper_automator.trigger_manager import TriggerManager, _BUILTIN_TRIGGERS
+import pytest
+
 from wallpaper_automator.models import TriggerConfig
 from wallpaper_automator.trigger.base_trigger import BaseTrigger
 from wallpaper_automator.trigger.time_trigger import TimeTrigger
+from wallpaper_automator.trigger_manager import _BUILTIN_TRIGGERS, TriggerManager
 
 
 @pytest.fixture
@@ -41,10 +42,13 @@ class TestTriggerManagerRegisterTrigger:
     The class must be BaseTrigger or a subclass thereof.
     """
 
-    @pytest.mark.parametrize("trigger_cls", [
-        BaseTrigger,
-        type("CustomTrigger", (BaseTrigger,), {}),
-    ])
+    @pytest.mark.parametrize(
+        "trigger_cls",
+        [
+            BaseTrigger,
+            type("CustomTrigger", (BaseTrigger,), {}),
+        ],
+    )
     def test_register_valid_class_succeeds(self, trigger_cls):
         """BaseTrigger and its subclasses can be registered."""
         with patch.dict(TriggerManager._support_triggers, clear=False):
@@ -89,10 +93,12 @@ class TestTriggerManagerInitTriggers:
 
     def test_init_multiple_triggers(self, mgr):
         """init creates multiple triggers when given multiple config entries."""
-        mgr.init([
-            TriggerConfig(name="time", config={}),
-            TriggerConfig(name="network", config={}),
-        ])
+        mgr.init(
+            [
+                TriggerConfig(name="time", config={}),
+                TriggerConfig(name="network", config={}),
+            ]
+        )
         assert len(mgr._triggers) == 2
 
     def test_init_unknown_trigger_raises(self, mgr):
@@ -151,10 +157,13 @@ class TestTriggerManagerPauseResume:
         mgr.resume()
         assert not mgr._paused.is_set()
 
-    @pytest.mark.parametrize("method,check", [
-        ("pause", lambda e: e.is_set()),
-        ("resume", lambda e: not e.is_set()),
-    ])
+    @pytest.mark.parametrize(
+        "method,check",
+        [
+            ("pause", lambda e: e.is_set()),
+            ("resume", lambda e: not e.is_set()),
+        ],
+    )
     def test_is_idempotent(self, mgr, method, check):
         """Calling pause/resume multiple times has no side effects."""
         getattr(mgr, method)()
@@ -224,7 +233,10 @@ class TestTriggerManagerCallbackManagement:
 
     def test_add_remove_callback(self, mgr):
         """A handler added with add_callback can be removed individually."""
-        fn = lambda: None
+
+        def fn():
+            return None
+
         mgr.add_callback(fn)
         mgr.remove_callback(fn)
         assert len(mgr._callbacks) == 0

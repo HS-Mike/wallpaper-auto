@@ -4,15 +4,15 @@ Rule evaluation engine.
 Recursively evaluates AND/OR condition trees against built-in evaluators
 and returns the first matching rule.
 """
+
 import logging
 
-from .models import ConditionNode, Rule
 from .evaluator.base_evaluator import BaseEvaluator
-from .evaluator.wifi_ssid_evaluator import WIFISsidEvaluator
-from .evaluator.time_range_evaluator import TimeRangeEvaluator
 from .evaluator.geo_evaluator import GeoEvaluator
+from .evaluator.time_range_evaluator import TimeRangeEvaluator
 from .evaluator.weekday_evaluator import WeekdayEvaluator
-
+from .evaluator.wifi_ssid_evaluator import WIFISsidEvaluator
+from .models import ConditionNode, Rule
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,7 @@ class RuleEngine:
             if evaluate_node(rule.condition, self._evaluators):
                 return rule
         return None
+
 
 def evaluate_node(node: ConditionNode, evaluators: dict[str, BaseEvaluator]) -> bool:
     """

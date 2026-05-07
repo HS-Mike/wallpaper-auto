@@ -4,6 +4,7 @@ Geolocation condition evaluator.
 Resolves the current public IP via ip-api.com and uses the Haversine formula
 to compute whether the machine is within a given radius (in km) of a target coordinate.
 """
+
 import math
 from functools import cache
 from typing import TypedDict, cast
@@ -25,19 +26,19 @@ class LocationInfo(TypedDict):
 @cache
 def get_location_info_by_ip(timeout: float = 3) -> LocationInfo | None:
     try:
-        response = requests.get('http://ip-api.com/json/', timeout=timeout)
+        response = requests.get("http://ip-api.com/json/", timeout=timeout)
     except requests.exceptions.RequestException:
         return None
     else:
         data = response.json()
-        if data['status'] == 'success':
+        if data["status"] == "success":
             res: LocationInfo = {
-                'ip': data['query'],
-                'lat': data['lat'],
-                'lon': data['lon'],
-                'city': data['city'],
-                'regionName': data['regionName'],
-                'country': data['country']
+                "ip": data["query"],
+                "lat": data["lat"],
+                "lon": data["lon"],
+                "city": data["city"],
+                "regionName": data["regionName"],
+                "country": data["country"],
             }
             return res
         else:
@@ -66,7 +67,6 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
 
 
 class GeoEvaluator(BaseEvaluator):
-
     def _validate_params(self, param: dict) -> tuple[float, float, float]:
         lat = param.get("lat")
         lon = param.get("lon")
@@ -99,7 +99,5 @@ class GeoEvaluator(BaseEvaluator):
         loc_info = get_location_info_by_ip()
         if loc_info is None:
             return False
-        dist = haversine_distance(
-            lat, lon, loc_info["lat"], loc_info["lon"]
-        )
+        dist = haversine_distance(lat, lon, loc_info["lat"], loc_info["lon"])
         return dist <= radius

@@ -1,15 +1,15 @@
 """Tests for geo_evaluator.py — IP geolocation and distance calculation."""
 
-import pytest
-from unittest.mock import MagicMock, patch
 import math
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from wallpaper_automator.evaluator.geo_evaluator import (
+    GeoEvaluator,
+    R,
     get_location_info_by_ip,
     haversine_distance,
-    LocationInfo,
-    R,
-    GeoEvaluator,
 )
 
 
@@ -77,6 +77,7 @@ class TestGetLocationByIp:
     def test_timeout_is_requestexception(self, mock_ip_api):
         """requests.exceptions.RequestException subclasses return None."""
         import requests
+
         mock_ip_api.side_effect = requests.exceptions.ConnectTimeout("timed out")
         assert get_location_info_by_ip() is None
 
@@ -141,7 +142,6 @@ class TestHaversineDistance:
 
 @pytest.mark.usefixtures("clear_cache")
 class TestGeoEvaluator:
-
     def test_returns_bool(self, mock_ip_api):
         mock_response = MagicMock()
         mock_response.json.return_value = SAMPLE_RESPONSE
@@ -152,6 +152,7 @@ class TestGeoEvaluator:
 
     def test_returns_false_on_api_error(self, mock_ip_api):
         import requests
+
         mock_ip_api.side_effect = requests.exceptions.ConnectTimeout("API unavailable")
 
         result = GeoEvaluator()({"lat": 0, "lon": 0, "radius": 10})
@@ -160,7 +161,6 @@ class TestGeoEvaluator:
 
 @pytest.mark.usefixtures("clear_cache")
 class TestIntegrationGeo:
-
     def test_distance_from_shanghai(self, mock_ip_api):
         beijing = {
             "status": "success",

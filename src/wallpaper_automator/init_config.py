@@ -155,9 +155,7 @@ def generate_template(output_path: str, force: bool = False) -> None:
     resolved = os.path.realpath(output_path)
 
     if os.path.exists(resolved) and not force:
-        raise FileExistsError(
-            f"{resolved} already exists. Use -f/--force to overwrite."
-        )
+        raise FileExistsError(f"{resolved} already exists. Use -f/--force to overwrite.")
 
     os.makedirs(os.path.dirname(resolved), exist_ok=True)
 

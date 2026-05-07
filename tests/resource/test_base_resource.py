@@ -2,9 +2,11 @@
 
 import os
 import shutil
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch
-from wallpaper_automator.resource.base_resource import _BaseResourceMeta, BaseResource
+
+from wallpaper_automator.resource.base_resource import BaseResource, _BaseResourceMeta
 
 
 class MockResource(BaseResource):

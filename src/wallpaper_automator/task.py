@@ -1,8 +1,9 @@
 """
 Task classes transmit across components.
 """
+
 from enum import Enum
-from typing import Literal, Annotated, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,10 +21,12 @@ class TaskType(Enum):
 
 
 class BaseTask(BaseModel):
-    model_config = ConfigDict(extra='allow', frozen=True)
+    model_config = ConfigDict(extra="allow", frozen=True)
+
 
 class QuitTask(BaseTask):
     type: Literal[TaskType.QUIT] = TaskType.QUIT
+
 
 class ModeSwitchTask(BaseTask):
     type: Literal[TaskType.MODE_SWITCH] = TaskType.MODE_SWITCH
@@ -35,7 +38,4 @@ class ResourceSetTask(BaseTask):
     target_resource_id: str
 
 
-Task = Annotated[
-    Union[QuitTask, ModeSwitchTask, ResourceSetTask],
-    Field(discriminator='type')
-]
+Task = Annotated[QuitTask | ModeSwitchTask | ResourceSetTask, Field(discriminator="type")]

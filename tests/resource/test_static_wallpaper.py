@@ -1,6 +1,6 @@
 """Tests for static_wallpaper.py — StaticWallpaper mount/demount and caching."""
 
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from PIL import Image
@@ -8,8 +8,8 @@ from PIL import Image
 from wallpaper_automator.resource.static_wallpaper import (
     StaticWallpaper,
     WallpaperStyle,
-    get_screen_size,
     get_current_wallpaper,
+    get_screen_size,
     set_wallpaper,
 )
 
@@ -421,10 +421,8 @@ class TestSetWallpaper:
             patch(
                 "wallpaper_automator.resource.wallpaper_utils.win32api.RegOpenKeyEx",
                 return_value=999,
-            ) as mock_open,
-            patch(
-                "wallpaper_automator.resource.wallpaper_utils.os.path.exists", return_value=True
-            ) as mock_exists,
+            ),
+            patch("wallpaper_automator.resource.wallpaper_utils.os.path.exists", return_value=True),
         ):
             img_path = tmp_path / "test.png"
             img_path.write_bytes(b"fake")
@@ -460,7 +458,7 @@ class TestSetWallpaper:
     def test_raises_when_file_not_found(self):
         with patch(
             "wallpaper_automator.resource.wallpaper_utils.os.path.exists", return_value=False
-        ) as mock_exists:
+        ):
             with pytest.raises(FileNotFoundError, match="not exist"):
                 set_wallpaper("nonexistent.jpg", WallpaperStyle.FILL.value)
 

@@ -1,10 +1,11 @@
 """Tests for rule_engine.py — covers evaluate_node, RuleEngine, and register_evaluator."""
 
-import pytest
 from unittest.mock import patch
 
+import pytest
+
 from wallpaper_automator.models import ConditionNode, Rule
-from wallpaper_automator.rule_engine import RuleEngine, evaluate_node, BaseEvaluator
+from wallpaper_automator.rule_engine import BaseEvaluator, RuleEngine, evaluate_node
 
 
 @pytest.fixture
@@ -17,8 +18,10 @@ def preserve_evaluators():
 
 # ── helpers ──────────────────────────────────────────────────────────────
 
+
 class _MockEval(BaseEvaluator):
     """A simple fake evaluator that returns a configured bool."""
+
     def __init__(self, return_value: bool = True):
         self.return_value = return_value
         self.last_param: dict | None = None
@@ -30,6 +33,7 @@ class _MockEval(BaseEvaluator):
 
 class _NotAnEvaluator:
     """A callable that does NOT inherit from BaseEvaluator."""
+
     def __call__(self, param: dict) -> bool:
         return True
 
@@ -48,6 +52,7 @@ def make_or(*children: ConditionNode) -> ConditionNode:
 
 
 # ── ConditionNode model validation ──────────────────────────────────────
+
 
 class TestConditionNodeValidation:
     """Tests for edge cases in ConditionNode model validation."""
@@ -80,6 +85,7 @@ class TestConditionNodeValidation:
 
 
 # ── evaluate_node ────────────────────────────────────────────────────────
+
 
 class TestEvaluateNode:
     """Direct tests for the module-level evaluate_node function."""
@@ -156,6 +162,7 @@ class TestEvaluateNode:
 
 # ── RuleEngine ───────────────────────────────────────────────────────────
 
+
 class TestRuleEngine:
     """Tests for RuleEngine using patched _evaluators."""
 
@@ -189,7 +196,8 @@ class TestRuleEngine:
         match_ev = _MockEval(return_value=True)
         no_match_ev = _MockEval(return_value=False)
         with patch.object(
-            RuleEngine, "_evaluators",
+            RuleEngine,
+            "_evaluators",
             {"a": match_ev, "b": no_match_ev},
         ):
             assert engine.evaluate() is r1
@@ -202,7 +210,8 @@ class TestRuleEngine:
         no_match_ev = _MockEval(return_value=False)
         match_ev = _MockEval(return_value=True)
         with patch.object(
-            RuleEngine, "_evaluators",
+            RuleEngine,
+            "_evaluators",
             {"a": no_match_ev, "b": match_ev},
         ):
             assert engine.evaluate() is r2
@@ -217,7 +226,8 @@ class TestRuleEngine:
         engine.init([rule])
         true_ev = _MockEval(return_value=True)
         with patch.object(
-            RuleEngine, "_evaluators",
+            RuleEngine,
+            "_evaluators",
             {"x": true_ev, "y": true_ev, "z": true_ev},
         ):
             assert engine.evaluate() is rule
@@ -232,7 +242,8 @@ class TestRuleEngine:
         engine.init([rule])
         false_ev = _MockEval(return_value=False)
         with patch.object(
-            RuleEngine, "_evaluators",
+            RuleEngine,
+            "_evaluators",
             {"a": false_ev, "b": false_ev, "c": false_ev},
         ):
             assert engine.evaluate() is None

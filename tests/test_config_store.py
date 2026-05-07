@@ -6,8 +6,8 @@ import yaml
 from wallpaper_automator.config_store import ConfigStore
 from wallpaper_automator.models import ConfigModel, ResourceConfig, Rule
 
-
 # ── helpers ──────────────────────────────────────────────────────────────
+
 
 def _make_valid_yaml(**overrides) -> str:
     """Return a valid YAML config string, with optional key overrides."""
@@ -62,6 +62,7 @@ def _make_minimal_yaml(**overrides) -> str:
 
 # ── fixtures ─────────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def store() -> ConfigStore:
     return ConfigStore()
@@ -76,6 +77,7 @@ def valid_yaml(tmp_path) -> str:
 
 
 # ── load — happy path ────────────────────────────────────────────────────
+
 
 class TestLoad:
     """Successful config file parsing."""
@@ -130,24 +132,30 @@ class TestLoad:
 
     def test_load_complex_nested_conditions(self, store: ConfigStore, tmp_path):
         """Load a config with nested and/or condition structure."""
-        yaml_str = yaml.dump({
-            "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
-            "trigger": [{"name": "windows_session"}],
-            "rule": [{
-                "name": "complex",
-                "condition": {
-                    "or": [
-                        {"network": "WiFi"},
-                        {"and": [
-                            {"location": {"lat": 31.23, "lon": 121.47, "radius": 0.5}},
-                            {"workday_only": True},
-                        ]},
-                    ],
-                },
-                "target": "a",
-            }],
-            "fallback": "a",
-        })
+        yaml_str = yaml.dump(
+            {
+                "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
+                "trigger": [{"name": "windows_session"}],
+                "rule": [
+                    {
+                        "name": "complex",
+                        "condition": {
+                            "or": [
+                                {"network": "WiFi"},
+                                {
+                                    "and": [
+                                        {"location": {"lat": 31.23, "lon": 121.47, "radius": 0.5}},
+                                        {"workday_only": True},
+                                    ]
+                                },
+                            ],
+                        },
+                        "target": "a",
+                    }
+                ],
+                "fallback": "a",
+            }
+        )
         path = tmp_path / "complex.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
@@ -166,6 +174,7 @@ class TestLoad:
 
 
 # ── load — edge cases & error handling ───────────────────────────────────
+
 
 class TestLoadErrors:
     """Config file parsing failure scenarios."""
@@ -219,12 +228,18 @@ class TestLoadErrors:
 
     def test_rule_target_not_found(self, store: ConfigStore, tmp_path):
         path = tmp_path / "bad_rule_target.yaml"
-        path.write_text(_make_minimal_yaml(rule=[{"name": "bad", "condition": {"network": "WiFi"}, "target": "unknown"}]), encoding="utf-8")
+        path.write_text(
+            _make_minimal_yaml(
+                rule=[{"name": "bad", "condition": {"network": "WiFi"}, "target": "unknown"}]
+            ),
+            encoding="utf-8",
+        )
         with pytest.raises(ValueError, match="targets unknown resource"):
             store.load(str(path))
 
 
 # ── load — validation of structural rules ────────────────────────────────
+
 
 class TestLoadValidation:
     """ConfigModel cross-field validation rules."""
@@ -232,33 +247,51 @@ class TestLoadValidation:
     def test_condition_invalid_single_key(self, store: ConfigStore, tmp_path):
         """A condition dict with more than one key should be rejected."""
         path = tmp_path / "bad_condition.yaml"
-        path.write_text(_make_minimal_yaml(rule=[{
-            "name": "r",
-            "condition": {"network": "WiFi", "time_range": ["00:00", "12:00"]},
-            "target": "a",
-        }]), encoding="utf-8")
+        path.write_text(
+            _make_minimal_yaml(
+                rule=[
+                    {
+                        "name": "r",
+                        "condition": {"network": "WiFi", "time_range": ["00:00", "12:00"]},
+                        "target": "a",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
         with pytest.raises(ValueError, match="only one key"):
             store.load(str(path))
 
     def test_empty_condition_node(self, store: ConfigStore, tmp_path):
         """An empty condition dict should be rejected."""
         path = tmp_path / "empty_cond.yaml"
-        path.write_text(_make_minimal_yaml(rule=[{
-            "name": "r",
-            "condition": {},
-            "target": "a",
-        }]), encoding="utf-8")
+        path.write_text(
+            _make_minimal_yaml(
+                rule=[
+                    {
+                        "name": "r",
+                        "condition": {},
+                        "target": "a",
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
         with pytest.raises(ValueError, match="only one key"):
             store.load(str(path))
 
     def test_trigger_with_config(self, store: ConfigStore, tmp_path):
         """A trigger with extra config data should parse correctly."""
-        yaml_str = yaml.dump({
-            "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
-            "trigger": [{"name": "time_range", "config": {"start": "09:00", "end": "17:00"}}],
-            "rule": [{"name": "r", "condition": {"time_range": ["09:00", "17:00"]}, "target": "a"}],
-            "fallback": "a",
-        })
+        yaml_str = yaml.dump(
+            {
+                "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
+                "trigger": [{"name": "time_range", "config": {"start": "09:00", "end": "17:00"}}],
+                "rule": [
+                    {"name": "r", "condition": {"time_range": ["09:00", "17:00"]}, "target": "a"}
+                ],
+                "fallback": "a",
+            }
+        )
         path = tmp_path / "trigger_config.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
@@ -269,16 +302,18 @@ class TestLoadValidation:
 
     def test_multiple_rules_evaluated_in_order(self, store: ConfigStore, tmp_path):
         """Multiple rules should be loaded and maintain order."""
-        yaml_str = yaml.dump({
-            "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
-            "trigger": [{"name": "windows_session"}],
-            "rule": [
-                {"name": "first", "condition": {"network": "W"}, "target": "a"},
-                {"name": "second", "condition": {"network": "X"}, "target": "a"},
-                {"name": "third", "condition": {"network": "Y"}, "target": "a"},
-            ],
-            "fallback": "a",
-        })
+        yaml_str = yaml.dump(
+            {
+                "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
+                "trigger": [{"name": "windows_session"}],
+                "rule": [
+                    {"name": "first", "condition": {"network": "W"}, "target": "a"},
+                    {"name": "second", "condition": {"network": "X"}, "target": "a"},
+                    {"name": "third", "condition": {"network": "Y"}, "target": "a"},
+                ],
+                "fallback": "a",
+            }
+        )
         path = tmp_path / "multi_rule.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
@@ -287,6 +322,7 @@ class TestLoadValidation:
 
 
 # ── properties ───────────────────────────────────────────────────────────
+
 
 class TestProperties:
     """Accessor properties after config load."""

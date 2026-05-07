@@ -10,7 +10,6 @@ Optionally compresses large images and caches the result for performance.
 
 import logging
 from os import PathLike
-from typing import Optional
 
 from .base_resource import BaseResource
 from .wallpaper_utils import (
@@ -28,7 +27,6 @@ logger = logging.getLogger(__name__)
 
 
 class StaticWallpaper(BaseResource):
-
     def __init__(
         self,
         path: PathLike | str,
@@ -45,9 +43,9 @@ class StaticWallpaper(BaseResource):
         self._screen_size = get_screen_size()
         self._need_cache: bool = self._check_need_cache()
         super().__init__(temp_dir=self._need_cache)
-        self._compress_path: Optional[str] = None
-        self._original_wallpaper: Optional[str] = None
-        self._original_style: Optional[tuple[str, str]] = None
+        self._compress_path: str | None = None
+        self._original_wallpaper: str | None = None
+        self._original_style: tuple[str, str] | None = None
 
     def _check_need_cache(self) -> bool:
         """Check if the image is large enough to need compression caching."""
