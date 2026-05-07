@@ -8,13 +8,15 @@ Demonstrates WindowsSessionMonitor session event monitoring:
 Usage:
     python demo_window_session_monitor.py
 """
+
 import logging
 import signal
 import sys
+import threading
 
 from wallpaper_automator.trigger.windows_session_trigger import (
-    WindowsSessionTrigger,
     WindowsSessionEvent,
+    WindowsSessionTrigger,
 )
 
 logging.basicConfig(
@@ -53,11 +55,13 @@ def main() -> None:
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
+    monitor.add_callback(
+        lambda _: on_session_change(monitor.last_session_id, monitor.last_event)
+    )
     logger.info("Windows session monitor started, press Ctrl+C to exit")
     monitor.activate()
-    
-    while True:
-        on_session_change(*monitor.message_queue.get())
+
+    threading.Event().wait()
 
 
 if __name__ == "__main__":

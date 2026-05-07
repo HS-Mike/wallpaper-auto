@@ -6,7 +6,6 @@ via a hidden window message pump and fires callbacks when any session event occu
 """
 
 import logging
-import queue
 import threading
 from enum import Enum
 from typing import override
@@ -44,7 +43,8 @@ class WindowsSessionTrigger(BaseThreadTrigger):
         super().__init__()
         self.daemon = True
         self.hwnd = None
-        self.message_queue: queue.Queue[tuple[int, WindowsSessionEvent | None]] = queue.Queue(10)
+        self.last_session_id = 0
+        self.last_event: WindowsSessionEvent | None = None
 
     @override
     def activate(self) -> None:
@@ -97,10 +97,8 @@ class WindowsSessionTrigger(BaseThreadTrigger):
             event = None
             logger.debug(f"Session {session_id} OTHER EVENT {event_code}")
 
-        if self.message_queue.full():
-            with self.message_queue.mutex:
-                self.message_queue.queue.clear()
-        self.message_queue.put((session_id, event))
+        self.last_session_id = session_id
+        self.last_event = event
         self.trigger()
 
     @override
