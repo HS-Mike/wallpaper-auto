@@ -259,7 +259,7 @@ class TestStaticWallpaperDemount:
         mock_set = mock_mount_deps
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
+        wp = StaticWallpaper(path=str(img_path), restore=True)
         wp.mount()
         mock_set.reset_mock()
 
@@ -286,7 +286,7 @@ class TestStaticWallpaperDemount:
         ) as mock_get:
             img_path = tmp_path / "test.png"
             Image.new("RGB", (3840, 2160)).save(img_path)
-            wp = StaticWallpaper(path=str(img_path))
+            wp = StaticWallpaper(path=str(img_path), restore=True)
 
             wp.mount()
             assert mock_set.call_count == 1
@@ -302,6 +302,32 @@ class TestStaticWallpaperDemount:
             assert mock_set.call_count == 3
             mock_get.assert_called_once()
             assert wp._original_wallpaper == "C:\\restored.jpg"
+
+    def test_demount_with_restore_false_skips_restore(self, tmp_path, mock_mount_deps):
+        """When restore=False, demount does not restore the original wallpaper."""
+        mock_set = mock_mount_deps
+        img_path = tmp_path / "test.png"
+        Image.new("RGB", (100, 100)).save(img_path)
+        wp = StaticWallpaper(path=str(img_path), restore=False)
+        wp.mount()
+        mock_set.reset_mock()
+
+        wp.demount()
+        mock_set.assert_not_called()
+
+    def test_demount_with_restore_true_still_restores(self, tmp_path, mock_mount_deps):
+        """When restore=True, demount restores the original wallpaper."""
+        mock_set = mock_mount_deps
+        img_path = tmp_path / "test.png"
+        Image.new("RGB", (100, 100)).save(img_path)
+        wp = StaticWallpaper(path=str(img_path), restore=True)
+        wp.mount()
+        mock_set.reset_mock()
+
+        wp.demount()
+        mock_set.assert_called_once()
+        args, _ = mock_set.call_args
+        assert args[0] == "C:\\original.jpg"
 
 
 class TestGetScreenSize:

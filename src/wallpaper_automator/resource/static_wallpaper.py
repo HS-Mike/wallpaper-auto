@@ -34,12 +34,14 @@ class StaticWallpaper(BaseResource):
         path: PathLike | str,
         style: WallpaperStyle | str = WallpaperStyle.FILL,
         allow_compress: bool = True,
+        restore: bool = False,
     ):
         self.image_path = str(path)
         if isinstance(style, str):
             style = WallpaperStyle[style.upper()]
         self.style = style
         self.allow_compress = allow_compress
+        self.restore = restore
         self._screen_size = get_screen_size()
         self._need_cache: bool = self._check_need_cache()
         super().__init__(temp_dir=self._need_cache)
@@ -90,11 +92,17 @@ class StaticWallpaper(BaseResource):
         logger.debug("mount wallpaper: %s", image_path)
 
     def demount(self) -> None:
-        """Restore the original wallpaper and style."""
-        if self._original_wallpaper and self._original_style:
+        """Restore the original wallpaper and style.
+
+        When *restore* is ``False`` (set at init time), the original wallpaper
+        is *not* restored and the current wallpaper remains in place.
+        """
+        if self.restore and self._original_wallpaper and self._original_style:
             set_wallpaper(self._original_wallpaper, self._original_style)
             logger.debug(
                 "restore origin wallpaper: %s, style: %s",
                 self._original_wallpaper,
                 self._original_style,
             )
+            self._original_wallpaper = None
+            self._original_style = None

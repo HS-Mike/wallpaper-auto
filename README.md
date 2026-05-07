@@ -63,6 +63,7 @@ resource:
     config:
       path: "C:/path/to/wallpaper.jpg"
       style: fill                         # fill / fit / stretch / center / tile
+      restore: false                      # restore original wallpaper on demount (default false)
 
   carousel:                               # Multi-image cycling wallpaper
     name: dynamic_wallpaper
@@ -73,6 +74,7 @@ resource:
       style: fill
       interval: 300                       # Seconds between switches (default 300)
       random: false                       # true = random order, false = sequential
+      restore: false                      # restore original wallpaper on demount (default false)
 
 # 2. Trigger configuration
 trigger:
@@ -171,8 +173,8 @@ resource:
 
 | Resource | Constructor Parameters | Description |
 |----------|----------------------|-------------|
-| `static_wallpaper` | `path` (str), `style` (str) | Static image wallpaper |
-| `dynamic_wallpaper` | `paths` (list[str]), `style` (str), `interval` (int, default 300), `random` (bool, default False) | Multi-image cycling wallpaper |
+| `static_wallpaper` | `path` (str), `style` (str), `restore` (bool, default False) | Static image wallpaper — `restore=True` restores original wallpaper on demount |
+| `dynamic_wallpaper` | `paths` (list[str]), `style` (str), `interval` (int, default 300), `random` (bool, default False), `restore` (bool, default False) | Multi-image cycling wallpaper |
 
 The shorthand form (`black: "C:/img.jpg"`) is expanded to `static_wallpaper` with the string as the `path`.
 

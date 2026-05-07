@@ -37,6 +37,7 @@ resource:
     config:
       path: "C:/Users/You/Pictures/office.jpg"
       style: fill               # fill | fit | stretch | center | tile
+      restore: false             # restore original wallpaper on demount (default false)
 
   # Shorthand — path only; name and style are inferred
   black: "C:/Users/You/Pictures/black.jpg"
@@ -52,6 +53,7 @@ resource:
   #     style: fill
   #     interval: 300          # seconds between switches (default 300)
   #     random: false          # true = random order, false = sequential
+  #     restore: false          # restore original wallpaper on demount (default false)
 
 
 # ---------------------------------------------------------------------------

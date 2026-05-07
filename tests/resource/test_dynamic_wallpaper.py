@@ -162,7 +162,7 @@ class TestDynamicWallpaperDemount:
         """demount restores the wallpaper that was active before mount."""
         mock_set = mock_utils_mount_deps
         paths = _create_images(tmp_path, count=2)
-        wp = DynamicWallpaper(paths=paths)
+        wp = DynamicWallpaper(paths=paths, restore=True)
         wp.mount()
         mock_set.reset_mock()
 
@@ -193,7 +193,7 @@ class TestDynamicWallpaperDemount:
         """Calling demount twice is safe."""
         mock_set = mock_utils_mount_deps
         paths = _create_images(tmp_path, count=2)
-        wp = DynamicWallpaper(paths=paths)
+        wp = DynamicWallpaper(paths=paths, restore=True)
         wp.mount()
         mock_set.reset_mock()
 
@@ -209,7 +209,7 @@ class TestDynamicWallpaperDemount:
             return_value="C:\\original.jpg",
         ) as mock_get:
             paths = _create_images(tmp_path, count=2)
-            wp = DynamicWallpaper(paths=paths)
+            wp = DynamicWallpaper(paths=paths, restore=True)
 
             wp.mount()
             assert mock_set.call_count == 1
@@ -226,6 +226,33 @@ class TestDynamicWallpaperDemount:
             mock_get.assert_called_once()
             assert wp._original_wallpaper == "C:\\restored.jpg"
             wp.demount()
+
+    def test_demount_with_restore_false_skips_restore(self, tmp_path, mock_utils_mount_deps):
+        """When restore=False, demount does not restore the original wallpaper."""
+        mock_set = mock_utils_mount_deps
+        paths = _create_images(tmp_path, count=2)
+        wp = DynamicWallpaper(paths=paths, restore=False)
+        wp.mount()
+        mock_set.reset_mock()
+
+        wp.demount()
+        # The last call should NOT be the restore — either no calls or only cycling calls
+        # Restore specifically should not happen. With interval=300 the thread won't
+        # fire during the test, so set_wallpaper should not be called at all
+        mock_set.assert_not_called()
+
+    def test_demount_with_restore_true_still_restores(self, tmp_path, mock_utils_mount_deps):
+        """When restore=True, demount restores the original wallpaper."""
+        mock_set = mock_utils_mount_deps
+        paths = _create_images(tmp_path, count=2)
+        wp = DynamicWallpaper(paths=paths, restore=True)
+        wp.mount()
+        mock_set.reset_mock()
+
+        wp.demount()
+        mock_set.assert_called_once()
+        args, _ = mock_set.call_args
+        assert args[0] == "C:\\original.jpg"
 
 
 # ── TestDynamicWallpaperCycling ────────────────────────────────────────────

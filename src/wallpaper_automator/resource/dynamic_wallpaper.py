@@ -40,6 +40,8 @@ class DynamicWallpaper(BaseResource):
         interval: Seconds between automatic image switches (default 300).
         random: If True, pick images in random order; otherwise sequential.
         allow_compress: Whether to compress oversized images (default True).
+        restore: If True, restore the original wallpaper on demount.
+            Set to False (default) to leave the current wallpaper in place.
 
     Raises:
         ValueError: If *paths* is empty.
@@ -52,6 +54,7 @@ class DynamicWallpaper(BaseResource):
         interval: int = 300,
         random: bool = False,
         allow_compress: bool = True,
+        restore: bool = False,
     ):
         self.paths = [str(p) for p in paths]
         if not self.paths:
@@ -63,6 +66,7 @@ class DynamicWallpaper(BaseResource):
         self.interval = interval
         self.random = random
         self.allow_compress = allow_compress
+        self.restore = restore
         self._screen_size = get_screen_size()
 
         super().__init__(temp_dir=self.allow_compress)
@@ -151,6 +155,8 @@ class DynamicWallpaper(BaseResource):
 
         Signals the cycling thread to exit, waits for it to finish, and
         restores the wallpaper that was active before mount() was called.
+        When *restore* is ``False`` (set at init time), the original wallpaper
+        is *not* restored.
         Safe to call without a prior mount (no-op).
         """
         if self._cycling_thread is not None:
@@ -158,7 +164,7 @@ class DynamicWallpaper(BaseResource):
             self._cycling_thread.join(timeout=5.0)
             self._cycling_thread = None
 
-        if self._original_wallpaper and self._original_style:
+        if self.restore and self._original_wallpaper and self._original_style:
             set_wallpaper(self._original_wallpaper, self._original_style)
             logger.debug(
                 "restore origin wallpaper: %s, style: %s",
