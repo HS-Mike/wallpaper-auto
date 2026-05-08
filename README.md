@@ -1,5 +1,7 @@
 # Wallpaper Automator
 
+[![codecov](https://codecov.io/github/HS-Mike/wallpaper_automator/graph/badge.svg?token=BZSTAYXUWF)](https://codecov.io/github/HS-Mike/wallpaper_automator)
+
 Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, day of week).
 
 ## Features
