@@ -29,6 +29,11 @@ class ConfigStore:
         return self.config.fallback
 
     @property
+    def at_shutdown_resource_id(self) -> str | None:
+        assert self.config is not None
+        return self.config.at_shutdown
+
+    @property
     def resource(self) -> dict[str, ResourceConfig]:
         assert self.config is not None
         return self.config.resource

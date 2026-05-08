@@ -12,6 +12,7 @@ Automatically switches Windows desktop wallpapers based on configurable conditio
   - `time_range`: Time range (supports crossing midnight)
 - **System tray control**: System tray menu for manual wallpaper switching and pause/resume auto-switching
 - **Thread-safe**: Each monitoring module runs independently without blocking others
+- **At-shutdown wallpaper**: Optionally apply a specific wallpaper when Windows shuts down or the user logs off
 
 ## Quick Start
 
@@ -98,6 +99,9 @@ rule:
     target: "dark_wallpaper"
 # 4. Fallback wallpaper (used when no rule matches)
 fallback: "default_wallpaper"
+
+# 5. (Optional) At-shutdown wallpaper — applied when Windows shuts down
+# at_shutdown: "work_wallpaper"
 ```
 
 ## Running

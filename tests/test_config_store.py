@@ -366,3 +366,36 @@ class TestProperties:
             _ = store.rule
         with pytest.raises(AssertionError):
             _ = store.trigger
+        with pytest.raises(AssertionError):
+            _ = store.at_shutdown_resource_id
+
+    def test_at_shutdown_resource_id_none_by_default(self, store: ConfigStore, valid_yaml: str):
+        """at_shutdown_resource_id should be None when not in YAML."""
+        store.load(valid_yaml)
+        assert store.at_shutdown_resource_id is None
+
+    def test_at_shutdown_resource_id_from_yaml(self, store: ConfigStore, tmp_path):
+        """at_shutdown_resource_id should return the configured resource."""
+        yaml_str = _make_valid_yaml(at_shutdown="office_view")
+        path = tmp_path / "with_atsd.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.at_shutdown_resource_id == "office_view"
+
+
+class TestAtShutdownValidation:
+    """Validation of at_shutdown target in ConfigModel."""
+
+    def test_at_shutdown_target_not_found_raises(self):
+        """at_shutdown referencing a nonexistent resource should raise ValueError."""
+        data = dict(_MINIMAL)
+        data["at_shutdown"] = "nonexistent"
+        with pytest.raises(ValueError, match="at_shutdown target.*not found"):
+            ConfigModel(**data)
+
+    def test_at_shutdown_target_exists_passes(self):
+        """at_shutdown referencing an existing resource should pass validation."""
+        data = dict(_MINIMAL)
+        data["at_shutdown"] = "a"
+        model = ConfigModel(**data)
+        assert model.at_shutdown == "a"

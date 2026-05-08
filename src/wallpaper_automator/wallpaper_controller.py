@@ -10,6 +10,7 @@ import queue
 import signal
 import threading
 
+from . import atshutdown
 from .config_store import ConfigStore
 from .models import Rule
 from .resource_manager import ResourceManager
@@ -118,6 +119,31 @@ class WallpaperController:
         self._tray.bridge.register_quit_handler(self.stop)
         self._tray.bridge.register_update_ui_handler(self.update_system_tray)
 
+    def _shutdown_mount(self, resource_id: str) -> None:
+        """Synchronously mount the at-shutdown resource during system shutdown.
+
+        Runs on the shutdown handler's listener thread when Windows broadcasts
+        ``WM_QUERYENDSESSION``.  Mounts synchronously because the worker loop
+        may not process queued tasks before the process terminates.
+        """
+        if self._resource_manager.active_resource_id != resource_id:
+            self._resource_manager.demount()
+            self._resource_manager.mount(resource_id)
+            logger.info("applied at-shutdown wallpaper: %s", resource_id)
+
+    def at_shutdown(self) -> None:
+        """Register the at-shutdown resource callback if configured.
+
+        Called during ``start()`` after all subsystems are initialised.
+        """
+        resource_id = self._config_store.at_shutdown_resource_id
+        if resource_id is None:
+            logger.debug("no at_shutdown resource configured -- skipping")
+            return
+
+        atshutdown.register(self._shutdown_mount, resource_id=resource_id)
+        logger.info("registered at-shutdown wallpaper: %s", resource_id)
+
     def start(self) -> None:
         logger.info("wallpaper controller start")
         signal.signal(signal.SIGINT, lambda sig, frame: self.stop())
@@ -132,6 +158,7 @@ class WallpaperController:
         self._worker_loop_thread.start()
         self.evaluate()
         self._trigger_manager.activate()
+        self.at_shutdown()
 
     def stop(self) -> None:
         logger.info("wallpaper controller stop")
@@ -142,6 +169,7 @@ class WallpaperController:
         self._worker_loop_thread = None
         self._trigger_manager.deactivate()
         self._resource_manager.demount()
+        atshutdown.unregister(self._shutdown_mount)
         if self._tray is not None:
             app = self._tray._app
             self._tray.hide()

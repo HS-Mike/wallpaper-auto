@@ -20,6 +20,7 @@ def _mock_config_for_start(controller):
     """Give the controller a fake config so ``start()`` can read ``fallback_resource_id``."""
     mock_cs = MagicMock()
     mock_cs.fallback_resource_id = "fallback"
+    mock_cs.at_shutdown_resource_id = None
     controller._config_store = mock_cs
 
 
@@ -455,3 +456,62 @@ class TestWallpaperControllerStop:
         if app is not None:
             app.quit.assert_called_once()
         _cleanup_worker(controller)
+
+    def test_stop_unregisters_shutdown_callback(self, controller):
+        """stop() should unregister the at-shutdown callback to prevent restart leaks."""
+        _start_controller(controller)
+        with patch("wallpaper_automator.wallpaper_controller.atshutdown") as mock_atsd:
+            controller.stop()
+        mock_atsd.unregister.assert_called_once_with(controller._shutdown_mount)
+        _cleanup_worker(controller)
+
+
+# -- at_shutdown ----------------------------------------------------------
+
+
+class TestWallpaperControllerAtShutdown:
+    """at_shutdown() and _shutdown_mount() – shutdown resource handling."""
+
+    def test_skipped_when_not_configured(self, controller):
+        """at_shutdown() should be a no-op when no at_shutdown resource is set."""
+        mock_cs = MagicMock()
+        mock_cs.at_shutdown_resource_id = None
+        controller._config_store = mock_cs
+
+        with patch("wallpaper_automator.wallpaper_controller.atshutdown") as mock_atsd:
+            controller.at_shutdown()
+        mock_atsd.register.assert_not_called()
+
+    def test_registers_callback_when_configured(self, controller):
+        """at_shutdown() should register _shutdown_mount when a resource is set."""
+        mock_cs = MagicMock()
+        mock_cs.at_shutdown_resource_id = "shutdown_wall"
+        controller._config_store = mock_cs
+
+        with patch("wallpaper_automator.wallpaper_controller.atshutdown") as mock_atsd:
+            controller.at_shutdown()
+        mock_atsd.register.assert_called_once_with(
+            controller._shutdown_mount, resource_id="shutdown_wall"
+        )
+
+    def test_shutdown_mount_demounts_then_mounts(self, controller):
+        """_shutdown_mount() should demount current and mount the shutdown resource."""
+        mock_rm = MagicMock()
+        mock_rm.active_resource_id = None
+        controller._resource_manager = mock_rm
+
+        controller._shutdown_mount("shutdown_wall")
+
+        mock_rm.demount.assert_called_once()
+        mock_rm.mount.assert_called_once_with("shutdown_wall")
+
+    def test_shutdown_mount_skipped_when_already_active(self, controller):
+        """_shutdown_mount() should skip when the resource is already active."""
+        mock_rm = MagicMock()
+        mock_rm.active_resource_id = "shutdown_wall"
+        controller._resource_manager = mock_rm
+
+        controller._shutdown_mount("shutdown_wall")
+
+        mock_rm.demount.assert_not_called()
+        mock_rm.mount.assert_not_called()

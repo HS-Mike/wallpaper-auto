@@ -86,6 +86,7 @@ class ConfigModel(BaseModel):
     trigger: list[TriggerConfig]
     rule: list[Rule]
     fallback: str
+    at_shutdown: str | None = None
 
     @model_validator(mode="after")
     def check_target_exist(self) -> "ConfigModel":
@@ -94,6 +95,8 @@ class ConfigModel(BaseModel):
         for rule in self.rule:
             if rule.target not in self.resource:
                 raise ValueError(f"Rule '{rule.name}' targets unknown resource: {rule.target}")
+        if self.at_shutdown is not None and self.at_shutdown not in self.resource:
+            raise ValueError(f"at_shutdown target '{self.at_shutdown}' not found in resource")
         return self
 
 

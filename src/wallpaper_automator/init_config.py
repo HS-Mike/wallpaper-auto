@@ -123,6 +123,15 @@ rule:
 # Fallback  (used when no rule matches)
 # ---------------------------------------------------------------------------
 fallback: "office_view"
+
+# ---------------------------------------------------------------------------
+# At-Shutdown Wallpaper  (optional)
+# ---------------------------------------------------------------------------
+# If set, this resource is applied when Windows shuts down or the user logs
+# off.  The resource ID must exist in the resource pool above.
+# Uncomment the line below and replace with one of your resource IDs:
+# ---------------------------------------------------------------------------
+# at_shutdown: "office_view"
 """
 
 
