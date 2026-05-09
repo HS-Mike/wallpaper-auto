@@ -139,7 +139,7 @@ class StaticWallpaper(CachedResource):
         if self._need_cache:
             if self._compress_path is None:
                 self._compress_path = self._get_compress_cached_path()
-                logger.info("compress %s to %s", self.image_path, self._compress_path)
+                logger.info("static wallpaper cache: %s", self._compress_path)
             image_path = self._compress_path
         else:
             image_path = self.image_path

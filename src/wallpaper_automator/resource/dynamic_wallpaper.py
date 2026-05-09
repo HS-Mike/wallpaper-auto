@@ -95,7 +95,7 @@ class DynamicWallpaper(CachedResource):
         if original_path not in self._compressed_paths:
             if check_need_cache(original_path, self._screen_size, self.allow_compress):
                 cached = get_compress_cached_path(original_path, self._screen_size, self.cache_dir)
-                logger.info("compress %s to %s", original_path, cached)
+                logger.info("dynamic wallpaper cache: %s", cached)
                 self._compressed_paths[original_path] = cached
             else:
                 self._compressed_paths[original_path] = original_path
