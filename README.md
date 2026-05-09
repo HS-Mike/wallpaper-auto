@@ -23,7 +23,7 @@ Automatically switches Windows desktop wallpapers based on configurable conditio
 2. Install the package:
 
    ```bash
-   pip install -e .
+   pip install .
    ```
 
 3. Generate a starter config file:
