@@ -499,7 +499,7 @@ class TestStaticWallpaperEdgeCases:
         img_path = tmp_path / "test.png"
         Image.new("RGB", (3840, 2160)).save(img_path)
         wp = StaticWallpaper(path=str(img_path))
-        # cache_dir should be accessible when _need_cache is True (temp_dir=True)
+        # cache_dir should be accessible (CachedResource always creates one)
         assert wp.cache_dir is not None
 
     def test_resize_portrait_image(self, tmp_path, mock_screen_size):

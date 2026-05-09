@@ -2,6 +2,7 @@
 Tests for dynamic_wallpaper.py — DynamicWallpaper resource.
 """
 
+import os
 import time
 from unittest.mock import patch
 
@@ -354,17 +355,16 @@ class TestDynamicWallpaperEdgeCases:
         Image.new("RGB", (100, 100)).save(small)
 
         wp = DynamicWallpaper(paths=[large, small])
-        assert wp.temp_file is True
         # cache_dir should be accessible
         assert wp.cache_dir is not None
 
-    def test_no_cache_dir_when_not_needed(self, tmp_path, mock_utils_screen_size):
-        """No cache directory when allow_compress is False."""
+    def test_cache_dir_always_available(self, tmp_path, mock_utils_screen_size):
+        """Cache directory is always created regardless of allow_compress."""
         paths = _create_images(tmp_path, count=2, size=(100, 100))
         wp = DynamicWallpaper(paths=paths, allow_compress=False)
-        assert wp.temp_file is False
-        with pytest.raises(ValueError, match="cache dir is unavailable"):
-            _ = wp.cache_dir  # should raise
+        # CachedResource always creates a cache dir
+        assert wp.cache_dir is not None
+        assert os.path.exists(wp.cache_dir)
 
     def test_get_current_image_path_respects_compression(self, tmp_path, mock_utils_screen_size):
         """_get_current_image_path returns the compressed path for large images."""

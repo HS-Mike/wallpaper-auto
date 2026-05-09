@@ -173,8 +173,8 @@ resource:
 
 | Resource | Constructor Parameters | Description |
 |----------|----------------------|-------------|
-| `static_wallpaper` | `path` (str), `style` (str), `restore` (bool, default False) | Static image wallpaper — `restore=True` restores original wallpaper on demount |
-| `dynamic_wallpaper` | `paths` (list[str]), `style` (str), `interval` (int, default 300), `random` (bool, default False), `restore` (bool, default False) | Multi-image cycling wallpaper |
+| `static_wallpaper` | `path` (str), `style` (str), `restore` (bool, default False), `cache_dir` (str, optional) | Static image wallpaper — `restore=True` restores original wallpaper on demount. `cache_dir` overrides the auto-created temp directory. |
+| `dynamic_wallpaper` | `paths` (list[str]), `style` (str), `interval` (int, default 300), `random` (bool, default False), `restore` (bool, default False), `cache_dir` (str, optional) | Multi-image cycling wallpaper — `cache_dir` overrides the auto-created temp directory. |
 
 The shorthand form (`black: "C:/img.jpg"`) is expanded to `static_wallpaper` with the string as the `path`.
 
@@ -241,10 +241,9 @@ class OnlineResource(BaseResource):
     def __init__(self, query: str = "nature", style: str = "fill"):
         self.query = query
         self.style = style
-        super().__init__(temp_dir=True)
 
     def mount(self):
-        # Download image to self.cache_dir, then set as wallpaper
+        # Download image, then set as wallpaper
         ...
 
     def demount(self):
@@ -392,9 +391,9 @@ src/wallpaper_automator/
 │   └── time_range_evaluator.py#   Time range check (supports midnight crossing)
 │
 ├── resource/                  # Wallpaper resource implementations
-│   ├── base_resource.py       #   BaseResource abstract class with temp cache mgmt
+│   ├── base_resource.py       #   BaseResource abstract class (mount/demount only)
 │   ├── wallpaper_utils.py     #   Shared Windows API helpers (set_wallpaper, etc.)
-│   ├── static_wallpaper.py    #   Single-image wallpaper (win32 SPI) with auto-compress
+│   ├── static_wallpaper.py    #   Single-image wallpaper + CachedResource base class
 │   └── dynamic_wallpaper.py   #   Multi-image cycling wallpaper with timer thread
 │
 └── util/                      # Shared utilities

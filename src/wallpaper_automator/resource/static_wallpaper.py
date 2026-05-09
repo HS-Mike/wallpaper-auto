@@ -6,9 +6,19 @@ scaling style (fill, fit, stretch, center, tile).
 
 In some situations, windows fail to load wallpaper if it is too large.
 Optionally compresses large images and caches the result for performance.
+
+This module also defines :class:`CachedResource`, an intermediate base class
+for resources that need a cache directory (used by both ``StaticWallpaper``
+and ``DynamicWallpaper``).
 """
 
+import atexit
 import logging
+import os
+import shutil
+import tempfile
+import threading
+import uuid
 from os import PathLike
 
 from .base_resource import BaseResource
@@ -26,13 +36,60 @@ from .wallpaper_utils import (
 logger = logging.getLogger(__name__)
 
 
-class StaticWallpaper(BaseResource):
+_created_temp_dirs: list[str] = []
+_lock = threading.Lock()
+
+
+def _cleanup_temp_dirs() -> None:
+    """Remove all auto-created temp cache directories on process exit."""
+    with _lock:
+        dirs = _created_temp_dirs.copy()
+        _created_temp_dirs.clear()
+    for d in dirs:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+atexit.register(_cleanup_temp_dirs)
+
+
+class CachedResource(BaseResource):
+    """
+    Intermediate base for resources that need a cache directory.
+
+    Each instance is allocated either a user-specified cache directory or
+    an auto-created temporary directory.  The cache directory is guaranteed
+    to exist after ``__init__`` returns.
+
+    Auto-created temp directories are cleaned up on process exit.  User-
+    specified directories are never removed automatically.
+    """
+
+    def __init__(self, cache_dir: str | None = None):
+        if cache_dir is not None:
+            # User-specified path — use directly, no exit cleanup
+            self._cache_dir = cache_dir
+        else:
+            # Auto temp dir — cleaned up on exit
+            dir_name = f"wallpaper_automator_{uuid.uuid4().hex}"
+            self._cache_dir = os.path.join(tempfile.gettempdir(), dir_name)
+            with _lock:
+                _created_temp_dirs.append(self._cache_dir)
+        os.makedirs(self._cache_dir, exist_ok=True)
+
+    @property
+    def cache_dir(self) -> str:
+        """Path to this instance's cache directory."""
+        return self._cache_dir
+
+
+class StaticWallpaper(CachedResource):
     def __init__(
         self,
         path: PathLike[str] | str,
         style: WallpaperStyle | str = WallpaperStyle.FILL,
         allow_compress: bool = True,
         restore: bool = False,
+        cache_dir: str | None = None,
     ):
         self.image_path = str(path)
         if isinstance(style, str):
@@ -42,7 +99,7 @@ class StaticWallpaper(BaseResource):
         self.restore = restore
         self._screen_size = get_screen_size()
         self._need_cache: bool = self._check_need_cache()
-        super().__init__(temp_dir=self._need_cache)
+        super().__init__(cache_dir=cache_dir)
         self._compress_path: str | None = None
         self._original_wallpaper: str | None = None
         self._original_style: tuple[str, str] | None = None

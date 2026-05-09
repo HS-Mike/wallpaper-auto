@@ -11,7 +11,7 @@ import random
 import threading
 from os import PathLike
 
-from .base_resource import BaseResource
+from .static_wallpaper import CachedResource
 from .wallpaper_utils import (
     WallpaperStyle,
     check_need_cache,
@@ -25,7 +25,7 @@ from .wallpaper_utils import (
 logger = logging.getLogger(__name__)
 
 
-class DynamicWallpaper(BaseResource):
+class DynamicWallpaper(CachedResource):
     """
     A wallpaper resource that cycles through multiple images.
 
@@ -54,6 +54,7 @@ class DynamicWallpaper(BaseResource):
         random: bool = False,
         allow_compress: bool = True,
         restore: bool = False,
+        cache_dir: str | None = None,
     ):
         self.paths = [str(p) for p in paths]
         if not self.paths:
@@ -68,7 +69,7 @@ class DynamicWallpaper(BaseResource):
         self.restore = restore
         self._screen_size = get_screen_size()
 
-        super().__init__(temp_dir=self.allow_compress)
+        super().__init__(cache_dir=cache_dir)
 
         # Lazily populated compressed-path dict: original → compressed (or identity)
         self._compressed_paths: dict[str, str] = {}
