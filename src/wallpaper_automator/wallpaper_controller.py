@@ -126,6 +126,7 @@ class WallpaperController:
         ``WM_QUERYENDSESSION``.  Mounts synchronously because the worker loop
         may not process queued tasks before the process terminates.
         """
+        logger.info("at shutdown mount triggered")
         if self._resource_manager.active_resource_id != resource_id:
             self._resource_manager.demount()
             self._resource_manager.mount(resource_id)
