@@ -6,7 +6,7 @@ import shutil
 import pytest
 
 from wallpaper_automator.resource.base_resource import BaseResource
-from wallpaper_automator.resource.static_wallpaper import CachedResource
+from wallpaper_automator.resource.static_wallpaper import CachedResource, _cleanup_temp_dirs
 
 
 class MockCached(CachedResource):
@@ -52,3 +52,11 @@ class TestBaseResource:
         finally:
             shutil.rmtree(res1.cache_dir, ignore_errors=True)
             shutil.rmtree(res2.cache_dir, ignore_errors=True)
+
+    def test_cleanup_temp_dirs(self):
+        """_cleanup_temp_dirs removes tracked temp dirs."""
+        res = MockCached()
+        path = res.cache_dir
+        assert os.path.exists(path)
+        _cleanup_temp_dirs()
+        assert not os.path.exists(path)
