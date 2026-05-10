@@ -203,9 +203,9 @@ class MyTrigger(BaseThreadTrigger):
 
 After running, the app displays an icon in the system tray:
 
-- **Select wallpaper**: Manually switch to the specified wallpaper
-- **Auto mode**: Resume auto-switching
-- **Pause**: Stop auto-switching
+- **Auto mode**: Resume auto-switching (hides the manual wallpaper options)
+- **Pause mode**: Stop automatic rule-based switching. Manual wallpaper selection becomes available.
+- **Select wallpaper**: Manually switch to the specified wallpaper (only available while paused)
 
 ## Programmatic Usage
 
@@ -358,46 +358,6 @@ TriggerManager.register_trigger("usb_plug", UsbPlugTrigger)
 RuleEngine.register_evaluator("my_evaluator", MyEvaluator())
 
 run_service("config.yaml")
-```
-
-## Project Structure
-
-```
-src/wallpaper_automator/
-├── __init__.py                # Package root — re-exports public API (run_service, base classes)
-├── __main__.py                # CLI entry point — arg parsing, delegates to run_service()
-├── service.py                 # run_service() — programmatic startup with custom component support
-├── init_config.py             # Starter config template generator (init-config subcommand)
-├── process_mutex.py           # Single-instance enforcement via named mutex
-├── wallpaper_controller.py    # Orchestrator — owns worker loop, routes trigger → rule → resource
-├── config_store.py            # YAML config loader & validator (Pydantic)
-├── models.py                  # Pydantic data models for config, conditions, rules
-├── task.py                    # Task queue types (ModeSwitch / ResourceSet / Quit)
-├── rule_engine.py             # Recursive AND/OR condition tree evaluation
-├── system_tray.py             # PySide6 system tray UI with Qt signal bridge
-├── resource_manager.py        # Resource lifecycle (mount/demount), registration
-├── trigger_manager.py         # Trigger lifecycle, pause/resume, callback routing
-│
-├── trigger/                   # Trigger implementations (monitor system events)
-│   ├── base_trigger.py        #   BaseTrigger & BaseThreadTrigger abstract classes
-│   ├── network_trigger.py     #   WMI-based WiFi / network change detection
-│   ├── time_trigger.py        #   Fixed-time / interval-based triggering
-│   └── windows_session_trigger.py  # Win32 session event (lock/unlock/logon) monitor
-│
-├── evaluator/                 # Condition evaluator implementations
-│   ├── base_evaluator.py      #   BaseEvaluator callable interface
-│   ├── wifi_ssid_evaluator.py #   netsh-based WiFi SSID matching
-│   ├── weekday_evaluator.py   #   Day-of-week check (0=Monday … 6=Sunday)
-│   └── time_range_evaluator.py#   Time range check (supports midnight crossing)
-│
-├── resource/                  # Wallpaper resource implementations
-│   ├── base_resource.py       #   BaseResource abstract class (mount/demount only)
-│   ├── wallpaper_utils.py     #   Shared Windows API helpers (set_wallpaper, etc.)
-│   ├── static_wallpaper.py    #   Single-image wallpaper + CachedResource base class
-│   └── dynamic_wallpaper.py   #   Multi-image cycling wallpaper with timer thread
-│
-└── util/                      # Shared utilities
-    └── callback_register.py   #   Thread-safe callback registry mixin
 ```
 
 ## Dependencies
