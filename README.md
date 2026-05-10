@@ -126,6 +126,10 @@ from wallpaper_automator import run_service
 run_service("config.yaml")
 ```
 
+## Auto Start
+
+To launch automatically at logon, create a **Task Scheduler** task with an **At log on** trigger. Use `pythonw.exe` to hide the console window:
+
 ## How Config Parameters Flow to Components
 
 Each component type can accept configuration via a `config` block in the YAML file. The key-value pairs are unpacked as keyword arguments to the component's constructor.
