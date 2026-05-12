@@ -67,9 +67,7 @@ class ResourceCarousel(BaseResource):
             elif isinstance(r, dict):
                 self._resources.append(self._build_sub_resource(r))
             else:
-                raise TypeError(
-                    f"Expected BaseResource or dict, got {type(r).__name__}"
-                )
+                raise TypeError(f"Expected BaseResource or dict, got {type(r).__name__}")
 
         if not self._resources:
             raise ValueError("At least one resource is required")

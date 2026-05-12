@@ -63,16 +63,22 @@ class TestResourceCarouselInit:
             def __init__(self, path: str = "", style: str = "fill") -> None:
                 self.path = path
                 self.style = style
-            def mount(self) -> None: pass
-            def demount(self) -> None: pass
+
+            def mount(self) -> None:
+                pass
+
+            def demount(self) -> None:
+                pass
 
         with patch(
             "wallpaper_automator.resource_manager.ResourceManager._support_resources",
             {"mock_resource": _MockResource},
         ):
-            carousel = ResourceCarousel(resources=[
-                {"name": "mock_resource", "config": {"path": "test.jpg", "style": "center"}},
-            ])
+            carousel = ResourceCarousel(
+                resources=[
+                    {"name": "mock_resource", "config": {"path": "test.jpg", "style": "center"}},
+                ]
+            )
             assert len(carousel._resources) == 1
             assert isinstance(carousel._resources[0], _MockResource)
             assert carousel._resources[0].path == "test.jpg"
@@ -109,9 +115,7 @@ class TestResourceCarouselMount:
         assert carousel._cycling_thread.is_alive()
         carousel.demount()
 
-    def test_mount_stores_original_before_mounting(
-        self, mock_carousel_deps, mock_sub_resources
-    ):
+    def test_mount_stores_original_before_mounting(self, mock_carousel_deps, mock_sub_resources):
         """mount gets the original wallpaper before mounting the sub-resource."""
         carousel = ResourceCarousel(resources=mock_sub_resources)
         carousel.mount()
@@ -149,9 +153,7 @@ class TestResourceCarouselDemount:
 
     def test_demount_restores_original(self, mock_carousel_deps, mock_sub_resources):
         """restore=True — demount restores the wallpaper from before mount."""
-        with patch(
-            "wallpaper_automator.resource.resource_carousel.set_wallpaper"
-        ) as mock_set:
+        with patch("wallpaper_automator.resource.resource_carousel.set_wallpaper") as mock_set:
             carousel = ResourceCarousel(resources=mock_sub_resources, restore=True)
             carousel.mount()
             mock_set.reset_mock()
@@ -161,13 +163,9 @@ class TestResourceCarouselDemount:
             args, _ = mock_set.call_args
             assert args[0] == "C:\\original.jpg"
 
-    def test_demount_with_restore_false_skips_restore(
-        self, mock_carousel_deps, mock_sub_resources
-    ):
+    def test_demount_with_restore_false_skips_restore(self, mock_carousel_deps, mock_sub_resources):
         """restore=False — demount does not restore the original wallpaper."""
-        with patch(
-            "wallpaper_automator.resource.resource_carousel.set_wallpaper"
-        ) as mock_set:
+        with patch("wallpaper_automator.resource.resource_carousel.set_wallpaper") as mock_set:
             carousel = ResourceCarousel(resources=mock_sub_resources, restore=False)
             carousel.mount()
             mock_set.reset_mock()
@@ -196,9 +194,7 @@ class TestResourceCarouselDemount:
 
     def test_demount_idempotent(self, mock_carousel_deps, mock_sub_resources):
         """Calling demount twice is safe."""
-        with patch(
-            "wallpaper_automator.resource.resource_carousel.set_wallpaper"
-        ) as mock_set:
+        with patch("wallpaper_automator.resource.resource_carousel.set_wallpaper") as mock_set:
             carousel = ResourceCarousel(resources=mock_sub_resources, restore=True)
             carousel.mount()
             mock_set.reset_mock()
@@ -231,6 +227,7 @@ class TestResourceCarouselDemount:
             mock_sub_resources[0].mount.assert_called_once()
             assert carousel._original_wallpaper == "C:\\original.jpg"
             carousel.demount()
+
 
 class TestResourceCarouselCycling:
     """Index advancement and cycling thread behavior."""
@@ -272,10 +269,7 @@ class TestResourceCarouselCycling:
 
         # Poll for cycling to happen (up to 5 s)
         deadline = time.monotonic() + 5.0
-        while (
-            mock_sub_resources[0].demount.call_count < 1
-            and time.monotonic() < deadline
-        ):
+        while mock_sub_resources[0].demount.call_count < 1 and time.monotonic() < deadline:
             time.sleep(0.02)
 
         # After at least one cycle: resource 0 was demounted
@@ -306,10 +300,7 @@ class TestResourceCarouselCycling:
 
         # Poll for two full cycles
         deadline = time.monotonic() + 5.0
-        while (
-            mock_sub_resources[2].mount.call_count < 1
-            and time.monotonic() < deadline
-        ):
+        while mock_sub_resources[2].mount.call_count < 1 and time.monotonic() < deadline:
             time.sleep(0.02)
 
         carousel.demount()
@@ -330,10 +321,7 @@ class TestResourceCarouselEdgeCases:
         carousel.mount()
         # Give the tight loop a moment to cycle
         deadline = time.monotonic() + 1.0
-        while (
-            mock_sub_resources[1].mount.call_count < 1
-            and time.monotonic() < deadline
-        ):
+        while mock_sub_resources[1].mount.call_count < 1 and time.monotonic() < deadline:
             time.sleep(0.01)
         carousel.demount()
 
@@ -353,10 +341,7 @@ class TestResourceCarouselEdgeCases:
 
         # Let the thread cycle a few times
         deadline = time.monotonic() + 1.0
-        while (
-            mock_sub_resources[0].demount.call_count < 2
-            and time.monotonic() < deadline
-        ):
+        while mock_sub_resources[0].demount.call_count < 2 and time.monotonic() < deadline:
             time.sleep(0.02)
 
         carousel.demount()
