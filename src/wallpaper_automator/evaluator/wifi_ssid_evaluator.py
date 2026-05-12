@@ -20,7 +20,10 @@ def get_current_ssid() -> str | None:
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = 0  # SW_HIDE
             result = subprocess.check_output(
-                ["netsh", "wlan", "show", "interfaces"], encoding=enc, stderr=subprocess.STDOUT, startupinfo=startupinfo
+                ["netsh", "wlan", "show", "interfaces"],
+                encoding=enc,
+                stderr=subprocess.STDOUT,
+                startupinfo=startupinfo,
             )
             break
         except UnicodeDecodeError:
