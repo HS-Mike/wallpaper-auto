@@ -141,7 +141,9 @@ class DynamicWallpaper(CachedResource):
             self._original_style,
         )
 
-        # Apply the first (current) image
+        # Pick the first image (random start or index 0)
+        if self.random:
+            self._advance_index()
         self._apply_current()
 
         # Start the cycling thread
