@@ -43,19 +43,17 @@ resource:
   # Shorthand — path only; name and style are inferred
   black: "C:/Users/You/Pictures/black.jpg"
 
-  # ── Dynamic wallpaper (cycles through multiple images) ─────────────────
+  # ── Resource carousel (cycles through multiple sub-resources) ──────────
   # carousel:
-  #   name: dynamic_wallpaper
+  #   name: resource_carousel
   #   config:
-  #     paths:
-  #       - "C:/Users/You/Pictures/morning.jpg"
-  #       - "C:/Users/You/Pictures/afternoon.jpg"
-  #       - "C:/Users/You/Pictures/evening.jpg"
-  #     style: fill
+  #     resources:
+  #       - name: static_wallpaper
+  #         config: {path: "C:/morning.jpg", style: fill}
+  #       - name: static_wallpaper
+  #         config: {path: "C:/afternoon.jpg", style: fill}
   #     interval: 300          # seconds between switches (default 300)
   #     random: false          # true = random order, false = sequential
-  #     restore: false          # restore original wallpaper on demount (default false)
-  #     cache_dir: "C:/Users/You/.cache/wallpaper_automator"  # (optional) custom cache path
 
 
 # ---------------------------------------------------------------------------

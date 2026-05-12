@@ -8,8 +8,7 @@ In some situations, windows fail to load wallpaper if it is too large.
 Optionally compresses large images and caches the result for performance.
 
 This module also defines :class:`CachedResource`, an intermediate base class
-for resources that need a cache directory (used by both ``StaticWallpaper``
-and ``DynamicWallpaper``).
+for resources that need a cache directory (used by ``StaticWallpaper``).
 """
 
 import atexit

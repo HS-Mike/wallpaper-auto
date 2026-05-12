@@ -10,7 +10,7 @@ import threading
 
 from .models import ResourceConfig
 from .resource.base_resource import BaseResource
-from .resource.dynamic_wallpaper import DynamicWallpaper
+from .resource.resource_carousel import ResourceCarousel
 from .resource.static_wallpaper import StaticWallpaper
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 _BUILTIN_RESOURCES: dict[str, type[BaseResource]] = {
     "static_wallpaper": StaticWallpaper,
-    "dynamic_wallpaper": DynamicWallpaper,
+    "resource_carousel": ResourceCarousel,
 }
 
 

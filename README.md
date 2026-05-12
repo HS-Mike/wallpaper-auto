@@ -67,16 +67,16 @@ resource:
       style: fill                         # fill / fit / stretch / center / tile
       restore: false                      # restore original wallpaper on demount (default false)
 
-  carousel:                               # Multi-image cycling wallpaper
-    name: dynamic_wallpaper
+  carousel:                               # Multi-image cycling wallpaper (resource carousel)
+    name: resource_carousel
     config:
-      paths:                              # List of images to cycle through
-        - "C:/Pictures/morning.jpg"
-        - "C:/Pictures/afternoon.jpg"
-      style: fill
+      resources:                          # Sub-resources to cycle through
+        - name: static_wallpaper
+          config: {path: "C:/Pictures/morning.jpg", style: fill}
+        - name: static_wallpaper
+          config: {path: "C:/Pictures/afternoon.jpg", style: fill}
       interval: 300                       # Seconds between switches (default 300)
       random: false                       # true = random order, false = sequential
-      restore: false                      # restore original wallpaper on demount (default false)
 
 # 2. Trigger configuration
 trigger:
@@ -163,22 +163,23 @@ resource:
       path: "C:/img.jpg"     # → StaticWallpaper(path="C:/img.jpg", style="fill")
       style: fill
 
-# Dynamic — cycles through multiple images on a timer
+# Resource carousel — cycles through multiple sub-resources on a timer
   carousel:
-    name: dynamic_wallpaper
+    name: resource_carousel
     config:
-      paths:
-        - "C:/img1.jpg"
-        - "C:/img2.jpg"
-      style: fill
-      interval: 300           # → DynamicWallpaper(paths=[...], interval=300, random=False)
+      resources:
+        - name: static_wallpaper
+          config: {path: "C:/img1.jpg", style: fill}
+        - name: static_wallpaper
+          config: {path: "C:/img2.jpg", style: fill}
+      interval: 300           # → ResourceCarousel(resources=[...], interval=300, random=False)
       random: false
 ```
 
 | Resource | Constructor Parameters | Description |
 |----------|----------------------|-------------|
 | `static_wallpaper` | `path` (str), `style` (str), `restore` (bool, default False), `cache_dir` (str, optional) | Static image wallpaper — `restore=True` restores original wallpaper on demount. `cache_dir` overrides the auto-created temp directory. |
-| `dynamic_wallpaper` | `paths` (list[str]), `style` (str), `interval` (int, default 300), `random` (bool, default False), `restore` (bool, default False), `cache_dir` (str, optional) | Multi-image cycling wallpaper — `cache_dir` overrides the auto-created temp directory. |
+| `resource_carousel` | `resources` (list[dict]), `interval` (int, default 300), `random` (bool, default False) | Cycles through sub-resources — each sub-resource is a full resource config dict with its own `name` and `config`. |
 
 The shorthand form (`black: "C:/img.jpg"`) is expanded to `static_wallpaper` with the string as the `path`.
 
