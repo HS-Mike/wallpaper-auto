@@ -23,19 +23,19 @@ Automatically switches Windows desktop wallpapers based on configurable conditio
 2. Install the package:
 
    ```bash
-   pip install .
+   pip install wallpaper-auto
    ```
 
 3. Generate a starter config file:
 
    ```bash
-   python -m wallpaper_auto init-config
+   wallpaper-auto init-config
    ```
 
 4. Edit config.yaml with your wallpaper paths and rules, then run:
 
    ```bash
-   python -m wallpaper_auto
+   wallpaper-auto
    ```
 
 ## Configuration
@@ -43,17 +43,17 @@ Automatically switches Windows desktop wallpapers based on configurable conditio
 Generate a starter config with all options documented:
 
 ```bash
-python -m wallpaper_auto init-config
+wallpaper-auto init-config
 # Creates config.yaml in the current directory
 ```
 
 Or specify a custom path and force-overwrite an existing file:
 
 ```bash
-python -m wallpaper_auto init-config myconfig.yaml -f
+wallpaper-auto init-config myconfig.yaml -f
 ```
 
-See `python -m wallpaper_auto init-config --help` for all options. You can also create a `config.yaml` file manually (or specify the path via `-c`).
+See `wallpaper-auto init-config --help` for all options. You can also create a `config.yaml` file manually (or specify the path via `-c`).
 
 ### Configuration Structure
 
@@ -110,20 +110,16 @@ fallback: "default_wallpaper"
 
 ```bash
 # Generate a starter config file
-python -m wallpaper_auto init-config
+wallpaper-auto init-config
 
 # Use default config.yaml
-python -m wallpaper_auto
+wallpaper-auto
 
 # Specify config file
-python -m wallpaper_auto -c /path/to/config.yaml
-```
-
-After `pip install`, you can also run directly:
-
-```bash
-wallpaper-auto
 wallpaper-auto -c /path/to/config.yaml
+
+# Set log level
+wallpaper-auto -l INFO
 ```
 
 Or start programmatically from Python:
