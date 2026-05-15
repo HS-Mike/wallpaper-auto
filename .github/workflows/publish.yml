@@ -1,23 +1,22 @@
-name: Publish to TestPyPI
+name: Publish to PyPI
 
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types:
-      - completed
+  push:
+    tags:
+      - 'v*'
 
 jobs:
-  publish-test:
+  publish-stable:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'master' }}
+    if: github.event.base_ref == 'refs/heads/master'
 
     environment:
-      name: testpypi
-      url: https://test.pypi.org/p/wallpaper-auto
+      name: pypi
+      url: https://pypi.org/p/wallpaper-auto
 
     permissions:
       id-token: write
-      contents: read
+      contents: write
 
     steps:
       - uses: actions/checkout@v6
@@ -37,22 +36,17 @@ jobs:
       - name: Build Package
         run: python -m build
 
-      - name: Publish to TestPyPI
+      - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-          skip-existing: true
-
-      - name: Create GitHub Pre-release
+    
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest-dev
-          name: "Development Build (Master)"
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
           draft: false
-          prerelease: true
+          prerelease: false
           generate_release_notes: true
-          make_latest: false
           files: |
             dist/*.whl
             dist/*.tar.gz
-            
