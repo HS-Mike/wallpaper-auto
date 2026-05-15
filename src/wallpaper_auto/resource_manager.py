@@ -36,7 +36,7 @@ class ResourceManager:
     def register_resource(cls, resource_name: str, resource: type[BaseResource]) -> None:
         """
         Register a custom resource class.
-        Register the subclass before starting WallpaperAutomator.
+        Register the subclass before starting the controller.
         """
         if not issubclass(resource, BaseResource):
             raise ValueError("resource cls must inherit from BaseResource")

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -12,12 +12,15 @@ authors = [
     { name = "Mike", email = "houlin.mike@gmail.com" }
 ]
 license = { text = "MIT" }
+keywords = ["wallpaper", "desktop", "windows", "automation"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
     "Environment :: Win32 (MS Windows)",
-    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
 ]
 
 dependencies = [
@@ -28,6 +31,14 @@ dependencies = [
     "Pillow>=10.0",
     "wmi>=1.5",
 ]
+
+[project.urls]
+Homepage = "https://github.com/HS-Mike/wallpaper-auto"
+Repository = "https://github.com/HS-Mike/wallpaper-auto"
+"Bug Tracker" = "https://github.com/HS-Mike/wallpaper-auto/issues"
+
+[project.scripts]
+wallpaper-auto = "wallpaper_auto:run_service"
 
 [project.optional-dependencies]
 dev = [

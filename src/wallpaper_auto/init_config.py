@@ -9,7 +9,7 @@ import os
 
 _TEMPLATE = """\
 # =============================================================================
-# Wallpaper Automator — Configuration Template
+# Wallpaper Auto — Configuration Template
 # =============================================================================
 # This file defines wallpapers, triggers, and rules for automatic wallpaper
 # switching.  Rules are evaluated in order; the first matching rule's target

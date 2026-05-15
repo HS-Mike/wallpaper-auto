@@ -46,7 +46,7 @@ class TriggerManager(CallbackRegister[[], None]):
     def register_trigger(cls, name: str, trigger_cls: type[BaseTrigger]) -> None:
         """
         Register a custom trigger class.
-        Register the subclass before starting WallpaperAutomator.
+        Register the subclass before starting the controller.
         """
         if not issubclass(trigger_cls, BaseTrigger):
             raise ValueError("trigger cls must inherit from BaseTrigger")

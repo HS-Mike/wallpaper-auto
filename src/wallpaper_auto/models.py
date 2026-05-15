@@ -1,5 +1,5 @@
 """
-Pydantic data models for the wallpaper automator configuration.
+Pydantic data models for the wallpaper auto configuration.
 
 Includes models for triggers, resources, rules (with AND/OR condition trees),
 and the top-level config. Validates that all rule targets reference existing resources.

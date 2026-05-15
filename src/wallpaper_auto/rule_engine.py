@@ -34,7 +34,7 @@ class RuleEngine:
     def register_evaluator(cls, name: str, evaluator: BaseEvaluator) -> None:
         """Register a custom condition evaluator.
 
-        Register before starting WallpaperAutomator so the rule engine
+        Register before starting the controller so the rule engine
         can resolve conditions referencing this evaluator by name.
         """
         if not isinstance(evaluator, BaseEvaluator):
