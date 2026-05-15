@@ -92,3 +92,4 @@ quote-style = "double"
 
 [tool.setuptools_scm]
 write_to = "src/wallpaper_auto/_version.py"
+local_scheme = "no-local-version"
