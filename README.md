@@ -119,6 +119,13 @@ python -m wallpaper_auto
 python -m wallpaper_auto -c /path/to/config.yaml
 ```
 
+After `pip install`, you can also run directly:
+
+```bash
+wallpaper-auto
+wallpaper-auto -c /path/to/config.yaml
+```
+
 Or start programmatically from Python:
 
 ```python
