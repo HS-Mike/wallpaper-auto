@@ -11,6 +11,17 @@ from .rule_engine import RuleEngine
 from .trigger.base_trigger import BaseThreadTrigger, BaseTrigger
 from .trigger_manager import TriggerManager
 
+
+try:
+    from ._version import version as __version__
+except ImportError:
+    try:
+        from importlib.metadata import version
+        __version__ = version("wallpaper-auto")
+    except Exception:
+        __version__ = "unknown"
+
+
 __all__ = [
     "run_service",
     "BaseTrigger",

@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=80.0", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "wallpaper-auto"
-version = "0.1.0"
+dynamic = ["version"]"
 description = "Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, location, day of week)"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -86,3 +86,6 @@ select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.ruff.format]
 quote-style = "double"
+
+[tool.setuptools_scm]
+write_to = "src/wallpaper_auto/_version.py"
