@@ -3,8 +3,8 @@
 import pytest
 import yaml
 
-from wallpaper_automator.config_store import ConfigStore
-from wallpaper_automator.models import ConfigModel, ResourceConfig, Rule
+from wallpaper_auto.config_store import ConfigStore
+from wallpaper_auto.models import ConfigModel, ResourceConfig, Rule
 
 # ── helpers ──────────────────────────────────────────────────────────────
 

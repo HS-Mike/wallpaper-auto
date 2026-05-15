@@ -1,5 +1,5 @@
 """
-Wallpaper Automator - Automatically switch Windows desktop wallpapers based on conditions.
+Wallpaper Auto - Automatically switch Windows desktop wallpapers based on conditions.
 """
 
 from typing import Literal
@@ -31,11 +31,11 @@ def run_service(
     custom_resources: dict[str, type[BaseResource]] | None = None,
     custom_evaluators: dict[str, BaseEvaluator] | None = None,
 ) -> None:
-    """Start the wallpaper automator service.
+    """Start the wallpaper auto service.
 
     Lazy wrapper that defers the full service import (and its Qt
     dependency) until actually called. See
-    :func:`wallpaper_automator.service.run_service` for the full
+    :func:`wallpaper_auto.service.run_service` for the full
     documentation and parameter reference.
     """
     from .service import run_service as _run_service  # noqa: PLC0415

@@ -3,9 +3,9 @@
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from wallpaper_automator.models import ConditionNode, Rule
-from wallpaper_automator.system_tray import WallpaperSwitchSystemTray
-from wallpaper_automator.task import Mode
+from wallpaper_auto.models import ConditionNode, Rule
+from wallpaper_auto.system_tray import WallpaperSwitchSystemTray
+from wallpaper_auto.task import Mode
 
 
 @pytest.fixture(autouse=True)
@@ -14,7 +14,7 @@ def ensure_qapp(qtbot, monkeypatch):
     app = QApplication.instance()
     assert app is not None
     monkeypatch.setattr(
-        "wallpaper_automator.system_tray.QApplication",
+        "wallpaper_auto.system_tray.QApplication",
         lambda *args: app,
     )
     yield
@@ -136,7 +136,7 @@ class TestUtilityFunctions:
 
     def test_utility_functions(self):
         """Test helper functions."""
-        from wallpaper_automator.system_tray import get_color
+        from wallpaper_auto.system_tray import get_color
 
         color = get_color("#112233FF")  # FF moved to front -> #FF112233
         assert color.alpha() == 255

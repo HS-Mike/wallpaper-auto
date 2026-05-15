@@ -1,4 +1,4 @@
-"""Tests for the :mod:`wallpaper_automator.service` module."""
+"""Tests for the :mod:`wallpaper_auto.service` module."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from wallpaper_automator.service import _build_parser, _setup_logging, run_service
+from wallpaper_auto.service import _build_parser, _setup_logging, run_service
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -35,8 +35,8 @@ class TestRunServiceBasic:
         tray = _mock_tray_cls()
 
         with (
-            patch("wallpaper_automator.service.WallpaperController", return_value=controller),
-            patch("wallpaper_automator.service.WallpaperSwitchSystemTray", return_value=tray),
+            patch("wallpaper_auto.service.WallpaperController", return_value=controller),
+            patch("wallpaper_auto.service.WallpaperSwitchSystemTray", return_value=tray),
         ):
             run_service("some_config.yaml")
 
@@ -47,8 +47,8 @@ class TestRunServiceBasic:
         tray = _mock_tray_cls()
 
         with (
-            patch("wallpaper_automator.service.WallpaperController", return_value=controller),
-            patch("wallpaper_automator.service.WallpaperSwitchSystemTray", return_value=tray),
+            patch("wallpaper_auto.service.WallpaperController", return_value=controller),
+            patch("wallpaper_auto.service.WallpaperSwitchSystemTray", return_value=tray),
         ):
             run_service("cfg.yaml")
 
@@ -59,8 +59,8 @@ class TestRunServiceBasic:
         tray = _mock_tray_cls()
 
         with (
-            patch("wallpaper_automator.service.WallpaperController", return_value=controller),
-            patch("wallpaper_automator.service.WallpaperSwitchSystemTray", return_value=tray),
+            patch("wallpaper_auto.service.WallpaperController", return_value=controller),
+            patch("wallpaper_auto.service.WallpaperSwitchSystemTray", return_value=tray),
         ):
             run_service("cfg.yaml")
 
@@ -73,8 +73,8 @@ class TestRunServiceBasic:
         tray = _mock_tray_cls()
 
         with (
-            patch("wallpaper_automator.service.WallpaperController", return_value=controller),
-            patch("wallpaper_automator.service.WallpaperSwitchSystemTray", return_value=tray),
+            patch("wallpaper_auto.service.WallpaperController", return_value=controller),
+            patch("wallpaper_auto.service.WallpaperSwitchSystemTray", return_value=tray),
         ):
             run_service("cfg.yaml")
 
@@ -91,8 +91,8 @@ class TestRunServiceBasic:
         tray = _mock_tray_cls()
 
         with (
-            patch("wallpaper_automator.service.WallpaperController", return_value=controller),
-            patch("wallpaper_automator.service.WallpaperSwitchSystemTray", return_value=tray),
+            patch("wallpaper_auto.service.WallpaperController", return_value=controller),
+            patch("wallpaper_auto.service.WallpaperSwitchSystemTray", return_value=tray),
         ):
             run_service("")
 
@@ -108,9 +108,9 @@ class TestRunServiceCustomComponents:
         mock_trigger_cls = MagicMock()
 
         with (
-            patch("wallpaper_automator.service.WallpaperController", return_value=controller),
-            patch("wallpaper_automator.service.WallpaperSwitchSystemTray", return_value=tray),
-            patch("wallpaper_automator.service.TriggerManager.register_trigger") as mock_register,
+            patch("wallpaper_auto.service.WallpaperController", return_value=controller),
+            patch("wallpaper_auto.service.WallpaperSwitchSystemTray", return_value=tray),
+            patch("wallpaper_auto.service.TriggerManager.register_trigger") as mock_register,
         ):
             run_service("cfg.yaml", custom_triggers={"my_t": mock_trigger_cls})
 
@@ -122,9 +122,9 @@ class TestRunServiceCustomComponents:
         mock_resource_cls = MagicMock()
 
         with (
-            patch("wallpaper_automator.service.WallpaperController", return_value=controller),
-            patch("wallpaper_automator.service.WallpaperSwitchSystemTray", return_value=tray),
-            patch("wallpaper_automator.service.ResourceManager.register_resource") as mock_register,
+            patch("wallpaper_auto.service.WallpaperController", return_value=controller),
+            patch("wallpaper_auto.service.WallpaperSwitchSystemTray", return_value=tray),
+            patch("wallpaper_auto.service.ResourceManager.register_resource") as mock_register,
         ):
             run_service("cfg.yaml", custom_resources={"my_r": mock_resource_cls})
 
@@ -136,9 +136,9 @@ class TestRunServiceCustomComponents:
         mock_evaluator = MagicMock()
 
         with (
-            patch("wallpaper_automator.service.WallpaperController", return_value=controller),
-            patch("wallpaper_automator.service.WallpaperSwitchSystemTray", return_value=tray),
-            patch("wallpaper_automator.service.RuleEngine.register_evaluator") as mock_register,
+            patch("wallpaper_auto.service.WallpaperController", return_value=controller),
+            patch("wallpaper_auto.service.WallpaperSwitchSystemTray", return_value=tray),
+            patch("wallpaper_auto.service.RuleEngine.register_evaluator") as mock_register,
         ):
             run_service("cfg.yaml", custom_evaluators={"my_e": mock_evaluator})
 
@@ -151,11 +151,11 @@ class TestRunServiceCustomComponents:
         t_cls, r_cls, e_inst = MagicMock(), MagicMock(), MagicMock()
 
         with (
-            patch("wallpaper_automator.service.WallpaperController", return_value=controller),
-            patch("wallpaper_automator.service.WallpaperSwitchSystemTray", return_value=tray),
-            patch("wallpaper_automator.service.TriggerManager.register_trigger") as reg_t,
-            patch("wallpaper_automator.service.ResourceManager.register_resource") as reg_r,
-            patch("wallpaper_automator.service.RuleEngine.register_evaluator") as reg_e,
+            patch("wallpaper_auto.service.WallpaperController", return_value=controller),
+            patch("wallpaper_auto.service.WallpaperSwitchSystemTray", return_value=tray),
+            patch("wallpaper_auto.service.TriggerManager.register_trigger") as reg_t,
+            patch("wallpaper_auto.service.ResourceManager.register_resource") as reg_r,
+            patch("wallpaper_auto.service.RuleEngine.register_evaluator") as reg_e,
         ):
             run_service(
                 "cfg.yaml",
@@ -174,11 +174,11 @@ class TestRunServiceCustomComponents:
         tray = _mock_tray_cls()
 
         with (
-            patch("wallpaper_automator.service.WallpaperController", return_value=controller),
-            patch("wallpaper_automator.service.WallpaperSwitchSystemTray", return_value=tray),
-            patch("wallpaper_automator.service.TriggerManager.register_trigger") as reg_t,
-            patch("wallpaper_automator.service.ResourceManager.register_resource") as reg_r,
-            patch("wallpaper_automator.service.RuleEngine.register_evaluator") as reg_e,
+            patch("wallpaper_auto.service.WallpaperController", return_value=controller),
+            patch("wallpaper_auto.service.WallpaperSwitchSystemTray", return_value=tray),
+            patch("wallpaper_auto.service.TriggerManager.register_trigger") as reg_t,
+            patch("wallpaper_auto.service.ResourceManager.register_resource") as reg_r,
+            patch("wallpaper_auto.service.RuleEngine.register_evaluator") as reg_e,
         ):
             run_service("cfg.yaml")
 
@@ -193,9 +193,9 @@ class TestRunServiceCustomComponents:
         t1, t2 = MagicMock(), MagicMock()
 
         with (
-            patch("wallpaper_automator.service.WallpaperController", return_value=controller),
-            patch("wallpaper_automator.service.WallpaperSwitchSystemTray", return_value=tray),
-            patch("wallpaper_automator.service.TriggerManager.register_trigger") as reg_t,
+            patch("wallpaper_auto.service.WallpaperController", return_value=controller),
+            patch("wallpaper_auto.service.WallpaperSwitchSystemTray", return_value=tray),
+            patch("wallpaper_auto.service.TriggerManager.register_trigger") as reg_t,
         ):
             run_service("cfg.yaml", custom_triggers={"a": t1, "b": t2})
 
@@ -216,7 +216,7 @@ class TestMainDelegation:
         """The __main__ module can be imported without side effects."""
         import importlib
 
-        import wallpaper_automator.__main__ as main_mod
+        import wallpaper_auto.__main__ as main_mod
 
         importlib.reload(main_mod)
         assert hasattr(main_mod, "run_service")
@@ -229,22 +229,22 @@ class TestSetupLogging:
     """``_setup_logging()`` configures the root logger."""
 
     def test_uses_basicConfig(self):  # noqa: N802
-        with patch("wallpaper_automator.service.logging.basicConfig") as mock_bc:
+        with patch("wallpaper_auto.service.logging.basicConfig") as mock_bc:
             _setup_logging("INFO")
         mock_bc.assert_called_once()
 
     def test_sets_correct_level(self):
-        with patch("wallpaper_automator.service.logging.basicConfig") as mock_bc:
+        with patch("wallpaper_auto.service.logging.basicConfig") as mock_bc:
             _setup_logging("WARNING")
         assert mock_bc.call_args[1]["level"] == logging.WARNING
 
     def test_default_level_is_debug(self):
-        with patch("wallpaper_automator.service.logging.basicConfig") as mock_bc:
+        with patch("wallpaper_auto.service.logging.basicConfig") as mock_bc:
             _setup_logging("DEBUG")
         assert mock_bc.call_args[1]["level"] == logging.DEBUG
 
     def test_has_format_string(self):
-        with patch("wallpaper_automator.service.logging.basicConfig") as mock_bc:
+        with patch("wallpaper_auto.service.logging.basicConfig") as mock_bc:
             _setup_logging("DEBUG")
         fmt = mock_bc.call_args[1]["format"]
         assert "%(asctime)s" in fmt
@@ -261,7 +261,7 @@ class TestBuildParser:
 
     def test_prog_name(self):
         parser = _build_parser()
-        assert parser.prog == "wallpaper-automator"
+        assert parser.prog == "wallpaper-auto"
 
     def test_default_config_path(self):
         parser = _build_parser()
@@ -325,9 +325,9 @@ class TestRunServiceCLIMode:
     def test_cli_defaults(self):
         """No CLI args: uses default config.yaml and DEBUG."""
         with (
-            patch("sys.argv", ["wallpaper-automator"]),
-            patch("wallpaper_automator.process_mutex.ProcessMutex"),
-            patch("wallpaper_automator.service._run_service_impl") as mock_impl,
+            patch("sys.argv", ["wallpaper-auto"]),
+            patch("wallpaper_auto.process_mutex.ProcessMutex"),
+            patch("wallpaper_auto.service._run_service_impl") as mock_impl,
         ):
             run_service()
 
@@ -341,8 +341,8 @@ class TestRunServiceCLIMode:
     def test_cli_config_and_log_level(self):
         with (
             patch("sys.argv", ["wp", "-c", "prod.yaml", "-l", "INFO"]),
-            patch("wallpaper_automator.process_mutex.ProcessMutex"),
-            patch("wallpaper_automator.service._run_service_impl") as mock_impl,
+            patch("wallpaper_auto.process_mutex.ProcessMutex"),
+            patch("wallpaper_auto.service._run_service_impl") as mock_impl,
         ):
             run_service()
 
@@ -358,8 +358,8 @@ class TestRunServiceCLIMode:
         t_cls, r_cls, e_inst = MagicMock(), MagicMock(), MagicMock()
         with (
             patch("sys.argv", ["wp"]),
-            patch("wallpaper_automator.process_mutex.ProcessMutex"),
-            patch("wallpaper_automator.service._run_service_impl") as mock_impl,
+            patch("wallpaper_auto.process_mutex.ProcessMutex"),
+            patch("wallpaper_auto.service._run_service_impl") as mock_impl,
         ):
             run_service(
                 custom_triggers={"t1": t_cls},
@@ -377,8 +377,8 @@ class TestRunServiceCLIMode:
     def test_cli_init_config(self):
         with (
             patch("sys.argv", ["wp", "init-config", "out.yaml"]),
-            patch("wallpaper_automator.init_config.generate_template") as mock_gen,
-            patch("wallpaper_automator.service._run_service_impl") as mock_impl,
+            patch("wallpaper_auto.init_config.generate_template") as mock_gen,
+            patch("wallpaper_auto.service._run_service_impl") as mock_impl,
         ):
             run_service()
 
@@ -388,7 +388,7 @@ class TestRunServiceCLIMode:
     def test_cli_init_config_force(self):
         with (
             patch("sys.argv", ["wp", "init-config", "out.yaml", "-f"]),
-            patch("wallpaper_automator.init_config.generate_template") as mock_gen,
+            patch("wallpaper_auto.init_config.generate_template") as mock_gen,
         ):
             run_service()
 
@@ -397,7 +397,7 @@ class TestRunServiceCLIMode:
     def test_cli_init_config_default_output(self):
         with (
             patch("sys.argv", ["wp", "init-config"]),
-            patch("wallpaper_automator.init_config.generate_template") as mock_gen,
+            patch("wallpaper_auto.init_config.generate_template") as mock_gen,
         ):
             run_service()
 
@@ -406,12 +406,12 @@ class TestRunServiceCLIMode:
     def test_mutex_acquired_with_correct_name(self):
         with (
             patch("sys.argv", ["wp"]),
-            patch("wallpaper_automator.process_mutex.ProcessMutex") as mock_mutex_cls,
-            patch("wallpaper_automator.service._run_service_impl"),
+            patch("wallpaper_auto.process_mutex.ProcessMutex") as mock_mutex_cls,
+            patch("wallpaper_auto.service._run_service_impl"),
         ):
             run_service()
 
-        mock_mutex_cls.assert_called_once_with("wallpaper_automator")
+        mock_mutex_cls.assert_called_once_with("wallpaper_auto")
 
 
 class TestRunServiceCLIErrors:
@@ -421,7 +421,7 @@ class TestRunServiceCLIErrors:
         with (
             patch("sys.argv", ["wp", "init-config", "out.yaml"]),
             patch(
-                "wallpaper_automator.init_config.generate_template",
+                "wallpaper_auto.init_config.generate_template",
                 side_effect=FileExistsError("already there"),
             ),
             pytest.raises(SystemExit) as exc_info,
@@ -434,9 +434,9 @@ class TestRunServiceCLIErrors:
         with (
             patch("sys.argv", ["wp"]),
             patch(
-                "wallpaper_automator.process_mutex.ProcessMutex",
+                "wallpaper_auto.process_mutex.ProcessMutex",
             ) as mock_mutex_cls,
-            patch("wallpaper_automator.service._run_service_impl"),
+            patch("wallpaper_auto.service._run_service_impl"),
         ):
             mock_mutex_cls.return_value.__enter__.side_effect = RuntimeError("conflict")
             with pytest.raises(SystemExit) as exc_info:

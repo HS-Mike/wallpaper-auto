@@ -2,7 +2,7 @@ import time
 
 import win32con
 
-from wallpaper_automator.trigger.windows_session_trigger import (
+from wallpaper_auto.trigger.windows_session_trigger import (
     WindowsSessionEvent,
     WindowsSessionTrigger,
 )

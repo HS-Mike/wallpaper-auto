@@ -69,7 +69,7 @@ class CachedResource(BaseResource):
             self._cache_dir = cache_dir
         else:
             # Auto temp dir — cleaned up on exit
-            dir_name = f"wallpaper_automator_{uuid.uuid4().hex}"
+            dir_name = f"wallpaper_auto_{uuid.uuid4().hex}"
             self._cache_dir = os.path.join(tempfile.gettempdir(), dir_name)
             with _lock:
                 _created_temp_dirs.append(self._cache_dir)

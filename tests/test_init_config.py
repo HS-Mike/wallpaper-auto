@@ -3,9 +3,9 @@
 import pytest
 import yaml
 
-from wallpaper_automator.config_store import ConfigStore
-from wallpaper_automator.init_config import generate_template
-from wallpaper_automator.models import ConfigModel
+from wallpaper_auto.config_store import ConfigStore
+from wallpaper_auto.init_config import generate_template
+from wallpaper_auto.models import ConfigModel
 
 # ── helpers ──────────────────────────────────────────────────────────────
 
@@ -85,7 +85,7 @@ class TestFileCreation:
 
 
 class TestConfigValidity:
-    """Verify the generated template is a valid wallpaper-automator config."""
+    """Verify the generated template is a valid wallpaper-auto config."""
 
     def test_generated_yaml_is_valid_config(self, tmp_path):
         path = str(tmp_path / "config.yaml")

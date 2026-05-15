@@ -2,7 +2,7 @@
 
 import pytest
 
-from wallpaper_automator.util.callback_register import CallbackRegister
+from wallpaper_auto.util.callback_register import CallbackRegister
 
 
 class TestCallbackRegister:

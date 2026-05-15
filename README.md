@@ -1,6 +1,6 @@
-# Wallpaper Automator
+# Wallpaper Auto
 
-[![codecov](https://codecov.io/github/HS-Mike/wallpaper_automator/graph/badge.svg?token=BZSTAYXUWF)](https://codecov.io/github/HS-Mike/wallpaper_automator)
+[![codecov](https://codecov.io/github/HS-Mike/wallpaper-auto/graph/badge.svg?token=BZSTAYXUWF)](https://codecov.io/github/HS-Mike/wallpaper-auto)
 
 Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, day of week).
 
@@ -29,13 +29,13 @@ Automatically switches Windows desktop wallpapers based on configurable conditio
 3. Generate a starter config file:
 
    ```bash
-   python -m wallpaper_automator init-config
+   python -m wallpaper_auto init-config
    ```
 
 4. Edit config.yaml with your wallpaper paths and rules, then run:
 
    ```bash
-   python -m wallpaper_automator
+   python -m wallpaper_auto
    ```
 
 ## Configuration
@@ -43,17 +43,17 @@ Automatically switches Windows desktop wallpapers based on configurable conditio
 Generate a starter config with all options documented:
 
 ```bash
-python -m wallpaper_automator init-config
+python -m wallpaper_auto init-config
 # Creates config.yaml in the current directory
 ```
 
 Or specify a custom path and force-overwrite an existing file:
 
 ```bash
-python -m wallpaper_automator init-config myconfig.yaml -f
+python -m wallpaper_auto init-config myconfig.yaml -f
 ```
 
-See `python -m wallpaper_automator init-config --help` for all options. You can also create a `config.yaml` file manually (or specify the path via `-c`).
+See `python -m wallpaper_auto init-config --help` for all options. You can also create a `config.yaml` file manually (or specify the path via `-c`).
 
 ### Configuration Structure
 
@@ -110,19 +110,19 @@ fallback: "default_wallpaper"
 
 ```bash
 # Generate a starter config file
-python -m wallpaper_automator init-config
+python -m wallpaper_auto init-config
 
 # Use default config.yaml
-python -m wallpaper_automator
+python -m wallpaper_auto
 
 # Specify config file
-python -m wallpaper_automator -c /path/to/config.yaml
+python -m wallpaper_auto -c /path/to/config.yaml
 ```
 
 Or start programmatically from Python:
 
 ```python
-from wallpaper_automator import run_service
+from wallpaper_auto import run_service
 run_service("config.yaml")
 ```
 
@@ -217,7 +217,7 @@ After running, the app displays an icon in the system tray:
 You can start the service from Python code using `run_service()`. This is the recommended way when registering custom components.
 
 ```python
-from wallpaper_automator import run_service
+from wallpaper_auto import run_service
 
 # Start with the default config.yaml
 run_service("config.yaml")
@@ -233,14 +233,14 @@ run_service(
 
 ## Custom Components
 
-All three component types are extensible. The recommended way to register custom components is by passing them to `run_service()` via the `custom_triggers`, `custom_resources`, and `custom_evaluators` keyword arguments. All base classes are importable from the top-level `wallpaper_automator` package.
+All three component types are extensible. The recommended way to register custom components is by passing them to `run_service()` via the `custom_triggers`, `custom_resources`, and `custom_evaluators` keyword arguments. All base classes are importable from the top-level `wallpaper_auto` package.
 
 ### Custom Resource
 
 Extend `BaseResource` and pass it through `run_service()`.
 
 ```python
-from wallpaper_automator import BaseResource, run_service
+from wallpaper_auto import BaseResource, run_service
 
 class OnlineResource(BaseResource):
     def __init__(self, query: str = "nature", style: str = "fill"):
@@ -272,7 +272,7 @@ resource:
 Extend `BaseTrigger` or `BaseThreadTrigger` and pass it through `run_service()`.
 
 ```python
-from wallpaper_automator import BaseThreadTrigger, run_service
+from wallpaper_auto import BaseThreadTrigger, run_service
 
 class UsbPlugTrigger(BaseThreadTrigger):
     def run(self):
@@ -298,7 +298,7 @@ Implement `BaseEvaluator` (a callable interface) and pass an instance through `r
 For example, here is a geo-location evaluator that checks whether the current machine is within a given radius of a target location:
 
 ```python
-from wallpaper_automator import BaseEvaluator, run_service
+from wallpaper_auto import BaseEvaluator, run_service
 
 class GeoEvaluator(BaseEvaluator):
     """Evaluate whether the current machine is within a given radius
@@ -332,7 +332,7 @@ rule:
 All custom component types can be registered in a single `run_service()` call:
 
 ```python
-from wallpaper_automator import (
+from wallpaper_auto import (
     BaseResource,
     BaseThreadTrigger,
     BaseEvaluator,
@@ -356,7 +356,7 @@ run_service(
 As an alternative, you can register components directly on the manager classes before calling `run_service()`. This is useful when the registration must happen before the configuration is loaded (e.g., in a plugin system).
 
 ```python
-from wallpaper_automator import ResourceManager, RuleEngine, TriggerManager, run_service
+from wallpaper_auto import ResourceManager, RuleEngine, TriggerManager, run_service
 
 ResourceManager.register_resource("online", OnlineResource)
 TriggerManager.register_trigger("usb_plug", UsbPlugTrigger)

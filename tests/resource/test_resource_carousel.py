@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from wallpaper_automator.resource.resource_carousel import ResourceCarousel
+from wallpaper_auto.resource.resource_carousel import ResourceCarousel
 
 
 class TestResourceCarouselInit:
@@ -57,7 +57,7 @@ class TestResourceCarouselInit:
 
     def test_dict_resource_resolved(self):
         """Dict entries are resolved via _build_sub_resource against the registry."""
-        from wallpaper_automator.resource.base_resource import BaseResource
+        from wallpaper_auto.resource.base_resource import BaseResource
 
         class _MockResource(BaseResource):
             def __init__(self, path: str = "", style: str = "fill") -> None:
@@ -71,7 +71,7 @@ class TestResourceCarouselInit:
                 pass
 
         with patch(
-            "wallpaper_automator.resource_manager.ResourceManager._support_resources",
+            "wallpaper_auto.resource_manager.ResourceManager._support_resources",
             {"mock_resource": _MockResource},
         ):
             carousel = ResourceCarousel(
@@ -153,7 +153,7 @@ class TestResourceCarouselDemount:
 
     def test_demount_restores_original(self, mock_carousel_deps, mock_sub_resources):
         """restore=True — demount restores the wallpaper from before mount."""
-        with patch("wallpaper_automator.resource.resource_carousel.set_wallpaper") as mock_set:
+        with patch("wallpaper_auto.resource.resource_carousel.set_wallpaper") as mock_set:
             carousel = ResourceCarousel(resources=mock_sub_resources, restore=True)
             carousel.mount()
             mock_set.reset_mock()
@@ -165,7 +165,7 @@ class TestResourceCarouselDemount:
 
     def test_demount_with_restore_false_skips_restore(self, mock_carousel_deps, mock_sub_resources):
         """restore=False — demount does not restore the original wallpaper."""
-        with patch("wallpaper_automator.resource.resource_carousel.set_wallpaper") as mock_set:
+        with patch("wallpaper_auto.resource.resource_carousel.set_wallpaper") as mock_set:
             carousel = ResourceCarousel(resources=mock_sub_resources, restore=False)
             carousel.mount()
             mock_set.reset_mock()
@@ -194,7 +194,7 @@ class TestResourceCarouselDemount:
 
     def test_demount_idempotent(self, mock_carousel_deps, mock_sub_resources):
         """Calling demount twice is safe."""
-        with patch("wallpaper_automator.resource.resource_carousel.set_wallpaper") as mock_set:
+        with patch("wallpaper_auto.resource.resource_carousel.set_wallpaper") as mock_set:
             carousel = ResourceCarousel(resources=mock_sub_resources, restore=True)
             carousel.mount()
             mock_set.reset_mock()
@@ -207,11 +207,11 @@ class TestResourceCarouselDemount:
         """Mount then demount then mount again works correctly."""
         with (
             patch(
-                "wallpaper_automator.resource.resource_carousel.get_current_wallpaper",
+                "wallpaper_auto.resource.resource_carousel.get_current_wallpaper",
                 return_value="C:\\original.jpg",
             ),
             patch(
-                "wallpaper_automator.resource.resource_carousel.set_wallpaper",
+                "wallpaper_auto.resource.resource_carousel.set_wallpaper",
             ),
         ):
             carousel = ResourceCarousel(resources=mock_sub_resources, restore=True)

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from PIL import Image
 
-from wallpaper_automator.resource.static_wallpaper import (
+from wallpaper_auto.resource.static_wallpaper import (
     StaticWallpaper,
     WallpaperStyle,
     get_current_wallpaper,
@@ -142,7 +142,7 @@ class TestStaticWallpaperGetCacheKey:
         wp = StaticWallpaper(path=str(img_path))
 
         with patch(
-            "wallpaper_automator.resource.wallpaper_utils.os.path.getmtime", return_value=12345.0
+            "wallpaper_auto.resource.wallpaper_utils.os.path.getmtime", return_value=12345.0
         ) as mock_mtime:
             key1 = wp._get_cache_key((1920, 1080))
 
@@ -244,7 +244,7 @@ class TestStaticWallpaperMount:
     def test_mount_stores_original_before_overwrite(self, tmp_path, mock_mount_deps):
         """mount does not call get_current_wallpaper after setting wallpaper"""
         with patch(
-            "wallpaper_automator.resource.static_wallpaper.get_current_wallpaper",
+            "wallpaper_auto.resource.static_wallpaper.get_current_wallpaper",
             return_value="C:\\original.jpg",
         ) as mock_get:
             img_path = tmp_path / "test.png"
@@ -281,7 +281,7 @@ class TestStaticWallpaperDemount:
         """mount then demount correctly restores original"""
         mock_set = mock_mount_deps
         with patch(
-            "wallpaper_automator.resource.static_wallpaper.get_current_wallpaper",
+            "wallpaper_auto.resource.static_wallpaper.get_current_wallpaper",
             return_value="C:\\original.jpg",
         ) as mock_get:
             img_path = tmp_path / "test.png"
@@ -332,7 +332,7 @@ class TestStaticWallpaperDemount:
 
 class TestGetScreenSize:
     def test_returns_width_height(self):
-        with patch("wallpaper_automator.resource.wallpaper_utils.ctypes.windll") as mock_windll:
+        with patch("wallpaper_auto.resource.wallpaper_utils.ctypes.windll") as mock_windll:
             mock_windll.gdi32.GetDeviceCaps.side_effect = [1920, 1080]
             w, h = get_screen_size()
             assert w == 1920
@@ -348,7 +348,7 @@ class TestGetScreenSize:
 
     def test_releases_dc_on_success(self):
         """DC handle is always released after getting screen size"""
-        with patch("wallpaper_automator.resource.wallpaper_utils.ctypes.windll") as mock_windll:
+        with patch("wallpaper_auto.resource.wallpaper_utils.ctypes.windll") as mock_windll:
             mock_windll.gdi32.GetDeviceCaps.side_effect = [1920, 1080]
             get_screen_size()
             mock_windll.user32.ReleaseDC.assert_called_once()
@@ -358,12 +358,12 @@ class TestGetCurrentWallpaper:
     def test_returns_wallpaper_path(self):
         with (
             patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegQueryValueEx",
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegQueryValueEx",
                 return_value=("C:\\wallpaper.jpg", 1),
             ),
-            patch("wallpaper_automator.resource.wallpaper_utils.win32api.RegCloseKey"),
+            patch("wallpaper_auto.resource.wallpaper_utils.win32api.RegCloseKey"),
             patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegOpenKeyEx",
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegOpenKeyEx",
                 return_value=999,
             ),
         ):
@@ -373,14 +373,12 @@ class TestGetCurrentWallpaper:
     def test_returns_wallpaper_path_closes_key(self):
         with (
             patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegQueryValueEx",
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegQueryValueEx",
                 return_value=("C:\\wallpaper.jpg", 1),
             ),
+            patch("wallpaper_auto.resource.wallpaper_utils.win32api.RegCloseKey") as mock_close,
             patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegCloseKey"
-            ) as mock_close,
-            patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegOpenKeyEx",
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegOpenKeyEx",
                 return_value=999,
             ),
         ):
@@ -390,16 +388,14 @@ class TestGetCurrentWallpaper:
 
     def test_closes_key_after_query(self):
         with (
+            patch("wallpaper_auto.resource.wallpaper_utils.win32api.RegCloseKey") as mock_close,
             patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegCloseKey"
-            ) as mock_close,
-            patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegOpenKeyEx",
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegOpenKeyEx",
                 return_value=999,
             ),
         ):
             with patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegQueryValueEx",
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegQueryValueEx",
                 return_value=("C:\\wallpaper.jpg", 1),
             ):
                 get_current_wallpaper()
@@ -410,19 +406,15 @@ class TestSetWallpaper:
     def test_sets_wallpaper_and_style(self, tmp_path):
         with (
             patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32gui.SystemParametersInfo"
+                "wallpaper_auto.resource.wallpaper_utils.win32gui.SystemParametersInfo"
             ) as mock_spi,
+            patch("wallpaper_auto.resource.wallpaper_utils.win32api.RegSetValueEx") as mock_set,
+            patch("wallpaper_auto.resource.wallpaper_utils.win32api.RegCloseKey") as mock_close,
             patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegSetValueEx"
-            ) as mock_set,
-            patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegCloseKey"
-            ) as mock_close,
-            patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegOpenKeyEx",
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegOpenKeyEx",
                 return_value=999,
             ),
-            patch("wallpaper_automator.resource.wallpaper_utils.os.path.exists", return_value=True),
+            patch("wallpaper_auto.resource.wallpaper_utils.os.path.exists", return_value=True),
         ):
             img_path = tmp_path / "test.png"
             img_path.write_bytes(b"fake")
@@ -439,15 +431,15 @@ class TestSetWallpaper:
     def test_converts_path_to_abs_backslashes(self):
         with (
             patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32gui.SystemParametersInfo"
+                "wallpaper_auto.resource.wallpaper_utils.win32gui.SystemParametersInfo"
             ) as mock_spi,
-            patch("wallpaper_automator.resource.wallpaper_utils.win32api.RegSetValueEx"),
-            patch("wallpaper_automator.resource.wallpaper_utils.win32api.RegCloseKey"),
+            patch("wallpaper_auto.resource.wallpaper_utils.win32api.RegSetValueEx"),
+            patch("wallpaper_auto.resource.wallpaper_utils.win32api.RegCloseKey"),
             patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegOpenKeyEx",
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegOpenKeyEx",
                 return_value=999,
             ),
-            patch("wallpaper_automator.resource.wallpaper_utils.os.path.exists", return_value=True),
+            patch("wallpaper_auto.resource.wallpaper_utils.os.path.exists", return_value=True),
         ):
             set_wallpaper("some/relative/path.jpg", WallpaperStyle.FILL.value)
 
@@ -456,24 +448,20 @@ class TestSetWallpaper:
             assert "/" not in call_arg
 
     def test_raises_when_file_not_found(self):
-        with patch(
-            "wallpaper_automator.resource.wallpaper_utils.os.path.exists", return_value=False
-        ):
+        with patch("wallpaper_auto.resource.wallpaper_utils.os.path.exists", return_value=False):
             with pytest.raises(FileNotFoundError, match="not exist"):
                 set_wallpaper("nonexistent.jpg", WallpaperStyle.FILL.value)
 
     def test_sets_tile_wallpaper_style(self, tmp_path):
         with (
-            patch("wallpaper_automator.resource.wallpaper_utils.win32gui.SystemParametersInfo"),
+            patch("wallpaper_auto.resource.wallpaper_utils.win32gui.SystemParametersInfo"),
+            patch("wallpaper_auto.resource.wallpaper_utils.win32api.RegSetValueEx") as mock_set,
+            patch("wallpaper_auto.resource.wallpaper_utils.win32api.RegCloseKey"),
             patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegSetValueEx"
-            ) as mock_set,
-            patch("wallpaper_automator.resource.wallpaper_utils.win32api.RegCloseKey"),
-            patch(
-                "wallpaper_automator.resource.wallpaper_utils.win32api.RegOpenKeyEx",
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegOpenKeyEx",
                 return_value=999,
             ),
-            patch("wallpaper_automator.resource.wallpaper_utils.os.path.exists", return_value=True),
+            patch("wallpaper_auto.resource.wallpaper_utils.os.path.exists", return_value=True),
         ):
             img_path = tmp_path / "test.png"
             img_path.write_bytes(b"fake")

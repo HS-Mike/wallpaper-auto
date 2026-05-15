@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wallpaper_automator.trigger.network_trigger import NetworkTrigger
+from wallpaper_auto.trigger.network_trigger import NetworkTrigger
 
 
 @pytest.fixture
@@ -13,10 +13,10 @@ def mock_run_deps():
     """Patch the four external dependencies common to ``run()`` tests
     and set up the standard KERNEL32/IPHLPAPI return values."""
     with (
-        patch("wallpaper_automator.trigger.network_trigger.pythoncom") as mock_pythoncom,
-        patch("wallpaper_automator.trigger.network_trigger.wmi"),
-        patch("wallpaper_automator.trigger.network_trigger.KERNEL32") as mock_KERNEL32,
-        patch("wallpaper_automator.trigger.network_trigger.IPHLPAPI") as mock_IPHLPAPI,
+        patch("wallpaper_auto.trigger.network_trigger.pythoncom") as mock_pythoncom,
+        patch("wallpaper_auto.trigger.network_trigger.wmi"),
+        patch("wallpaper_auto.trigger.network_trigger.KERNEL32") as mock_KERNEL32,
+        patch("wallpaper_auto.trigger.network_trigger.IPHLPAPI") as mock_IPHLPAPI,
     ):
         mock_KERNEL32.CreateEventW.return_value = 0xCAFE
         mock_IPHLPAPI.NotifyAddrChange.return_value = 0
@@ -25,7 +25,7 @@ def mock_run_deps():
 
 @pytest.fixture
 def mock_kernel32():
-    with patch("wallpaper_automator.trigger.network_trigger.KERNEL32") as mock_k:
+    with patch("wallpaper_auto.trigger.network_trigger.KERNEL32") as mock_k:
         yield mock_k
 
 
@@ -80,7 +80,7 @@ class TestNetworkTrigger:
 
     def test_get_network_fingerprint_logic(self):
         """Network fingerprint parsing extracts strings from WMI config"""
-        with patch("wallpaper_automator.trigger.network_trigger.wmi") as mock_wmi:
+        with patch("wallpaper_auto.trigger.network_trigger.wmi") as mock_wmi:
             mock_config = MagicMock()
             mock_config.Description = "Realtek Ethernet"
             mock_config.DefaultIPGateway = ["192.168.1.1"]
@@ -92,7 +92,7 @@ class TestNetworkTrigger:
 
     def test_get_network_fingerprint_handles_exception(self):
         """Network fingerprint returns empty set on WMI exception"""
-        with patch("wallpaper_automator.trigger.network_trigger.wmi") as mock_wmi:
+        with patch("wallpaper_auto.trigger.network_trigger.wmi") as mock_wmi:
             mock_wmi.WMI.side_effect = Exception("COM error")
 
             fingerprint = NetworkTrigger._get_network_fingerprint()
@@ -101,7 +101,7 @@ class TestNetworkTrigger:
 
     def test_get_network_fingerprint_skips_no_gateway(self):
         """Network fingerprint skips adapters without a default gateway"""
-        with patch("wallpaper_automator.trigger.network_trigger.wmi") as mock_wmi:
+        with patch("wallpaper_auto.trigger.network_trigger.wmi") as mock_wmi:
             mock_config1 = MagicMock()
             mock_config1.Description = "WiFi"
             mock_config1.DefaultIPGateway = ["10.0.0.1"]

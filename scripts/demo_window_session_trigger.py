@@ -14,7 +14,7 @@ import signal
 import sys
 import threading
 
-from wallpaper_automator.trigger.windows_session_trigger import (
+from wallpaper_auto.trigger.windows_session_trigger import (
     WindowsSessionEvent,
     WindowsSessionTrigger,
 )

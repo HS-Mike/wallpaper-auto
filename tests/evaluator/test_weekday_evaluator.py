@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from wallpaper_automator.evaluator.weekday_evaluator import WeekdayEvaluator
+from wallpaper_auto.evaluator.weekday_evaluator import WeekdayEvaluator
 
 
 class TestWeekdayEvaluator:

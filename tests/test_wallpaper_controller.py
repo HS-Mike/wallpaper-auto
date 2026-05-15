@@ -5,13 +5,13 @@ from unittest.mock import ANY, MagicMock, call, patch
 
 import pytest
 
-from wallpaper_automator.config_store import ConfigStore
-from wallpaper_automator.models import Rule
-from wallpaper_automator.resource_manager import ResourceManager
-from wallpaper_automator.rule_engine import RuleEngine
-from wallpaper_automator.task import Mode, ModeSwitchTask, QuitTask, ResourceSetTask
-from wallpaper_automator.trigger_manager import TriggerManager
-from wallpaper_automator.wallpaper_controller import WallpaperController
+from wallpaper_auto.config_store import ConfigStore
+from wallpaper_auto.models import Rule
+from wallpaper_auto.resource_manager import ResourceManager
+from wallpaper_auto.rule_engine import RuleEngine
+from wallpaper_auto.task import Mode, ModeSwitchTask, QuitTask, ResourceSetTask
+from wallpaper_auto.trigger_manager import TriggerManager
+from wallpaper_auto.wallpaper_controller import WallpaperController
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -460,7 +460,7 @@ class TestWallpaperControllerStop:
     def test_stop_unregisters_shutdown_callback(self, controller):
         """stop() should unregister the at-shutdown callback to prevent restart leaks."""
         _start_controller(controller)
-        with patch("wallpaper_automator.wallpaper_controller.atshutdown") as mock_atsd:
+        with patch("wallpaper_auto.wallpaper_controller.atshutdown") as mock_atsd:
             controller.stop()
         mock_atsd.unregister.assert_called_once_with(controller._shutdown_mount)
         _cleanup_worker(controller)
@@ -478,7 +478,7 @@ class TestWallpaperControllerAtShutdown:
         mock_cs.at_shutdown_resource_id = None
         controller._config_store = mock_cs
 
-        with patch("wallpaper_automator.wallpaper_controller.atshutdown") as mock_atsd:
+        with patch("wallpaper_auto.wallpaper_controller.atshutdown") as mock_atsd:
             controller.at_shutdown()
         mock_atsd.register.assert_not_called()
 
@@ -488,7 +488,7 @@ class TestWallpaperControllerAtShutdown:
         mock_cs.at_shutdown_resource_id = "shutdown_wall"
         controller._config_store = mock_cs
 
-        with patch("wallpaper_automator.wallpaper_controller.atshutdown") as mock_atsd:
+        with patch("wallpaper_auto.wallpaper_controller.atshutdown") as mock_atsd:
             controller.at_shutdown()
         mock_atsd.register.assert_called_once_with(
             controller._shutdown_mount, resource_id="shutdown_wall"

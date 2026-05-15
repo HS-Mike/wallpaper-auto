@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wallpaper_automator.atshutdown import ShutdownHandler
+from wallpaper_auto.atshutdown import ShutdownHandler
 
 # ── fixtures ──────────────────────────────────────────────────────────────
 
@@ -18,7 +18,7 @@ def handler() -> ShutdownHandler:
 @pytest.fixture
 def mock_gui():
     """Patch win32gui in the atshutdown module."""
-    with patch("wallpaper_automator.atshutdown.win32gui") as gui:
+    with patch("wallpaper_auto.atshutdown.win32gui") as gui:
         yield gui
 
 
@@ -261,7 +261,7 @@ class TestShutdownHandlerModuleAPI:
     """Module-level register/unregister convenience functions."""
 
     def test_module_register_and_unregister_are_bound(self):
-        from wallpaper_automator.atshutdown import register, unregister
+        from wallpaper_auto.atshutdown import register, unregister
 
         assert callable(register)
         assert callable(unregister)

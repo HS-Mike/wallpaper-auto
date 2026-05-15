@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "wallpaper_automator" 
+name = "wallpaper-auto"
 version = "0.1.0"
 description = "Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, location, day of week)"
 readme = "README.md"
@@ -43,7 +43,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-wallpaper_automator = ["icon.svg"]
+wallpaper_auto = ["icon.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

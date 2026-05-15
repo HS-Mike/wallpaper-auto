@@ -98,9 +98,9 @@ class WallpaperSwitchSystemTray:
         self._menu.setToolTipsVisible(True)
         self._tray.setContextMenu(self._menu)
         self._tray.activated.connect(self._on_tray_activated)
-        self._tray.setToolTip("wallpaper automtor")
+        self._tray.setToolTip("wallpaper auto")
 
-        icon_path = str(files("wallpaper_automator").joinpath("icon.svg"))
+        icon_path = str(files("wallpaper_auto").joinpath("icon.svg"))
         icon = QIcon(icon_path)
         self._tray.setIcon(icon)
 

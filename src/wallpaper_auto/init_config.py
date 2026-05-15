@@ -1,5 +1,5 @@
 """
-Generate a starter YAML configuration file for the wallpaper automator.
+Generate a starter YAML configuration file for the wallpaper auto.
 
 This module is invoked via the ``init-config`` CLI subcommand and writes a
 well-commented template to the specified path.
@@ -38,7 +38,7 @@ resource:
       path: "C:/Users/You/Pictures/office.jpg"
       style: fill               # fill | fit | stretch | center | tile
       restore: false             # restore original wallpaper on demount (default false)
-      # cache_dir: "C:/Users/You/.cache/wallpaper_automator"  # (optional) custom cache path
+      # cache_dir: "C:/Users/You/.cache/wallpaper_auto"  # (optional) custom cache path
 
   # Shorthand — path only; name and style are inferred
   black: "C:/Users/You/Pictures/black.jpg"

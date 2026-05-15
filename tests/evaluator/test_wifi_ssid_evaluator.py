@@ -5,12 +5,12 @@ from unittest.mock import patch
 
 import pytest
 
-from wallpaper_automator.evaluator.wifi_ssid_evaluator import (
+from wallpaper_auto.evaluator.wifi_ssid_evaluator import (
     WIFISsidEvaluator,
     get_current_ssid,
 )
 
-_MOD = "wallpaper_automator.evaluator.wifi_ssid_evaluator"
+_MOD = "wallpaper_auto.evaluator.wifi_ssid_evaluator"
 
 
 @pytest.fixture

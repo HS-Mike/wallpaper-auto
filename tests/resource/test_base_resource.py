@@ -5,8 +5,8 @@ import shutil
 
 import pytest
 
-from wallpaper_automator.resource.base_resource import BaseResource
-from wallpaper_automator.resource.static_wallpaper import CachedResource, _cleanup_temp_dirs
+from wallpaper_auto.resource.base_resource import BaseResource
+from wallpaper_auto.resource.static_wallpaper import CachedResource, _cleanup_temp_dirs
 
 
 class MockCached(CachedResource):

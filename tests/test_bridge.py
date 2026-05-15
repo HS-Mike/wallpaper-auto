@@ -7,9 +7,9 @@ Does NOT involve WallpaperSwitchSystemTray — only the bridge layer.
 import pytest
 from PySide6.QtCore import QObject
 
-from wallpaper_automator.models import ConditionNode, Rule
-from wallpaper_automator.system_tray import SystemTrayBridge
-from wallpaper_automator.task import Mode
+from wallpaper_auto.models import ConditionNode, Rule
+from wallpaper_auto.system_tray import SystemTrayBridge
+from wallpaper_auto.task import Mode
 
 
 @pytest.fixture

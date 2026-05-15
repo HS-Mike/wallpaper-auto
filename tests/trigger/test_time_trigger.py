@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from wallpaper_automator.trigger.time_trigger import TimeTrigger
+from wallpaper_auto.trigger.time_trigger import TimeTrigger
 
 
 @pytest.fixture
@@ -17,7 +17,7 @@ def trigger():
 
 @pytest.fixture
 def freeze_now():
-    with patch("wallpaper_automator.trigger.time_trigger.datetime") as mock_dt:
+    with patch("wallpaper_auto.trigger.time_trigger.datetime") as mock_dt:
         mock_dt.timedelta = timedelta
         mock_dt.time = time
         mock_dt.datetime.combine = dt.combine
@@ -177,7 +177,7 @@ class TestBaseThreadTriggerDeactivate:
 
     def test_deactivate_stops_thread_and_joins(self):
         """BaseThreadTrigger.deactivate() stops thread and joins."""
-        from wallpaper_automator.trigger.base_trigger import BaseThreadTrigger
+        from wallpaper_auto.trigger.base_trigger import BaseThreadTrigger
 
         class _MinimalTrigger(BaseThreadTrigger):
             def run(self):

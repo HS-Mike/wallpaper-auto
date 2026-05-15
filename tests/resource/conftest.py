@@ -2,13 +2,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wallpaper_automator.resource.base_resource import BaseResource
+from wallpaper_auto.resource.base_resource import BaseResource
 
 
 @pytest.fixture
 def mock_screen_size():
     with patch(
-        "wallpaper_automator.resource.static_wallpaper.get_screen_size", return_value=(1920, 1080)
+        "wallpaper_auto.resource.static_wallpaper.get_screen_size", return_value=(1920, 1080)
     ):
         yield
 
@@ -16,13 +16,13 @@ def mock_screen_size():
 @pytest.fixture
 def mock_mount_deps():
     with (
-        patch("wallpaper_automator.resource.static_wallpaper.set_wallpaper") as mock_set,
+        patch("wallpaper_auto.resource.static_wallpaper.set_wallpaper") as mock_set,
         patch(
-            "wallpaper_automator.resource.static_wallpaper.get_current_wallpaper",
+            "wallpaper_auto.resource.static_wallpaper.get_current_wallpaper",
             return_value="C:\\original.jpg",
         ),
         patch(
-            "wallpaper_automator.resource.static_wallpaper.get_screen_size",
+            "wallpaper_auto.resource.static_wallpaper.get_screen_size",
             return_value=(1920, 1080),
         ),
     ):
@@ -37,11 +37,11 @@ def mock_carousel_deps():
     """Patch ResourceCarousel's own wallpaper reads (not sub-resource calls)."""
     with (
         patch(
-            "wallpaper_automator.resource.resource_carousel.get_current_wallpaper",
+            "wallpaper_auto.resource.resource_carousel.get_current_wallpaper",
             return_value="C:\\original.jpg",
         ),
         patch(
-            "wallpaper_automator.resource.resource_carousel.get_current_wallpaper_style",
+            "wallpaper_auto.resource.resource_carousel.get_current_wallpaper_style",
             return_value=("10", "0"),
         ),
     ):

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from wallpaper_automator.evaluator.time_range_evaluator import TimeRangeEvaluator
+from wallpaper_auto.evaluator.time_range_evaluator import TimeRangeEvaluator
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ class TestTimeRangeEvaluator:
     def test_normal_range(self, evaluator, now_time, expected):
         fake_now = real_dt.datetime.combine(real_dt.date.today(), now_time)
         with patch(
-            "wallpaper_automator.evaluator.time_range_evaluator.datetime.datetime",
+            "wallpaper_auto.evaluator.time_range_evaluator.datetime.datetime",
             wraps=real_dt.datetime,
         ) as mock_dt:
             mock_dt.now.return_value = fake_now
@@ -53,7 +53,7 @@ class TestTimeRangeEvaluator:
     def test_overnight_range(self, evaluator, now_time, expected):
         fake_now = real_dt.datetime.combine(real_dt.date.today(), now_time)
         with patch(
-            "wallpaper_automator.evaluator.time_range_evaluator.datetime.datetime",
+            "wallpaper_auto.evaluator.time_range_evaluator.datetime.datetime",
             wraps=real_dt.datetime,
         ) as mock_dt:
             mock_dt.now.return_value = fake_now
@@ -73,7 +73,7 @@ class TestTimeRangeEvaluator:
         """When start==end, only that exact time should match."""
         fake_now = real_dt.datetime.combine(real_dt.date.today(), now_time)
         with patch(
-            "wallpaper_automator.evaluator.time_range_evaluator.datetime.datetime",
+            "wallpaper_auto.evaluator.time_range_evaluator.datetime.datetime",
             wraps=real_dt.datetime,
         ) as mock_dt:
             mock_dt.now.return_value = fake_now

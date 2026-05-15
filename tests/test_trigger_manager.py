@@ -5,10 +5,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wallpaper_automator.models import TriggerConfig
-from wallpaper_automator.trigger.base_trigger import BaseTrigger
-from wallpaper_automator.trigger.time_trigger import TimeTrigger
-from wallpaper_automator.trigger_manager import _BUILTIN_TRIGGERS, TriggerManager
+from wallpaper_auto.models import TriggerConfig
+from wallpaper_auto.trigger.base_trigger import BaseTrigger
+from wallpaper_auto.trigger.time_trigger import TimeTrigger
+from wallpaper_auto.trigger_manager import _BUILTIN_TRIGGERS, TriggerManager
 
 
 @pytest.fixture

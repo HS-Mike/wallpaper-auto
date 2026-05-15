@@ -4,8 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from wallpaper_automator.models import ConditionNode, Rule
-from wallpaper_automator.rule_engine import BaseEvaluator, RuleEngine, evaluate_node
+from wallpaper_auto.models import ConditionNode, Rule
+from wallpaper_auto.rule_engine import BaseEvaluator, RuleEngine, evaluate_node
 
 
 @pytest.fixture

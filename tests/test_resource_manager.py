@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wallpaper_automator.models import ResourceConfig
-from wallpaper_automator.resource.base_resource import BaseResource
-from wallpaper_automator.resource_manager import _BUILTIN_RESOURCES, ResourceManager
+from wallpaper_auto.models import ResourceConfig
+from wallpaper_auto.resource.base_resource import BaseResource
+from wallpaper_auto.resource_manager import _BUILTIN_RESOURCES, ResourceManager
 
 
 @pytest.fixture
@@ -131,7 +131,7 @@ class TestResourceManagerInitResources:
         """init creates a real StaticWallpaper when given a valid image path."""
         from PIL import Image
 
-        from wallpaper_automator.resource.static_wallpaper import StaticWallpaper
+        from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
 
         img_path = tmp_path / "test.jpg"
         Image.new("RGB", (64, 64), color="red").save(img_path)

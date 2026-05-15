@@ -1,5 +1,5 @@
 """
-Service entry point for the wallpaper automator.
+Service entry point for the wallpaper auto.
 
 Provides :func:`run_service` which orchestrates the full startup sequence
 (controller creation, config loading, system tray setup, worker loop, signal
@@ -12,13 +12,13 @@ as a purely programmatic API.
 
 Usage (CLI)::
 
-    python -m wallpaper_automator -c config.yaml -l INFO
+    python -m wallpaper_auto -c config.yaml -l INFO
 
-    python -m wallpaper_automator init-config my_config.yaml
+    python -m wallpaper_auto init-config my_config.yaml
 
 Usage (programmatic)::
 
-    from wallpaper_automator import run_service
+    from wallpaper_auto import run_service
 
     # With built-in components only
     run_service("config.yaml")
@@ -63,7 +63,7 @@ def _setup_logging(level: _LogLevel) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
 
-    parser = argparse.ArgumentParser(prog="wallpaper-automator")
+    parser = argparse.ArgumentParser(prog="wallpaper-auto")
     parser.add_argument("-c", "--config", default="config.yaml", help="Path to config file")
     parser.add_argument(
         "-l",
@@ -102,7 +102,7 @@ def run_service(
     custom_resources: Optional[dict[str, type[BaseResource]]] = None,  # noqa: UP045
     custom_evaluators: Optional[dict[str, BaseEvaluator]] = None,  # noqa: UP045
 ) -> None:
-    """Start the wallpaper automator service.
+    """Start the wallpaper auto service.
 
     When *config_path* is ``None`` (the default), the function enters CLI
     mode: it parses ``sys.argv``, handles subcommands like ``init-config``,
@@ -158,7 +158,7 @@ def run_service(
 
         # Normal run: wrap in process mutex
         try:
-            with ProcessMutex("wallpaper_automator"):
+            with ProcessMutex("wallpaper_auto"):
                 _run_service_impl(
                     args.config,
                     custom_triggers,

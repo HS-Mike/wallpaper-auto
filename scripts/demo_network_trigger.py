@@ -16,8 +16,8 @@ import threading
 
 import pythoncom
 
-from wallpaper_automator.trigger.network_trigger import NetworkTrigger
-from wallpaper_automator.evaluator.wifi_ssid_evaluator import get_current_ssid
+from wallpaper_auto.trigger.network_trigger import NetworkTrigger
+from wallpaper_auto.evaluator.wifi_ssid_evaluator import get_current_ssid
 
 # Configure logging
 logging.basicConfig(

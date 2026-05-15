@@ -13,8 +13,8 @@ import signal
 import time
 import sys
 
-from wallpaper_automator.trigger.time_trigger import TimeTrigger
-from wallpaper_automator.trigger.base_trigger import BaseTrigger
+from wallpaper_auto.trigger.time_trigger import TimeTrigger
+from wallpaper_auto.trigger.base_trigger import BaseTrigger
 
 # Configure logging
 logging.basicConfig(
