@@ -80,6 +80,9 @@ exclude = ["tests/"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+extend-exclude = [
+    "src/wallpaper_auto/_version.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP"]
