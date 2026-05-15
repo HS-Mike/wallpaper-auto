@@ -34,8 +34,11 @@ jobs:
 
       - name: Build Package
         run: python -m build
+        env:
+            SETUPTOOLS_SCM_LOCAL_SCHEME: no-local-version
 
       - name: Publish to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
