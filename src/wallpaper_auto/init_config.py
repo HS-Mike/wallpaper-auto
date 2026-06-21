@@ -68,6 +68,7 @@ trigger:
         - "09:00"
         - "18:00"
   - name: windows_session      # Fires on lock / unlock / resume
+  - name: display              # Fires on monitor plug / unplug
 
 
 # ---------------------------------------------------------------------------

@@ -2,11 +2,11 @@
 
 [![codecov](https://codecov.io/github/HS-Mike/wallpaper-auto/graph/badge.svg?token=BZSTAYXUWF)](https://codecov.io/github/HS-Mike/wallpaper-auto)
 
-Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, day of week).
+Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, day of week, display changes).
 
 ## Features
 
-- **Multi-condition triggers**: Supports Windows session changes, network changes, and time changes as three types of triggers
+- **Multi-condition triggers**: Supports Windows session changes, network changes, time changes, and display changes as four types of triggers
 - **Flexible rules**: Supports AND/OR condition combinations, can evaluate multiple conditions simultaneously
 - **Condition types**:
   - `network`: Current connected WiFi name
@@ -86,6 +86,8 @@ trigger:
     config: {}
   - name: windows_session                 # Monitor lock/unlock/logon/logoff
     config: {}
+  - name: display                          # Monitor monitor plug/unplug
+    config: {}
 
 # 3. Rules (evaluated top-to-bottom; first match wins)
 rule:
@@ -154,6 +156,7 @@ trigger:
 | `time` | `interval` (seconds), `times` (list of `"HH:MM"` strings) | Periodic polling interval and/or fixed daily trigger times |
 | `network` | *(none)* | Fires on WiFi SSID changes |
 | `windows_session` | *(none)* | Fires on lock/unlock/resume |
+| `display` | *(none)* | Fires on monitor plug/unplug |
 
 ### Resources
 
