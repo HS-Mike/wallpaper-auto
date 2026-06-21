@@ -1,3 +1,10 @@
+"""
+Display change trigger for monitor plug/unplug detection.
+
+Uses WM_DISPLAYCHANGE via a hidden Win32 window and WMI (WmiMonitorID)
+to detect and report connected monitor changes.
+"""
+
 import logging
 import threading
 
@@ -59,6 +66,7 @@ class DisplayTrigger(BaseThreadTrigger):
 
     def __init__(self) -> None:
         super().__init__()
+        self._stop_event = None     # not used in this implementation
         self._window_lock = threading.Lock()
         self._hwnd = None
         self._prev_displays: set[tuple[str, str, str, str]] = set()
@@ -95,24 +103,20 @@ class DisplayTrigger(BaseThreadTrigger):
         self._prev_displays = get_display_set()
 
         wc = win32gui.WNDCLASS()
-        wc.lpfnWndProc = self._msg_proc                          # type: ignore[assignment]
+        wc.lpfnWndProc = self._msg_proc                         # type: ignore[assignment]
         wc.lpszClassName = f"DisplayMonitorClass_{id(self)}"    # type: ignore[assignment]
         class_atom = win32gui.RegisterClass(wc)
 
         with self._window_lock:
-            if self._stop_event.is_set():
-                win32gui.UnregisterClass(class_atom, win32gui.GetModuleHandle(None))
-                return
-
             self._hwnd = win32gui.CreateWindow(
                 class_atom,                             # lpszClassName
-                "DisplayMonitorWindow",                 # lpszWindowName
+                f"DisplayMonitor_{id(self)}",           # lpszWindowName
                 0,                                      # dwStyle
                 0,                                      # x
                 0,                                      # y
                 0,                                      # nWidth
                 0,                                      # nHeight
-                win32con.HWND_MESSAGE,                  # hWndParent
+                0,                                      # hWndParent
                 0,                                      # hMenu
                 win32gui.GetModuleHandle(None),         # hInstance
                 None,                                   # lpParam
@@ -131,14 +135,12 @@ class DisplayTrigger(BaseThreadTrigger):
             logger.debug("DisplayTrigger thread exited safely")
 
     def activate(self) -> None:
-        super().activate()
-        logger.debug(f"{self.__class__.__name__} activate")
+        self.start()
 
     def deactivate(self) -> None:
-        super().deactivate()
-        
         with self._window_lock:
             if self._hwnd:
                 win32gui.PostMessage(self._hwnd, WM_USER_DISPLAY_TRIGGER_QUIT, 0, 0)
-                
+        self.join(timeout=3)
         logger.debug(f"{self.__class__.__name__} deactivate")
+        
