@@ -9,11 +9,12 @@ import logging
 import threading
 
 from .models import TriggerConfig
+from .util.callback_register import CallbackRegister
 from .trigger.base_trigger import BaseTrigger
 from .trigger.network_trigger import NetworkTrigger
 from .trigger.time_trigger import TimeTrigger
 from .trigger.windows_session_trigger import WindowsSessionTrigger
-from .util.callback_register import CallbackRegister
+from .trigger.display_trigger import DisplayTrigger
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ _BUILTIN_TRIGGERS: dict[str, type[BaseTrigger]] = {
     "network": NetworkTrigger,
     "time": TimeTrigger,
     "windows_session": WindowsSessionTrigger,
+    "display": DisplayTrigger,
 }
 
 
