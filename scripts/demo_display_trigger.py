@@ -9,12 +9,12 @@ Usage:
     python demo_display_trigger.py
 """
 import logging
-import signal
-import sys
-import time
 import threading
+from datetime import datetime
 
-from wallpaper_auto.trigger.display_trigger import DisplayTrigger
+import pythoncom
+
+from wallpaper_auto.trigger.display_trigger import DisplayTrigger, get_display_set
 
 # Configure logging
 logging.basicConfig(
@@ -30,7 +30,7 @@ def on_display_change(trigger: DisplayTrigger) -> None:
     if displays is None:
         logger.warning("No display data available")
         return
-    print(f"\n=== Display change detected! Connected displays: ===")
+    print(f"\n=== {datetime.now():%H:%M:%S} Connected displays: ===")
     for i, (manufacturer, model, pnp_id, serial) in enumerate(sorted(displays), 1):
         print(f"  {i}. {manufacturer} {model} (SN: {serial})")
     print()
@@ -44,10 +44,19 @@ def main() -> None:
 
     monitor.activate()
     logger.info("DisplayTrigger started, press Ctrl+C to exit")
-    
+
+    # Show initial display state
+    try:
+        pythoncom.CoInitialize()
+        monitor.curr_displays = get_display_set()
+        on_display_change(monitor)
+        monitor.curr_displays = None
+    finally:
+        pythoncom.CoUninitialize()
+
     try:
         while not shutdown_event.is_set():
-            shutdown_event.wait(timeout=0.2)
+            shutdown_event.wait(timeout=0.5)
             
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt received, shutting down...")
