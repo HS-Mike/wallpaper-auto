@@ -27,7 +27,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def on_network_change() -> None:
+def on_network_change(trigger: NetworkTrigger) -> None:
     """Network change callback"""
     ssid = get_current_ssid()
     print(f"Current SSID: {ssid}")

@@ -56,7 +56,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, signal_handler)
 
     monitor.add_callback(
-        lambda _: on_session_change(monitor.last_session_id, monitor.last_event)
+        lambda m: on_session_change(m.last_session_id, m.last_event)
     )
     logger.info("Windows session monitor started, press Ctrl+C to exit")
     monitor.activate()

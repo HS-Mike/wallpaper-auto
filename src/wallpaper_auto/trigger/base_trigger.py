@@ -13,12 +13,15 @@ Exit loop according to self._stop_event.
 
 import threading
 from abc import ABC, abstractmethod
-from typing import override
+from typing import override, TypeVar, Generic
 
 from ..util import callback_register
 
 
-class BaseTrigger(callback_register.CallbackRegister[["BaseTrigger"], None], ABC):
+T = TypeVar("T", bound="BaseTrigger")
+
+
+class BaseTrigger(callback_register.CallbackRegister[T, None], Generic[T], ABC):
     def __init__(self) -> None:
         super().__init__()
 
