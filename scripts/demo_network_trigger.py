@@ -17,7 +17,6 @@ import threading
 import pythoncom
 
 from wallpaper_auto.trigger.network_trigger import NetworkTrigger
-from wallpaper_auto.evaluator.wifi_ssid_evaluator import get_current_ssid
 
 # Configure logging
 logging.basicConfig(
@@ -29,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 def on_network_change(trigger: NetworkTrigger) -> None:
     """Network change callback"""
-    ssid = get_current_ssid()
+    ssid = trigger.current_ssid
     print(f"Current SSID: {ssid}")
 
 

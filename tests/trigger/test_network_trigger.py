@@ -38,19 +38,30 @@ class TestNetworkTrigger:
         monitor = NetworkTrigger()
         monitor._exit_event = 0xBEEF
 
-        with patch.object(monitor, "trigger") as mock_trigger:
+        captured_ssid = []
+
+        def on_trigger(*args, **kwargs):
+            captured_ssid.append(monitor.current_ssid)
+
+        with patch.object(monitor, "trigger", wraps=on_trigger) as mock_trigger:
             with patch.object(monitor, "_get_network_fingerprint") as mock_fingerprint:
-                mock_fingerprint.side_effect = [
-                    {"eth_192.168.1.1"},  # initial fingerprint
-                    {"wifi_192.168.2.1"},  # after network change
-                ]
-                # first wait: network change (idx 0), second wait: exit (idx 1)
-                mock_KERNEL32.WaitForMultipleObjects.side_effect = [0, 1]
+                with patch(
+                    "wallpaper_auto.trigger.network_trigger.get_current_ssid",
+                    return_value="HomeWiFi",
+                ):
+                    mock_fingerprint.side_effect = [
+                        {"eth_192.168.1.1"},  # initial fingerprint
+                        {"wifi_192.168.2.1"},  # after network change
+                    ]
+                    # first wait: network change (idx 0), second wait: exit (idx 1)
+                    mock_KERNEL32.WaitForMultipleObjects.side_effect = [0, 1]
 
-                monitor.run()
+                    monitor.run()
 
-                mock_trigger.assert_called_once()
-                assert monitor._last_gateways == {"wifi_192.168.2.1"}
+                    mock_trigger.assert_called_once()
+                    assert monitor._last_gateways == {"wifi_192.168.2.1"}
+                    assert captured_ssid == ["HomeWiFi"]
+                    assert monitor.current_ssid is None  # cleared after trigger
 
     def test_run_does_not_trigger_on_same_fingerprint(self, mock_run_deps):
         """Run method does not trigger when fingerprint hasn't changed after event"""
