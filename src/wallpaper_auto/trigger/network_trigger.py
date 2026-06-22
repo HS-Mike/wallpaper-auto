@@ -14,7 +14,7 @@ from ctypes import wintypes
 import pythoncom
 import wmi
 
-from ..evaluator.wifi_ssid_evaluator import get_current_ssid
+from ..util.network_utils import get_current_ssid
 
 from .base_trigger import BaseThreadTrigger
 
