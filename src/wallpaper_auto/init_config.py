@@ -85,6 +85,8 @@ trigger:
 #   wifi_ssid_is: <ssid_string>
 #   in_time_range: ["HH:MM", "HH:MM"]
 #   day_of_week_is: [0, 1, 2, 3, 4, 5, 6]  # 0=Monday ... 6=Sunday
+#   display_model_is: <model_name_string>   # e.g. "U2719D"
+#   display_count: <int>                    # exact number of connected displays
 # ---------------------------------------------------------------------------
 rule:
 
@@ -118,6 +120,14 @@ rule:
     condition:
       day_of_week_is: [5, 6]    # Saturday, Sunday
     target: "office_view"
+
+  # ── Example 5: Display-based rule ────────────────────────────────────────
+  # - name: "external_monitor"
+  #   condition:
+  #     and:
+  #       - display_model_is: "U2719D"
+  #       - display_count: 2
+  #   target: "office_view"
 
 
 # ---------------------------------------------------------------------------

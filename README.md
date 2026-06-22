@@ -12,6 +12,8 @@ Automatically switches Windows desktop wallpapers based on configurable conditio
   - `network`: Current connected WiFi name
   - `day_of_week_is`: Day-of-week check (0=Monday ... 6=Sunday)
   - `time_range`: Time range (supports crossing midnight)
+  - `display_model_is`: Check if a specific display model is connected
+  - `display_count`: Number of connected displays
 - **System tray control**: System tray menu for manual wallpaper switching and pause/resume auto-switching
 - **Thread-safe**: Each monitoring module runs independently without blocking others
 - **At-shutdown wallpaper**: Optionally apply a specific wallpaper when Windows shuts down or the user logs off
@@ -198,6 +200,8 @@ condition:
   wifi_ssid_is: "Company_WiFi"             # param: SSID string
   in_time_range: ["09:00", "18:00"]         # param: [start, end]
   day_of_week_is: [5, 6]                    # param: list[int]  0=Mon ... 6=Sun
+  display_model_is: "U2719D"               # param: model name string
+  display_count: 2                          # param: int (exact number of displays)
 ```
 
 ### Custom Components
