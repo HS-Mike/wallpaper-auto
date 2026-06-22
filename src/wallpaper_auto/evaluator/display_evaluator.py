@@ -1,24 +1,26 @@
 """
 Display condition evaluator.
 
-Checks whether a specific display model is currently connected.
+Checks whether a connected display model name matches a given pattern.
 
 Uses :func:`get_display_set` from ``util.display_utils`` for its data source.
 """
+
+import re
 
 from ..util.display_utils import get_display_set
 
 from .base_evaluator import BaseEvaluator
 
 
-class DisplayModelEvaluator(BaseEvaluator):
-    """Check if a connected display matches a given model name.
+class HaveDisplayEvaluator(BaseEvaluator):
+    """Check if a connected display matches a given model name or regex pattern.
 
-    YAML usage: ``display_model_is: "U2719D"``
+    YAML usage: ``have_display: "U2719D"`` or ``have_display: "27.*"``
     """
 
     def __call__(self, param: str) -> bool:
         if not isinstance(param, str):
             raise ValueError(f"invalid {self.__class__.__name__} param")
         displays = get_display_set()
-        return any(model == param for _, model, _, _ in displays)
+        return any(re.search(param, model) for _, model, _, _ in displays)

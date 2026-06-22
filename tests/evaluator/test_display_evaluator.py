@@ -4,14 +4,14 @@ from unittest.mock import patch
 
 import pytest
 
-from wallpaper_auto.evaluator.display_evaluator import DisplayModelEvaluator
+from wallpaper_auto.evaluator.display_evaluator import HaveDisplayEvaluator
 
 _MOD = "wallpaper_auto.evaluator.display_evaluator"
 
 
 @pytest.fixture
 def evaluator():
-    return DisplayModelEvaluator()
+    return HaveDisplayEvaluator()
 
 
 MONITOR_SET_SINGLE = {("DEL", "U2719D", r"DISPLAY\DELA123", "ABC123")}
@@ -21,16 +21,20 @@ MONITOR_SET_DUAL = {
 }
 
 
-class TestDisplayModelEvaluator:
-    def test_returns_true_when_model_matches(self, evaluator):
+class TestHaveDisplayEvaluator:
+    def test_exact_model_match(self, evaluator):
         with patch(f"{_MOD}.get_display_set", return_value=MONITOR_SET_SINGLE):
             assert evaluator("U2719D")
 
-    def test_returns_true_when_model_matches_dual(self, evaluator):
-        with patch(f"{_MOD}.get_display_set", return_value=MONITOR_SET_DUAL):
-            assert evaluator("XL2730")
+    def test_regex_pattern_match(self, evaluator):
+        with patch(f"{_MOD}.get_display_set", return_value=MONITOR_SET_SINGLE):
+            assert evaluator(r"27.*")
 
-    def test_returns_false_when_model_does_not_match(self, evaluator):
+    def test_regex_matches_any_display(self, evaluator):
+        with patch(f"{_MOD}.get_display_set", return_value=MONITOR_SET_DUAL):
+            assert evaluator(r"XL\d+")
+
+    def test_returns_false_when_no_match(self, evaluator):
         with patch(f"{_MOD}.get_display_set", return_value=MONITOR_SET_SINGLE):
             assert not evaluator("NonExistent")
 
@@ -39,9 +43,9 @@ class TestDisplayModelEvaluator:
             assert not evaluator("U2719D")
 
     def test_raises_when_param_not_string(self, evaluator):
-        with pytest.raises(ValueError, match="invalid DisplayModelEvaluator param"):
+        with pytest.raises(ValueError, match="invalid HaveDisplayEvaluator param"):
             evaluator(123)  # type: ignore[arg-type]
 
     def test_raises_when_param_is_none(self, evaluator):
-        with pytest.raises(ValueError, match="invalid DisplayModelEvaluator param"):
+        with pytest.raises(ValueError, match="invalid HaveDisplayEvaluator param"):
             evaluator(None)  # type: ignore[arg-type]

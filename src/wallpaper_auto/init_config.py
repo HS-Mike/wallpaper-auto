@@ -85,7 +85,7 @@ trigger:
 #   wifi_ssid_is: <ssid_string>
 #   in_time_range: ["HH:MM", "HH:MM"]
 #   day_of_week_is: [0, 1, 2, 3, 4, 5, 6]  # 0=Monday ... 6=Sunday
-#   display_model_is: <model_name_string>   # e.g. "U2719D"
+#   have_display: <model_name_or_regex>    # e.g. "U2719D" or "27.*"
 # ---------------------------------------------------------------------------
 rule:
 
@@ -123,7 +123,7 @@ rule:
   # ── Example 5: Display-based rule ────────────────────────────────────────
   # - name: "external_monitor"
   #   condition:
-  #     display_model_is: "U2719D"
+  #     have_display: "U2719D"
   #   target: "office_view"
 
 
