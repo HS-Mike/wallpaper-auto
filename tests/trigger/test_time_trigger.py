@@ -107,40 +107,52 @@ class TestGetNextWaitTime:
         freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
         trigger = TimeTrigger()
         trigger.update_fixed_times([time(11, 0)])
-        assert trigger._get_next_wait_time() == pytest.approx(3600, abs=0.1)
+        wait_sec, target = trigger._get_next_wait_time()
+        assert wait_sec == pytest.approx(3600, abs=0.1)
+        assert target == dt(2024, 1, 1, 11, 0)
 
     def test_fixed_time_today_past(self, freeze_now):
         freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
         trigger = TimeTrigger()
         trigger.update_fixed_times([time(9, 0)])
-        assert trigger._get_next_wait_time() == pytest.approx(82800, abs=0.1)
+        wait_sec, target = trigger._get_next_wait_time()
+        assert wait_sec == pytest.approx(82800, abs=0.1)
+        assert target == dt(2024, 1, 2, 9, 0)
 
     def test_multiple_fixed_times_returns_min(self, freeze_now):
         freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
         trigger = TimeTrigger()
         trigger.update_fixed_times([time(13, 0), time(10, 30)])
-        assert trigger._get_next_wait_time() == pytest.approx(1800, abs=0.1)
+        wait_sec, target = trigger._get_next_wait_time()
+        assert wait_sec == pytest.approx(1800, abs=0.1)
+        assert target == dt(2024, 1, 1, 10, 30)
 
     def test_interval_calculation(self, freeze_now):
         freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 5, 0)
         trigger = TimeTrigger()
         trigger._interval = timedelta(minutes=15)
         trigger._reference_time = dt(2024, 1, 1, 10, 0, 0)
-        assert trigger._get_next_wait_time() == pytest.approx(600, abs=0.1)
+        wait_sec, target = trigger._get_next_wait_time()
+        assert wait_sec == pytest.approx(600, abs=0.1)
+        assert target == dt(2024, 1, 1, 10, 15)
 
     def test_interval_without_reference_uses_now(self, freeze_now):
         freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
         trigger = TimeTrigger()
         trigger._interval = timedelta(hours=1)
         trigger._reference_time = None
-        assert trigger._get_next_wait_time() == pytest.approx(3600, abs=0.1)
+        wait_sec, target = trigger._get_next_wait_time()
+        assert wait_sec == pytest.approx(3600, abs=0.1)
+        assert target == dt(2024, 1, 1, 11, 0)
 
     def test_interval_when_now_before_reference(self, freeze_now):
         freeze_now.datetime.now.return_value = dt(2024, 1, 1, 9, 50, 0)
         trigger = TimeTrigger()
         trigger._interval = timedelta(minutes=15)
         trigger._reference_time = dt(2024, 1, 1, 10, 0, 0)
-        assert trigger._get_next_wait_time() == pytest.approx(600, abs=0.1)
+        wait_sec, target = trigger._get_next_wait_time()
+        assert wait_sec == pytest.approx(600, abs=0.1)
+        assert target == dt(2024, 1, 1, 10, 0)
 
     def test_zero_interval_excluded(self, freeze_now):
         freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
@@ -154,7 +166,9 @@ class TestGetNextWaitTime:
         trigger = TimeTrigger()
         trigger.set_interval(timedelta(hours=2), reference_time=dt(2024, 1, 1, 9, 0, 0))
         trigger.update_fixed_times([time(10, 30)])
-        assert trigger._get_next_wait_time() == pytest.approx(1800, abs=0.1)
+        wait_sec, target = trigger._get_next_wait_time()
+        assert wait_sec == pytest.approx(1800, abs=0.1)
+        assert target == dt(2024, 1, 1, 10, 30)
 
 
 class TestActivateDeactivate:
@@ -208,7 +222,8 @@ class TestRunLoop:
     def test_run_calls_trigger_on_timeout(self):
         """Natural timeout -> trigger() invoked."""
         trigger = TimeTrigger()
-        with patch.object(trigger, "_get_next_wait_time", return_value=0.02):
+        target = dt(2024, 1, 1, 10, 0, 0)
+        with patch.object(trigger, "_get_next_wait_time", return_value=(0.02, target)):
             with patch.object(trigger, "trigger") as mock_trigger:
                 t = threading.Thread(target=trigger.run, daemon=True)
                 t.start()
@@ -221,7 +236,8 @@ class TestRunLoop:
     def test_run_skips_trigger_on_interrupt(self):
         """Event set before timeout -> trigger() NOT called."""
         trigger = TimeTrigger()
-        with patch.object(trigger, "_get_next_wait_time", return_value=10):
+        target = dt(2024, 1, 1, 10, 0, 10)
+        with patch.object(trigger, "_get_next_wait_time", return_value=(10, target)):
             with patch.object(trigger, "trigger") as mock_trigger:
                 t = threading.Thread(target=trigger.run, daemon=True)
                 t.start()
