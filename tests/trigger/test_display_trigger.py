@@ -202,7 +202,7 @@ class TestDisplayTriggerInit:
         assert trigger._stop_event is None
         assert trigger._hwnd is None
         assert trigger._prev_displays == set()
-        assert trigger.curr_displays is None
+        assert trigger.current_displays is None
         assert trigger._window_lock is not None
         assert hasattr(trigger._window_lock, "acquire")
         assert hasattr(trigger._window_lock, "release")
@@ -229,11 +229,11 @@ class TestDisplayTriggerMsgProc:
         expected_pnp = r"DISPLAY\DELA123\5&123&0&UID43520"
         new_displays = {("DEL", "U2719D", expected_pnp, "ABC")}
 
-        # Capture curr_displays during callback
+        # Capture current_displays during callback
         captured_displays = []
 
         def on_trigger(t):
-            captured_displays.append(t.curr_displays)
+            captured_displays.append(t.current_displays)
             callback_called.append(True)
 
         trigger.add_callback(on_trigger)
@@ -243,7 +243,7 @@ class TestDisplayTriggerMsgProc:
         assert callback_called == [True]
         assert captured_displays == [new_displays]
         assert trigger._prev_displays == new_displays
-        assert trigger.curr_displays is None  # cleared after callback
+        assert trigger.current_displays is None  # cleared after callback
         assert result == 0
 
     def test_wm_displaychange_skips_on_no_change(self, mock_display_deps) -> None:
@@ -261,7 +261,7 @@ class TestDisplayTriggerMsgProc:
             trigger._msg_proc(0, win32con.WM_DISPLAYCHANGE, 0, 0)
 
             mock_trigger.assert_not_called()
-            assert trigger.curr_displays is None
+            assert trigger.current_displays is None
 
     def test_wm_quit_message(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()

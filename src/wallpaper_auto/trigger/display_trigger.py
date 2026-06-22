@@ -70,7 +70,7 @@ class DisplayTrigger(BaseThreadTrigger):
         self._window_lock = threading.Lock()
         self._hwnd = None
         self._prev_displays: set[tuple[str, str, str, str]] = set()
-        self.curr_displays: set[tuple[str, str, str, str]] | None = None    # only avaliable in callback
+        self.current_displays: set[tuple[str, str, str, str]] | None = None    # only avaliable in callback
 
     def _msg_proc(self, hwnd, msg, wparam, lparam):
         """Internal window procedure to handle Windows messages."""
@@ -79,9 +79,9 @@ class DisplayTrigger(BaseThreadTrigger):
             if curr_display != self._prev_displays:
                 logger.debug(f"Display change detected: {curr_display}")
                 self._prev_displays = curr_display
-                self.curr_displays = curr_display
+                self.current_displays = curr_display
                 self.trigger()
-                self.curr_displays = None
+                self.current_displays = None
             return 0
 
         if msg == WM_USER_DISPLAY_TRIGGER_QUIT:

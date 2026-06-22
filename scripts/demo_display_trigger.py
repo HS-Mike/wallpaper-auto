@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 def on_display_change(trigger: DisplayTrigger) -> None:
     """Display change callback — print current display set from trigger."""
-    displays = trigger.curr_displays
+    displays = trigger.current_displays
     if displays is None:
         logger.warning("No display data available")
         return
@@ -48,9 +48,9 @@ def main() -> None:
     # Show initial display state
     try:
         pythoncom.CoInitialize()
-        monitor.curr_displays = get_display_set()
+        monitor.current_displays = get_display_set()
         on_display_change(monitor)
-        monitor.curr_displays = None
+        monitor.current_displays = None
     finally:
         pythoncom.CoUninitialize()
 
