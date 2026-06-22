@@ -8,7 +8,7 @@ and returns the first matching rule.
 import logging
 
 from .evaluator.base_evaluator import BaseEvaluator
-from .evaluator.display_evaluator import DisplayCountEvaluator, DisplayModelEvaluator
+from .evaluator.display_evaluator import DisplayModelEvaluator
 from .evaluator.time_range_evaluator import TimeRangeEvaluator
 from .evaluator.weekday_evaluator import WeekdayEvaluator
 from .evaluator.wifi_ssid_evaluator import WIFISsidEvaluator
@@ -21,7 +21,6 @@ _BUILTIN_EVALUATORS: dict[str, BaseEvaluator] = {
     "in_time_range": TimeRangeEvaluator(),
     "day_of_week_is": WeekdayEvaluator(),
     "display_model_is": DisplayModelEvaluator(),
-    "display_count": DisplayCountEvaluator(),
 }
 
 
