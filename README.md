@@ -4,6 +4,25 @@
 
 Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, day of week, display changes).
 
+## How It Works
+
+The application is built around three pluggable component types:
+
+| Component | Role | Example |
+|-----------|------|---------|
+| **Trigger** | Watches for system events and fires when something changes | WiFi network changed, monitor plugged in, workstation unlocked |
+| **Evaluator** | Checks a single condition and returns true/false | "Is the current time between 9 AM and 6 PM?", "Am I connected to the office WiFi?" |
+| **Resource** | Applies a wallpaper (or cycles through multiple) | Set a static image, rotate through a slideshow |
+
+**The flow:** A Trigger detects a change (e.g., you connect to "OfficeWiFi") and notifies the controller. The controller runs the **Rule Engine**, which evaluates each rule's conditions using **Evaluators**. The first rule whose conditions all match determines which **Resource** to mount as the active wallpaper.
+
+```
+Trigger fires ---> Controller evaluates rules ---> Matching rule's resource is applied
+     |                        |                                  |
+  e.g. WiFi             AND/OR tree of                     static_wallpaper
+  changed               evaluator checks                    or resource_carousel
+```
+
 ## Features
 
 - **Multi-condition triggers**: Supports Windows session changes, network changes, time changes, and display changes as four types of triggers
