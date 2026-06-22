@@ -7,6 +7,7 @@ to detect and report connected monitor changes.
 
 import logging
 import threading
+from typing import override
 
 import pythoncom
 import win32com.client
@@ -15,10 +16,7 @@ import win32gui
 
 from .base_trigger import BaseThreadTrigger
 
-
 logger = logging.getLogger(__name__)
-
-WM_USER_DISPLAY_TRIGGER_QUIT = win32gui.RegisterWindowMessage("DisplayTrigger_Internal_Quit_Message")
 
 
 def decode_wmi_string(char_array: bytes) -> str:
@@ -66,13 +64,52 @@ class DisplayTrigger(BaseThreadTrigger):
 
     def __init__(self) -> None:
         super().__init__()
-        self._stop_event = None     # not used in this implementation
-        self._window_lock = threading.Lock()
-        self._hwnd = None
+        self.hwnd = None
         self._prev_displays: set[tuple[str, str, str, str]] = set()
-        self.current_displays: set[tuple[str, str, str, str]] | None = None    # only avaliable in callback
+        self.current_displays: set[tuple[str, str, str, str]] | None = None    # only available in callback
 
-    def _msg_proc(self, hwnd, msg, wparam, lparam):
+    @override
+    def activate(self) -> None:
+        super().start()
+        logger.debug(f"{self.__class__.__name__} activate")
+
+    @override
+    def deactivate(self) -> None:
+        """Send WM_CLOSE to safely stop PumpMessages from another thread."""
+        if self.hwnd:
+            win32gui.PostMessage(self.hwnd, win32con.WM_CLOSE, 0, 0)
+        self.join(timeout=3)
+        logger.debug(f"{self.__class__.__name__} deactivate")
+
+    def _setup_window(self) -> None:
+        """Create a hidden watch window in the current thread."""
+        self._prev_displays = get_display_set()
+
+        className = f"DisplayMonitorClass_{id(self)}"  # noqa: N806
+        hInstance = win32gui.GetModuleHandle(None)   # noqa: N806
+
+        wc = win32gui.WNDCLASS()
+        wc.lpfnWndProc = self._msg_proc          # type: ignore[assignment]
+        wc.lpszClassName = className            # type: ignore[assignment]
+        wc.hInstance = hInstance                # type: ignore[assignment]
+        class_atom = win32gui.RegisterClass(wc)
+
+        self.hwnd = win32gui.CreateWindow(
+            class_atom,                             # lpszClassName
+            f"DisplayMonitor_{id(self)}",           # lpszWindowName
+            0,                                      # dwStyle
+            0,                                      # x
+            0,                                      # y
+            0,                                      # nWidth
+            0,                                      # nHeight
+            0,                                      # hWndParent
+            0,                                      # hMenu
+            hInstance,                              # hInstance
+            None                                    # lpParam
+        )
+        logger.debug(f"Window created in thread {threading.get_ident()} and monitoring display changes")
+
+    def _msg_proc(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
         """Internal window procedure to handle Windows messages."""
         if msg == win32con.WM_DISPLAYCHANGE:
             curr_display = get_display_set()
@@ -84,63 +121,31 @@ class DisplayTrigger(BaseThreadTrigger):
                 self.current_displays = None
             return 0
 
-        if msg == WM_USER_DISPLAY_TRIGGER_QUIT:
-            logger.debug("Received WM_USER_DISPLAY_TRIGGER_QUIT, posting quit message to loop.")
+        elif msg == win32con.WM_CLOSE:
+            logger.debug("Received WM_CLOSE, destroying window.")
+            win32gui.DestroyWindow(hwnd)
+            return 0
+
+        elif msg == win32con.WM_DESTROY:
+            logger.debug("Received WM_DESTROY, posting quit message to loop.")
             win32gui.PostQuitMessage(0)
             return 0
 
-        return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
+        return int(win32gui.DefWindowProc(hwnd, msg, wparam, lparam))
 
+    @override
     def run(self) -> None:
-        """Initialize COM once for the thread's lifetime and run message loop"""
+        """Initialize COM once for the thread's lifetime and run message loop."""
         pythoncom.CoInitialize()
+        className = f"DisplayMonitorClass_{id(self)}"
         try:
-            self._run_impl()
-        finally:
-            pythoncom.CoUninitialize()
-
-    def _run_impl(self) -> None:
-        self._prev_displays = get_display_set()
-
-        wc = win32gui.WNDCLASS()
-        wc.lpfnWndProc = self._msg_proc                         # type: ignore[assignment]
-        wc.lpszClassName = f"DisplayMonitorClass_{id(self)}"    # type: ignore[assignment]
-        class_atom = win32gui.RegisterClass(wc)
-
-        with self._window_lock:
-            self._hwnd = win32gui.CreateWindow(
-                class_atom,                             # lpszClassName
-                f"DisplayMonitor_{id(self)}",           # lpszWindowName
-                0,                                      # dwStyle
-                0,                                      # x
-                0,                                      # y
-                0,                                      # nWidth
-                0,                                      # nHeight
-                0,                                      # hWndParent
-                0,                                      # hMenu
-                win32gui.GetModuleHandle(None),         # hInstance
-                None,                                   # lpParam
-            )
-
-        logger.debug("DisplayTrigger pure event-driven message loop started")
-
-        try:
+            self._setup_window()
             win32gui.PumpMessages()
         finally:
-            with self._window_lock:
-                if self._hwnd:
-                    win32gui.DestroyWindow(self._hwnd)
-                    self._hwnd = None
-            win32gui.UnregisterClass(class_atom, win32gui.GetModuleHandle(None))
+            self.hwnd = None
+            try:
+                win32gui.UnregisterClass(className, win32gui.GetModuleHandle(None))
+            except Exception as e:
+                logger.error(f"UnregisterClass failed: {e}")
+            pythoncom.CoUninitialize()
             logger.debug("DisplayTrigger thread exited safely")
-
-    def activate(self) -> None:
-        self.start()
-
-    def deactivate(self) -> None:
-        with self._window_lock:
-            if self._hwnd:
-                win32gui.PostMessage(self._hwnd, WM_USER_DISPLAY_TRIGGER_QUIT, 0, 0)
-        self.join(timeout=3)
-        logger.debug(f"{self.__class__.__name__} deactivate")
-        

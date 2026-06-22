@@ -65,13 +65,23 @@ class WindowsSessionTrigger(BaseThreadTrigger):
         hInstance = win32gui.GetModuleHandle(None)  # noqa: N806
 
         wc = win32gui.WNDCLASS()
-        wc.lpfnWndProc = self.wnd_proc
-        wc.lpszClassName = className
-        wc.hInstance = hInstance
+        wc.lpfnWndProc = self.wnd_proc          # type: ignore[assignment]
+        wc.lpszClassName = className            # type: ignore[assignment]
+        wc.hInstance = hInstance                # type: ignore[assignment]
         win32gui.RegisterClass(wc)
 
         self.hwnd = win32gui.CreateWindow(
-            className, "SessionEventTool", 0, 0, 0, 0, 0, 0, 0, wc.hInstance, None
+            className,                              # lpszClassName
+            "SessionEventTool",                     # lpszWindowName
+            0,                                      # dwStyle
+            0,                                      # x
+            0,                                      # y
+            0,                                      # nWidth     
+            0,                                      # nHeight 
+            0,                                      # hWndParent
+            0,                                      # hMenu
+            wc.hInstance,                           # hInstance
+            None                                    # lpParam
         )
 
         win32ts.WTSRegisterSessionNotification(self.hwnd, 1)

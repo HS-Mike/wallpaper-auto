@@ -1,4 +1,5 @@
-"""Time Monitor Demo Script
+"""
+Time Monitor Demo Script
 
 Demonstrates DynamicTimeMonitor with two trigger modes:
 1. Fixed time triggers - fires at specified times daily
@@ -15,7 +16,6 @@ import sys
 
 from wallpaper_auto.trigger.time_trigger import TimeTrigger
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

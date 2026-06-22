@@ -1,4 +1,5 @@
-"""Display Trigger Demo Script
+"""
+Display Trigger Demo Script
 
 Demonstrates DisplayTrigger display change detection:
 - Monitors monitor plug/unplug events
@@ -16,7 +17,6 @@ import pythoncom
 
 from wallpaper_auto.trigger.display_trigger import DisplayTrigger, get_display_set
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
