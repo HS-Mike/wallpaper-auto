@@ -26,8 +26,10 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def on_session_change(session_id: int, event: WindowsSessionEvent | None) -> None:
+def on_session_change(trigger: WindowsSessionTrigger) -> None:
     """Session change callback"""
+    session_id = trigger.current_session_id
+    event = trigger.current_event
     if event is None:
         print(f"[Trigger] Session {session_id}: Unknown event")
     else:
@@ -55,9 +57,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    monitor.add_callback(
-        lambda m: on_session_change(m.last_session_id, m.last_event)
-    )
+    monitor.add_callback(on_session_change)
     logger.info("Windows session monitor started, press Ctrl+C to exit")
     monitor.activate()
 

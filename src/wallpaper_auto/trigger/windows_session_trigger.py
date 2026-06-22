@@ -43,8 +43,8 @@ class WindowsSessionTrigger(BaseThreadTrigger):
         super().__init__()
         self.daemon = True
         self.hwnd = None
-        self.last_session_id = 0
-        self.last_event: WindowsSessionEvent | None = None
+        self.current_session_id = 0
+        self.current_event: WindowsSessionEvent | None = None
 
     @override
     def activate(self) -> None:
@@ -97,8 +97,8 @@ class WindowsSessionTrigger(BaseThreadTrigger):
             event = None
             logger.debug(f"Session {session_id} OTHER EVENT {event_code}")
 
-        self.last_session_id = session_id
-        self.last_event = event
+        self.current_session_id = session_id
+        self.current_event = event
         self.trigger()
 
     @override

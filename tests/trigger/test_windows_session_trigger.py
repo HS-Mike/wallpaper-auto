@@ -18,8 +18,8 @@ class TestWindowsSessionTriggerProcessEvent:
 
         trigger.process_event(0, 0x7)
 
-        assert trigger.last_session_id == 0
-        assert trigger.last_event == WindowsSessionEvent.WTS_SESSION_LOCK
+        assert trigger.current_session_id == 0
+        assert trigger.current_event == WindowsSessionEvent.WTS_SESSION_LOCK
         assert callback_called
 
     def test_process_event_unlock(self, mock_win32):
@@ -28,9 +28,9 @@ class TestWindowsSessionTriggerProcessEvent:
 
         trigger.process_event(0, 0x8)
 
-        assert trigger.last_session_id == 0
-        assert trigger.last_event is not None
-        assert trigger.last_event.value == 0x8
+        assert trigger.current_session_id == 0
+        assert trigger.current_event is not None
+        assert trigger.current_event.value == 0x8
 
     def test_process_event_with_session_id(self, mock_win32):
         trigger = WindowsSessionTrigger()
@@ -38,7 +38,7 @@ class TestWindowsSessionTriggerProcessEvent:
 
         trigger.process_event(1234, 0x7)
 
-        assert trigger.last_session_id == 1234
+        assert trigger.current_session_id == 1234
 
     def test_process_event_unknown_code_triggers_callback_with_none(self, mock_win32):
         trigger = WindowsSessionTrigger()
@@ -46,8 +46,8 @@ class TestWindowsSessionTriggerProcessEvent:
 
         trigger.process_event(0x99, 999)
 
-        assert trigger.last_session_id == 0x99
-        assert trigger.last_event is None
+        assert trigger.current_session_id == 0x99
+        assert trigger.current_event is None
 
 
 class TestWindowsSessionTriggerWndProc:
@@ -59,8 +59,8 @@ class TestWindowsSessionTriggerWndProc:
 
         trigger.wnd_proc(0, 0x02B1, 0x7, 1234)
 
-        assert trigger.last_session_id == 1234
-        assert trigger.last_event == WindowsSessionEvent.WTS_SESSION_LOCK
+        assert trigger.current_session_id == 1234
+        assert trigger.current_event == WindowsSessionEvent.WTS_SESSION_LOCK
 
     def test_wndproc_ignores_other_messages(self, mock_win32):
         trigger = WindowsSessionTrigger()
