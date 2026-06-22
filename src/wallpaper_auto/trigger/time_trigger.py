@@ -24,6 +24,7 @@ class TimeTrigger(BaseThreadTrigger):
         super().__init__()
         self._lock = threading.Lock()
         self._update_event = threading.Event()
+        self.current_time: datetime.datetime | None = None      # this attribute shall only be avaliable in callback
 
         self._fixed_times: list[datetime.time] = []
         self._interval: datetime.timedelta | None = None
@@ -71,12 +72,12 @@ class TimeTrigger(BaseThreadTrigger):
             self._reference_time = None
         logger.info("time trigger interval clear")
 
-    def _get_next_wait_time(self) -> float | None:
+    def _get_next_wait_time(self) -> tuple[float, datetime.datetime] | None:
         """
         Compute seconds until the next trigger event.
 
         Collects candidate datetimes for all fixed times and (if set) the next
-        periodic interval, picks the earliest, and returns the delta in seconds.
+        periodic interval, picks the earliest, and returns the delta in seconds and target time.
         Returns None if no candidates exist.
         """
         with self._lock:
@@ -107,7 +108,7 @@ class TimeTrigger(BaseThreadTrigger):
                 return None
 
             next_event = min(candidates)
-            return (next_event - now).total_seconds()
+            return (next_event - now).total_seconds(), next_event
 
     def activate(self) -> None:
         super().activate()
@@ -126,12 +127,15 @@ class TimeTrigger(BaseThreadTrigger):
         """
         while not self._stop_event.is_set():
             self._update_event.clear()
-            wait_time = self._get_next_wait_time()
-            if wait_time is None:
+            wait_task = self._get_next_wait_time()
+            if wait_task is None:
                 self._update_event.wait()
             else:
-                interrupted = self._update_event.wait(timeout=wait_time)
+                wait_second, target_time = wait_task
+                interrupted = self._update_event.wait(timeout=wait_second)
                 if self._stop_event.is_set():
                     break
                 if not interrupted:
+                    self.current_time = target_time
                     self.trigger()
+                    self.current_time = None
