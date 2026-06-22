@@ -6,13 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 import win32con
 
-from wallpaper_auto.trigger.display_trigger import (
-    WM_USER_DISPLAY_TRIGGER_QUIT,
-    DisplayTrigger,
-    decode_wmi_string,
-    get_display_set,
-)
-
+from wallpaper_auto.util.display_utils import decode_wmi_string, get_display_set
+from wallpaper_auto.trigger.display_trigger import DisplayTrigger
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -23,7 +18,7 @@ from wallpaper_auto.trigger.display_trigger import (
 def mock_wmi_getobject():
     """Patch ``win32com.client.GetObject`` for ``get_display_set`` tests."""
     with patch(
-        "wallpaper_auto.trigger.display_trigger.win32com.client.GetObject"
+        "wallpaper_auto.util.display_utils.win32com.client.GetObject"
     ) as mock_getobj:
         yield mock_getobj
 
@@ -52,7 +47,7 @@ def mock_display_deps():
         patch("wallpaper_auto.trigger.display_trigger.win32gui.PostQuitMessage") as pqm,
         patch("wallpaper_auto.trigger.display_trigger.win32gui.DefWindowProc") as dwp,
         patch(
-            "wallpaper_auto.trigger.display_trigger.win32com.client.GetObject"
+            "wallpaper_auto.util.display_utils.win32com.client.GetObject"
         ) as getobj,
         patch("wallpaper_auto.trigger.display_trigger.pythoncom") as pythoncom,
     ):
@@ -199,13 +194,9 @@ class TestDisplayTriggerInit:
     def test_initial_state(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
 
-        assert trigger._stop_event is None
-        assert trigger._hwnd is None
+        assert trigger.hwnd is None
         assert trigger._prev_displays == set()
         assert trigger.current_displays is None
-        assert trigger._window_lock is not None
-        assert hasattr(trigger._window_lock, "acquire")
-        assert hasattr(trigger._window_lock, "release")
 
 
 # ===========================================================================
@@ -263,10 +254,10 @@ class TestDisplayTriggerMsgProc:
             mock_trigger.assert_not_called()
             assert trigger.current_displays is None
 
-    def test_wm_quit_message(self, mock_display_deps) -> None:
+    def test_wm_destroy_posts_quit_message(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
 
-        result = trigger._msg_proc(0, WM_USER_DISPLAY_TRIGGER_QUIT, 0, 0)
+        result = trigger._msg_proc(0, win32con.WM_DESTROY, 0, 0)
 
         mock_display_deps["pqm"].assert_called_once_with(0)
         assert result == 0
@@ -299,19 +290,19 @@ class TestDisplayTriggerActivateDeactivate:
 
     def test_deactivate_posts_quit_and_joins(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
-        trigger._hwnd = 0xABC
+        trigger.hwnd = 0xABC
 
         with patch("threading.Thread.join") as mock_join:
             trigger.deactivate()
 
             mock_display_deps["postmsg"].assert_called_once_with(
-                0xABC, WM_USER_DISPLAY_TRIGGER_QUIT, 0, 0
+                0xABC, win32con.WM_CLOSE, 0, 0
             )
             mock_join.assert_called_once_with(timeout=3)
 
     def test_deactivate_skips_post_when_no_hwnd(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
-        assert trigger._hwnd is None
+        assert trigger.hwnd is None
 
         with patch("threading.Thread.join") as mock_join:
             trigger.deactivate()
@@ -326,7 +317,7 @@ class TestDisplayTriggerActivateDeactivate:
 
 
 class TestDisplayTriggerRun:
-    """Tests for ``run`` and ``_run_impl``."""
+    """Tests for ``run``."""
 
     def test_run_initializes_and_uninitializes_com(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
@@ -336,15 +327,15 @@ class TestDisplayTriggerRun:
         mock_display_deps["pythoncom"].CoInitialize.assert_called_once()
         mock_display_deps["pythoncom"].CoUninitialize.assert_called_once()
 
-    def test_run_impl_creates_window_and_pumps(self, mock_display_deps) -> None:
+    def test_run_creates_window_and_pumps(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
 
-        trigger._run_impl()
+        trigger.run()
 
         # get_display_set was called initially to populate _prev_displays
         mock_display_deps["getobj"].assert_called_once()
 
-    def test_run_impl_cleans_up_after_pumpmessages_exception(
+    def test_run_cleans_up_after_pumpmessages_exception(
         self, mock_display_deps
     ) -> None:
         trigger = DisplayTrigger()
@@ -355,17 +346,19 @@ class TestDisplayTriggerRun:
             side_effect=RuntimeError("pump failed"),
         ):
             with pytest.raises(RuntimeError):
-                trigger._run_impl()
+                trigger.run()
 
-        # COM uninit should still have run (outer try/finally in run())
-        # run() wasn't called here, so CoUninitialize is not expected
+        # CoUninitialize is called in the finally block of run()
+        mock_display_deps["pythoncom"].CoUninitialize.assert_called_once()
 
-    def test_run_com_cleanup_after_exception(self, mock_display_deps) -> None:
-        """When _run_impl raises, run() still calls CoUninitialize."""
+    def test_run_com_cleanup_after_setup_window_exception(
+        self, mock_display_deps
+    ) -> None:
+        """When _setup_window raises, run() still calls CoUninitialize."""
         trigger = DisplayTrigger()
 
         with patch.object(
-            trigger, "_run_impl", side_effect=RuntimeError("impl failed")
+            trigger, "_setup_window", side_effect=RuntimeError("setup failed")
         ):
             with pytest.raises(RuntimeError):
                 trigger.run()

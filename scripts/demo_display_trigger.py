@@ -15,7 +15,8 @@ from datetime import datetime
 
 import pythoncom
 
-from wallpaper_auto.trigger.display_trigger import DisplayTrigger, get_display_set
+from wallpaper_auto.util.display_utils import get_display_set
+from wallpaper_auto.trigger.display_trigger import DisplayTrigger
 
 logging.basicConfig(
     level=logging.INFO,
