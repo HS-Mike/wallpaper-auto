@@ -467,7 +467,7 @@ class TestStaticWallpaperEdgeCases:
         )
 
         img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 100)).save(img_path)
+        Image.new("RGB", (4000, 3000)).save(img_path)
         wp = StaticWallpaper(path=str(img_path))
 
         # Delete the cache dir so prepare_wallpaper finds it missing
