@@ -382,6 +382,42 @@ class TestProperties:
         store.load(str(path))
         assert store.at_shutdown_resource_id == "office_view"
 
+    def test_cache_path_default_when_cache_is_none(self, store: ConfigStore, valid_yaml: str):
+        """cache_path returns the default cache dir when cache is not set."""
+        store.load(valid_yaml)
+        assert store.cache_path.name == "cache"
+
+    def test_cache_path_with_valid_directory(self, store: ConfigStore, tmp_path):
+        """cache_path returns the user-configured path when it exists and is a directory."""
+        cache_dir = tmp_path / "my_cache"
+        cache_dir.mkdir()
+        yaml_str = _make_valid_yaml(cache=str(cache_dir))
+        path = tmp_path / "with_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.cache_path == cache_dir
+
+    def test_cache_path_raises_when_not_found(self, store: ConfigStore, tmp_path):
+        """cache_path raises FileNotFoundError when the path does not exist."""
+        missing = tmp_path / "does_not_exist"
+        yaml_str = _make_valid_yaml(cache=str(missing))
+        path = tmp_path / "bad_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        with pytest.raises(FileNotFoundError, match="does not exist"):
+            _ = store.cache_path
+
+    def test_cache_path_raises_when_not_a_directory(self, store: ConfigStore, tmp_path):
+        """cache_path raises NotADirectoryError when the path is a file."""
+        cache_file = tmp_path / "not_a_dir"
+        cache_file.write_text("", encoding="utf-8")
+        yaml_str = _make_valid_yaml(cache=str(cache_file))
+        path = tmp_path / "file_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        with pytest.raises(NotADirectoryError, match="is not a directory"):
+            _ = store.cache_path
+
 
 class TestAtShutdownValidation:
     """Validation of at_shutdown target in ConfigModel."""

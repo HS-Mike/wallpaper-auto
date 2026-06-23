@@ -37,7 +37,7 @@ def mock_display_deps():
             return_value=0xABC,
         ),
         patch("wallpaper_auto.trigger.display_trigger.win32gui.PumpMessages"),
-        patch("wallpaper_auto.trigger.display_trigger.win32gui.DestroyWindow"),
+        patch("wallpaper_auto.trigger.display_trigger.win32gui.DestroyWindow") as dw,
         patch("wallpaper_auto.trigger.display_trigger.win32gui.UnregisterClass"),
         patch(
             "wallpaper_auto.trigger.display_trigger.win32gui.GetModuleHandle",
@@ -57,6 +57,7 @@ def mock_display_deps():
             "getobj": getobj,
             "postmsg": postmsg,
             "pythoncom": pythoncom,
+            "dw": dw,
         }
 
 
@@ -262,6 +263,15 @@ class TestDisplayTriggerMsgProc:
         mock_display_deps["pqm"].assert_called_once_with(0)
         assert result == 0
 
+    def test_wm_close_destroys_window(self, mock_display_deps) -> None:
+        trigger = DisplayTrigger()
+        trigger.hwnd = 0xABC
+
+        result = trigger._msg_proc(0xABC, win32con.WM_CLOSE, 0, 0)
+
+        mock_display_deps["dw"].assert_called_once_with(0xABC)
+        assert result == 0
+
     def test_unknown_message(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
         mock_display_deps["dwp"].return_value = 42
@@ -309,6 +319,36 @@ class TestDisplayTriggerActivateDeactivate:
 
             mock_display_deps["postmsg"].assert_not_called()
             mock_join.assert_called_once_with(timeout=3)
+
+    def test_activate_deactivate_full_cycle(self) -> None:
+        """Full activate → deactivate cycle with real Windows API calls.
+
+        Verifies the complete chain without mocking any Win32/WMI/COM calls:
+        activate() → thread creates real hidden window → PumpMessages runs
+        → deactivate() posts WM_CLOSE → _msg_proc handles it → DestroyWindow
+        → WM_DESTROY → PostQuitMessage → pump exits → thread joins.
+        """
+        import time
+
+        trigger = DisplayTrigger()
+        trigger.activate()
+
+        # Wait for the background thread to create the window
+        hwnd = None
+        for _ in range(500):
+            hwnd = trigger.hwnd
+            if hwnd is not None:
+                break
+            time.sleep(0.005)
+
+        assert hwnd is not None, "Window was not created in background thread"
+        assert trigger.is_alive()
+
+        # deactivate() posts WM_CLOSE and joins the thread
+        trigger.deactivate()
+
+        assert not trigger.is_alive()
+        assert trigger.hwnd is None  # set to None by WM_DESTROY handler
 
 
 # ===========================================================================
@@ -365,3 +405,16 @@ class TestDisplayTriggerRun:
 
         mock_display_deps["pythoncom"].CoInitialize.assert_called_once()
         mock_display_deps["pythoncom"].CoUninitialize.assert_called_once()
+
+    def test_run_logs_unregisterclass_failure(self, mock_display_deps, caplog) -> None:
+        trigger = DisplayTrigger()
+
+        with patch(
+            "wallpaper_auto.trigger.display_trigger.win32gui.UnregisterClass",
+            side_effect=OSError("unregister failed"),
+        ):
+            trigger.run()
+
+        # CoUninitialize must still be called despite the UnregisterClass error
+        mock_display_deps["pythoncom"].CoUninitialize.assert_called_once()
+        assert "UnregisterClass failed" in caplog.text

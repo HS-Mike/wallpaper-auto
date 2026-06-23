@@ -448,3 +448,62 @@ class TestStaticWallpaperEdgeCases:
         wp = StaticWallpaper(path=nonexistent)
         with pytest.raises(FileNotFoundError):
             wp.prepare_wallpaper()
+
+    def test_nonexistent_cache_dir_raises(self, tmp_path, mock_screen_size):
+        """prepare_wallpaper raises FileNotFoundError when cache dir does not exist."""
+        from wallpaper_auto.config_store import ConfigStore
+        from wallpaper_auto.models import ConfigModel
+
+        ConfigStore.clear_instance()
+        cache_dir = tmp_path / "my_cache"
+        cache_dir.mkdir()
+        store = ConfigStore()
+        store.config = ConfigModel(
+            resource={"a": {"name": "static_wallpaper", "config": {"path": "dummy"}}},
+            trigger=[],
+            rule=[],
+            fallback="a",
+            cache=str(cache_dir),
+        )
+
+        img_path = tmp_path / "test.png"
+        Image.new("RGB", (100, 100)).save(img_path)
+        wp = StaticWallpaper(path=str(img_path))
+
+        # Delete the cache dir so prepare_wallpaper finds it missing
+        cache_dir.rmdir()
+
+        with pytest.raises(FileNotFoundError, match="cache directory"):
+            wp.prepare_wallpaper()
+
+
+class TestCompressImage:
+    """Tests for ``compress_image`` error paths."""
+
+    def test_raises_when_cache_already_exists(self, tmp_path):
+        """compress_image raises FileExistsError when save_path already exists."""
+        from wallpaper_auto.resource.wallpaper_utils import compress_image
+
+        img_path = tmp_path / "test.png"
+        Image.new("RGB", (100, 100)).save(img_path)
+        save_path = tmp_path / "cache.png"
+        save_path.write_text("")
+
+        with pytest.raises(FileExistsError, match="Cache already exists"):
+            compress_image(str(img_path), (1920, 1080), str(save_path))
+
+    def test_raises_on_zero_dimension_image(self, tmp_path):
+        """compress_image raises ValueError when the image has zero dimensions."""
+        from wallpaper_auto.resource.wallpaper_utils import compress_image
+
+        img_path = tmp_path / "test.png"
+        Image.new("RGB", (100, 100)).save(img_path)
+
+        with patch("PIL.Image.open") as mock_open:
+            mock_img = MagicMock()
+            mock_img.width = 0
+            mock_img.height = 100
+            mock_open.return_value.__enter__.return_value = mock_img
+
+            with pytest.raises(ValueError, match="Invalid image"):
+                compress_image(str(img_path), (1920, 1080), str(tmp_path / "out.png"))

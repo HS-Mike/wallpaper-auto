@@ -41,8 +41,9 @@ class DisplayTrigger(BaseThreadTrigger):
     @override
     def deactivate(self) -> None:
         """Send WM_CLOSE to safely stop PumpMessages from another thread."""
-        if self.hwnd:
-            win32gui.PostMessage(self.hwnd, win32con.WM_CLOSE, 0, 0)
+        hwnd = self.hwnd
+        if hwnd:
+            win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
         self.join(timeout=3)
         logger.debug(f"{self.__class__.__name__} deactivate")
 
@@ -93,6 +94,7 @@ class DisplayTrigger(BaseThreadTrigger):
 
         elif msg == win32con.WM_DESTROY:
             logger.debug("Received WM_DESTROY, posting quit message to loop.")
+            self.hwnd = None
             win32gui.PostQuitMessage(0)
             return 0
 
@@ -114,3 +116,4 @@ class DisplayTrigger(BaseThreadTrigger):
                 logger.error(f"UnregisterClass failed: {e}")
             pythoncom.CoUninitialize()
             logger.debug("DisplayTrigger thread exited safely")
+            
