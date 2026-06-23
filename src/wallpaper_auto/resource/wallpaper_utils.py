@@ -6,7 +6,6 @@ enum, and image compression helpers used by multiple resource types.
 """
 
 import ctypes
-import hashlib
 import logging
 import os
 from enum import Enum
@@ -103,56 +102,32 @@ def set_wallpaper(image_path: PathLike[str] | str, style: tuple[str, str]) -> No
     win32gui.SystemParametersInfo(win32con.SPI_SETDESKWALLPAPER, abs_path, 3)
 
 
-def check_need_cache(
+def compress_image(
     image_path: str,
     screen_size: tuple[int, int],
-    allow_compress: bool,
-) -> bool:
-    """Check if the image is large enough to need compression caching."""
-    if not allow_compress:
-        return False
-    with Image.open(image_path) as img:
-        return img.width > screen_size[0] * 1.2 or img.height > screen_size[1] * 1.2
-
-
-def get_cache_key(image_path: str, target_size: tuple[int, int]) -> str:
-    """Generate a cache key based on image path, mtime, target size, and format."""
-    with Image.open(image_path) as img:
-        fmt = img.format or "PNG"
-    mtime = str(os.path.getmtime(image_path))
-    key_str = f"{image_path}_{mtime}_{target_size[0]}x{target_size[1]}_{fmt}"
-    return hashlib.md5(key_str.encode()).hexdigest()
-
-
-def get_compress_cached_path(
-    image_path: str,
-    screen_size: tuple[int, int],
-    cache_dir: str,
-) -> str:
+    save_path: str,
+) -> None:
     """
     Get or create a cached (compressed) version of the image.
 
-    Returns the path to the cached file, creating it if it doesn't exist.
-    The cached image is resized to fit within screen dimensions.
-    Uses the same format as the original image for the cached file.
+    Returns *save_path*, creating the compressed file there if it doesn't already
+    exist. The cached image is resized to fit within screen dimensions and saved
+    using the same format as the original image.
     """
+    if os.path.exists(save_path):
+        raise FileExistsError(f"Cache already exists: {save_path}")
+
     with Image.open(image_path) as img:
-        ext = img.format.lower() if img.format else "png"
         if img.width == 0 or img.height == 0:
             raise ValueError(f"Invalid image: {image_path}")
-        cache_key = get_cache_key(image_path, screen_size)
-        cache_path = os.path.join(cache_dir, f"{cache_key}.{ext}")
-
-        if os.path.exists(cache_path):
-            return cache_path
-
         scale = max(screen_size[0] / img.width, screen_size[1] / img.height)
         new_w = int(img.width * scale)
         new_h = int(img.height * scale)
         img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS, reducing_gap=3.0)
-        ext_upper = ext.upper()
-        img_resized.save(
-            cache_path,
-            ext_upper if ext_upper in ("PNG", "JPEG", "JPG") else "PNG",
-        )
-    return cache_path
+        ext = (img.format or "png").lower()
+
+    ext_upper = ext.upper()
+    img_resized.save(
+        save_path,
+        ext_upper if ext_upper in ("PNG", "JPEG", "JPG") else "PNG",
+    )

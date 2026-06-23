@@ -56,13 +56,12 @@ class ConfigStore(metaclass=SingletonMeta):
         return self.config.cache
 
     @property
-    def cache_path(self) -> Path | None:
+    def cache_path(self) -> Path:
         assert self.config is not None
         return self.config.cache_path
 
-    def ensure_cache_dir(self) -> Path | None:
-        """Create the cache directory if caching is enabled and return its path."""
-        cp = self.cache_path
-        if cp is not None:
-            cp.mkdir(parents=True, exist_ok=True)
-        return cp
+    def ensure_cache_dir(self) -> Path:
+        """Create the cache directory and return its path."""
+        p = self.cache_path
+        p.mkdir(parents=True, exist_ok=True)
+        return p

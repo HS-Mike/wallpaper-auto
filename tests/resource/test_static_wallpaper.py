@@ -1,6 +1,7 @@
 """Tests for static_wallpaper.py — StaticWallpaper mount/demount and caching."""
 
 from unittest.mock import MagicMock, call, patch
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -44,7 +45,7 @@ class TestStaticWallpaperInit:
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), style=WallpaperStyle.CENTER)
-        assert wp.image_path == str(img_path)
+        assert wp.image_path == Path(img_path)
         assert wp.style == WallpaperStyle.CENTER
         assert wp.allow_compress
 
@@ -59,7 +60,6 @@ class TestStaticWallpaperInit:
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), allow_compress=False)
         assert not wp.allow_compress
-        assert not wp._need_cache
 
     def test_init_uses_screen_size(self, tmp_path, mock_screen_size):
         img_path = tmp_path / "test.png"
@@ -68,148 +68,88 @@ class TestStaticWallpaperInit:
         assert wp._screen_size == (1920, 1080)
 
 
-class TestStaticWallpaperCheckNeedCache:
+class TestCheckNeedCache:
     def test_need_cache_when_image_larger(self, tmp_path, mock_screen_size):
         """Image is significantly larger than screen -> needs cache"""
         img_path = tmp_path / "large.png"
-        fake_img = Image.new("RGB", (3840, 2160))
-        fake_img.save(img_path)
-
+        Image.new("RGB", (3840, 2160)).save(img_path)
         wp = StaticWallpaper(path=str(img_path))
-        assert wp._need_cache
+        assert wp._check_need_cache()
 
     def test_no_cache_when_image_smaller(self, tmp_path, mock_screen_size):
         """Image is smaller than 1.2x screen size -> no cache"""
         img_path = tmp_path / "small.png"
-        fake_img = Image.new("RGB", (1920, 1080))
-        fake_img.save(img_path)
-
+        Image.new("RGB", (1920, 1080)).save(img_path)
         wp = StaticWallpaper(path=str(img_path))
-        assert not wp._need_cache
+        assert not wp._check_need_cache()
 
     def test_no_cache_when_image_slightly_larger_within_threshold(self, tmp_path, mock_screen_size):
         """Image is within 1.2x threshold -> no cache"""
         img_path = tmp_path / "close.png"
         close_width = int(1920 * 1.19)
         close_height = int(1080 * 1.19)
-        fake_img = Image.new("RGB", (close_width, close_height))
-        fake_img.save(img_path)
-
+        Image.new("RGB", (close_width, close_height)).save(img_path)
         wp = StaticWallpaper(path=str(img_path))
-        assert not wp._need_cache
+        assert not wp._check_need_cache()
 
     def test_no_compress_flag_skips_cache(self, tmp_path, mock_screen_size):
-        """allow_compress=False means _need_cache is False regardless of image size"""
+        """allow_compress=False means no cache regardless of image size"""
         img_path = tmp_path / "large.png"
-        fake_img = Image.new("RGB", (3840, 2160))
-        fake_img.save(img_path)
-
+        Image.new("RGB", (3840, 2160)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), allow_compress=False)
-        assert not wp._need_cache
+        assert not wp._check_need_cache()
 
 
-class TestStaticWallpaperGetCacheKey:
-    def test_cache_key_consistency(self, tmp_path, mock_screen_size):
+class TestStaticWallpaperPrepareCache:
+    def test_cached_path_extension_matches_source(self, tmp_path, mock_screen_size, config_store_with_cache):
+        """prepare_wallpaper sets mount_path inside the cache dir for large images."""
         img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
-
-        key1 = wp._get_cache_key((1920, 1080))
-        key2 = wp._get_cache_key((1920, 1080))
-        assert key1 == key2
-
-    def test_cache_key_differs_by_size(self, tmp_path, mock_screen_size):
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
-
-        key1 = wp._get_cache_key((1920, 1080))
-        key2 = wp._get_cache_key((3840, 2160))
-        assert key1 != key2
-
-    def test_cache_key_is_hex_md5(self, tmp_path, mock_screen_size):
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
-
-        key = wp._get_cache_key((1920, 1080))
-        assert len(key) == 32
-        int(key, 16)  # should not raise
-
-    def test_cache_key_uses_mtime(self, tmp_path, mock_screen_size):
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
-
-        with patch(
-            "wallpaper_auto.resource.wallpaper_utils.os.path.getmtime", return_value=12345.0
-        ) as mock_mtime:
-            key1 = wp._get_cache_key((1920, 1080))
-
-            mock_mtime.return_value = 67890.0
-            key2 = wp._get_cache_key((1920, 1080))
-            assert key1 != key2
-
-
-class TestStaticWallpaperGetCachedPath:
-    def test_cached_path_extension_matches_source(self, tmp_path, mock_screen_size):
-        img_path = tmp_path / "test.png"
-        fake_img = Image.new("RGB", (4000, 3000))
-        fake_img.save(img_path)
+        Image.new("RGB", (4000, 3000)).save(img_path)
 
         wp = StaticWallpaper(path=str(img_path))
-        cached = wp._get_compress_cached_path()
-        assert isinstance(cached, str)
-        assert cached.endswith(".png")
+        wp.prepare_wallpaper()
+        assert wp.mount_path is not None
+        assert str(wp.mount_path).endswith(".png")
+        assert str(wp.cache_dir) in str(wp.mount_path)
 
-    def test_cached_path_exists_returns_directly(self, tmp_path, mock_screen_size):
-        img_path = tmp_path / "test.jpg"
-        fake_img = Image.new("RGB", (4000, 3000))
-        fake_img.save(img_path)
-
-        wp = StaticWallpaper(path=str(img_path))
-        cached = wp._get_compress_cached_path()
-
-        # Call again, should return existing cache
-        cached2 = wp._get_compress_cached_path()
-        assert cached == cached2
-
-    def test_resize_applied_correctly(self, tmp_path, mock_screen_size):
+    def test_resize_applied_correctly(self, tmp_path, mock_screen_size, config_store_with_cache):
         """Verify the cached image dimensions match expected scaling"""
         img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 50)).save(img_path)
+        Image.new("RGB", (4000, 3000)).save(img_path)
 
         wp = StaticWallpaper(path=str(img_path))
-        cache_dir = tmp_path / "test_cache"
-        cache_dir.mkdir()
-        wp._cache_dir = str(cache_dir)
+        wp.prepare_wallpaper()
 
-        cached = wp._get_compress_cached_path()
+        with Image.open(wp.mount_path) as result:
+            # scale = max(1920/4000, 1080/3000) = max(0.48, 0.36) = 0.48
+            # new_w = int(4000 * 0.48) = 1920
+            # new_h = int(3000 * 0.48) = 1440
+            assert result.width == 1920
+            assert result.height == 1440
 
-        with Image.open(cached) as result:
-            # scale = max(1920/100, 1080/50) = max(19.2, 21.6) = 21.6
-            # new_w = int(100 * 21.6) = 2160
-            # new_h = int(50 * 21.6) = 1080
-            assert result.width == 2160
-            assert result.height == 1080
+    def test_no_cache_small_image(self, tmp_path, mock_screen_size):
+        """Small image does not trigger caching; mount_path is the original path."""
+        img_path = tmp_path / "small.png"
+        Image.new("RGB", (100, 100)).save(img_path)
 
-    def test_zero_dimension_image_raises(self, tmp_path, mock_screen_size):
-        """An image with zero width or height raises ValueError"""
+        wp = StaticWallpaper(path=str(img_path))
+        wp.prepare_wallpaper()
+        assert wp.mount_path == wp.image_path
+
+    def test_zero_dimension_image_raises(self, tmp_path, mock_screen_size, config_store_with_cache):
+        """compress_image raises ValueError when given a zero-dimension image"""
         img_path = tmp_path / "large.png"
         Image.new("RGB", (4000, 3000)).save(img_path)
 
         wp = StaticWallpaper(path=str(img_path))
-        assert wp._need_cache
-
-        with patch.object(Image, "open") as mock_open:
-            fake_img = MagicMock(spec=Image.Image)
-            fake_img.width = 0
-            fake_img.height = 100
-            mock_open.return_value.__enter__.return_value = fake_img
-
-            with patch("os.path.exists", return_value=False):
-                with pytest.raises(ValueError, match="Invalid image"):
-                    wp._get_compress_cached_path()
+        # prepare_wallpaper will call compress_image on the real image (valid),
+        # so we patch compress_image itself to raise.
+        with patch(
+            "wallpaper_auto.resource.static_wallpaper.compress_image",
+            side_effect=ValueError("Invalid image: test"),
+        ):
+            with pytest.raises(ValueError, match="Invalid image"):
+                wp.prepare_wallpaper()
 
 
 class TestStaticWallpaperMount:
@@ -218,7 +158,7 @@ class TestStaticWallpaperMount:
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path))
         wp.mount()
-        assert wp._original_wallpaper == "C:\\original.jpg"
+        assert wp._original_wallpaper == Path("C:\\original.jpg")
 
     def test_mount_calls_set_wallpaper_with_style(self, tmp_path, mock_mount_deps):
         mock_set = mock_mount_deps
@@ -239,7 +179,7 @@ class TestStaticWallpaperMount:
         wp.mount()
         mock_set.assert_called_once()
         args, _ = mock_set.call_args
-        assert args[0] == str(img_path)
+        assert args[0] == Path(img_path)
 
     def test_mount_stores_original_before_overwrite(self, tmp_path, mock_mount_deps):
         """mount does not call get_current_wallpaper after setting wallpaper"""
@@ -266,7 +206,7 @@ class TestStaticWallpaperDemount:
         wp.demount()
         mock_set.assert_called_once()
         args, _ = mock_set.call_args
-        assert args[0] == "C:\\original.jpg"
+        assert args[0] == Path("C:\\original.jpg")
 
     def test_demount_without_mount_is_safe(self, tmp_path, mock_mount_deps):
         """demount without prior mount does nothing (no error)"""
@@ -285,7 +225,7 @@ class TestStaticWallpaperDemount:
             return_value="C:\\original.jpg",
         ) as mock_get:
             img_path = tmp_path / "test.png"
-            Image.new("RGB", (3840, 2160)).save(img_path)
+            Image.new("RGB", (100, 100)).save(img_path)
             wp = StaticWallpaper(path=str(img_path), restore=True)
 
             wp.mount()
@@ -301,7 +241,7 @@ class TestStaticWallpaperDemount:
             wp.mount()
             assert mock_set.call_count == 3
             mock_get.assert_called_once()
-            assert wp._original_wallpaper == "C:\\restored.jpg"
+            assert wp._original_wallpaper == Path("C:\\restored.jpg")
 
     def test_demount_with_restore_false_skips_restore(self, tmp_path, mock_mount_deps):
         """When restore=False, demount does not restore the original wallpaper."""
@@ -327,7 +267,7 @@ class TestStaticWallpaperDemount:
         wp.demount()
         mock_set.assert_called_once()
         args, _ = mock_set.call_args
-        assert args[0] == "C:\\original.jpg"
+        assert args[0] == Path("C:\\original.jpg")
 
 
 class TestGetScreenSize:
@@ -482,29 +422,29 @@ class TestStaticWallpaperEdgeCases:
         with pytest.raises(KeyError):
             StaticWallpaper(path=str(img_path), style="invalid_style")
 
-    def test_cache_dir_available_when_need_cache(self, tmp_path, mock_mount_deps):
-        """When _need_cache is True, cache_dir property should work"""
+    def test_cache_dir_available_on_init(self, tmp_path):
+        """cache_dir is set eagerly from ConfigStore in __init__."""
         img_path = tmp_path / "test.png"
-        Image.new("RGB", (3840, 2160)).save(img_path)
+        Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path))
-        # cache_dir should be accessible (CachedResource always creates one)
         assert wp.cache_dir is not None
 
-    def test_resize_portrait_image(self, tmp_path, mock_screen_size):
+    def test_resize_portrait_image(self, tmp_path, mock_screen_size, config_store_with_cache):
         """A portrait image should be scaled to fill the screen correctly"""
         img_path = tmp_path / "portrait.png"
         # Portrait image large enough to exceed 1.2x threshold (1080 * 1.2 = 1296)
         Image.new("RGB", (500, 2000)).save(img_path)
 
         wp = StaticWallpaper(path=str(img_path))
-        cached = wp._get_compress_cached_path()
-        assert isinstance(cached, str)
-        with Image.open(cached) as result:
+        wp.prepare_wallpaper()
+        assert wp.mount_path is not None
+        with Image.open(wp.mount_path) as result:
             assert result.width == 1920
             assert result.height == 7680
 
-    def test_with_nonexistent_path_raises_error(self, tmp_path):
-        """Initializing with a nonexistent file should fail because PIL cannot open it"""
+    def test_nonexistent_path_fails_on_prepare(self, tmp_path, mock_screen_size, config_store_with_cache):
+        """A nonexistent file raises FileNotFoundError when prepare_wallpaper is called."""
         nonexistent = str(tmp_path / "nonexistent.png")
+        wp = StaticWallpaper(path=nonexistent)
         with pytest.raises(FileNotFoundError):
-            StaticWallpaper(path=nonexistent)
+            wp.prepare_wallpaper()

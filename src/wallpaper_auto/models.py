@@ -90,13 +90,11 @@ class ConfigModel(BaseModel):
     rule: list[Rule]
     fallback: str
     at_shutdown: str | None = None
-    cache: bool | str = False
+    cache: str | None = None
 
     @property
-    def cache_path(self) -> Path | None:
-        if self.cache is False:
-            return None
-        if self.cache is True:
+    def cache_path(self) -> Path:
+        if self.cache is None:
             return DEFAULT_CACHE_DIR
         p = Path(self.cache)
         if not p.exists():

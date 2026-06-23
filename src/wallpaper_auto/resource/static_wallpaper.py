@@ -7,25 +7,21 @@ scaling style (fill, fit, stretch, center, tile).
 In some situations, windows fail to load wallpaper if it is too large.
 Optionally compresses large images and caches the result for performance.
 
-This module also defines :class:`CachedResource`, an intermediate base class
-for resources that need a cache directory (used by ``StaticWallpaper``).
+The cache directory is obtained from :class:`ConfigStore` so it persists
+across application restarts and is shared by all resources.
 """
-
-import atexit
+import hashlib
 import logging
-import os
-import shutil
-import tempfile
-import threading
-import uuid
 from os import PathLike
+from pathlib import Path
 
+from PIL import Image
+
+from ..config_store import ConfigStore
 from .base_resource import BaseResource
 from .wallpaper_utils import (
     WallpaperStyle,
-    check_need_cache,
-    get_cache_key,
-    get_compress_cached_path,
+    compress_image,
     get_current_wallpaper,
     get_current_wallpaper_style,
     get_screen_size,
@@ -35,115 +31,84 @@ from .wallpaper_utils import (
 logger = logging.getLogger(__name__)
 
 
-_created_temp_dirs: list[str] = []
-_lock = threading.Lock()
-
-
-def _cleanup_temp_dirs() -> None:
-    """Remove all auto-created temp cache directories on process exit."""
-    with _lock:
-        dirs = _created_temp_dirs.copy()
-        _created_temp_dirs.clear()
-    for d in dirs:
-        shutil.rmtree(d, ignore_errors=True)
-
-
-atexit.register(_cleanup_temp_dirs)
-
-
-class CachedResource(BaseResource):
-    """
-    Intermediate base for resources that need a cache directory.
-
-    Each instance is allocated either a user-specified cache directory or
-    an auto-created temporary directory.  The cache directory is guaranteed
-    to exist after ``__init__`` returns.
-
-    Auto-created temp directories are cleaned up on process exit.  User-
-    specified directories are never removed automatically.
-    """
-
-    def __init__(self, cache_dir: str | None = None):
-        if cache_dir is not None:
-            # User-specified path — use directly, no exit cleanup
-            self._cache_dir = cache_dir
-        else:
-            # Auto temp dir — cleaned up on exit
-            dir_name = f"wallpaper_auto_{uuid.uuid4().hex}"
-            self._cache_dir = os.path.join(tempfile.gettempdir(), dir_name)
-            with _lock:
-                _created_temp_dirs.append(self._cache_dir)
-        os.makedirs(self._cache_dir, exist_ok=True)
-
-    @property
-    def cache_dir(self) -> str:
-        """Path to this instance's cache directory."""
-        return self._cache_dir
-
-
-class StaticWallpaper(CachedResource):
+class StaticWallpaper(BaseResource):
     def __init__(
         self,
         path: PathLike[str] | str,
         style: WallpaperStyle | str = WallpaperStyle.FILL,
         allow_compress: bool = True,
         restore: bool = False,
-        cache_dir: str | None = None,
     ):
-        self.image_path = str(path)
+        self.image_path = Path(path)
         if isinstance(style, str):
             style = WallpaperStyle[style.upper()]
         self.style = style
         self.allow_compress = allow_compress
         self.restore = restore
+
         self._screen_size = get_screen_size()
-        self._need_cache: bool = self._check_need_cache()
-        super().__init__(cache_dir=cache_dir)
-        self._compress_path: str | None = None
-        self._original_wallpaper: str | None = None
+        self.cache_dir: Path = ConfigStore.instance.cache_path
+        self.mount_path: Path | None = None
+
+        self._original_wallpaper: Path | None = None
         self._original_style: tuple[str, str] | None = None
+
+    def _cache_key(self, ext: str = "png") -> str:
+        """Generate an md5 hash key for the cache file based on path, mtime, size, and format."""
+        image_path = str(self.image_path)
+        mtime = str(Path(image_path).stat().st_mtime)
+        key_str = f"{image_path}_{mtime}_{self._screen_size[0]}x{self._screen_size[1]}_{ext}"
+        return hashlib.md5(key_str.encode()).hexdigest()
 
     def _check_need_cache(self) -> bool:
         """Check if the image is large enough to need compression caching."""
-        return check_need_cache(self.image_path, self._screen_size, self.allow_compress)
+        if not self.allow_compress:
+            return False
+        with Image.open(self.image_path) as img:
+            return img.width > self._screen_size[0] * 1.2 or img.height > self._screen_size[1] * 1.2
 
-    def _get_cache_key(self, target_size: tuple[int, int]) -> str:
-        """Generate a cache key based on image path, mtime, target size, and format."""
-        return get_cache_key(self.image_path, target_size)
+    def prepare_wallpaper(self) -> None:
+        """Prepare the wallpaper resource.
 
-    def _get_compress_cached_path(self) -> str:
+        Ensures the cache directory exists, checks whether the image is large
+        enough to need compression, and creates a cached version if needed.
+        Sets ``self.mount_path`` to either the compressed cache or the original
+        image path.
         """
-        Get or create a cached (compressed) version of the image.
-
-        Returns the path to the cached file, creating it if it doesn't exist.
-        The cached image is resized to fit within screen dimensions.
-        Uses the same format as the original image for the cached file.
-        """
-        return get_compress_cached_path(self.image_path, self._screen_size, self.cache_dir)
+        if self.allow_compress:
+            if not self.cache_dir.exists():
+                raise FileNotFoundError(f"cache directory '{self.cache_dir}' does not exist")
+            with Image.open(self.image_path) as img:
+                need_cache = img.width > self._screen_size[0] * 1.2 or img.height > self._screen_size[1] * 1.2
+                if need_cache:
+                    ext = (img.format or "png").lower()
+                    cache_key = self._cache_key(ext)
+                    save_path = self.cache_dir / f"{cache_key}.{ext}"
+                    if not save_path.exists():
+                        compress_image(str(self.image_path), self._screen_size, str(save_path))
+                    self.mount_path = save_path
+                    logger.info("static wallpaper cache: %s", self.mount_path)
+                    return
+        self.mount_path = self.image_path
 
     def mount(self) -> None:
         """
         Apply the static image as the desktop wallpaper.
 
-        Saves the current wallpaper path and style before replacing them.
-        Uses compressed cache if the image is large and allow_compress is True.
+        Calls :meth:`prepare_wallpaper` first to ensure ``self.mount_path``
+        is set (with cache if needed), then saves the current wallpaper path
+        and style before replacing them.
         """
-        self._original_wallpaper = get_current_wallpaper()
+        self.prepare_wallpaper()
+        self._original_wallpaper = Path(get_current_wallpaper())
         self._original_style = get_current_wallpaper_style()
         logger.debug(
             "origin wallpaper: %s, style: %s",
             self._original_wallpaper,
             self._original_style,
         )
-        if self._need_cache:
-            if self._compress_path is None:
-                self._compress_path = self._get_compress_cached_path()
-                logger.info("static wallpaper cache: %s", self._compress_path)
-            image_path = self._compress_path
-        else:
-            image_path = self.image_path
-        set_wallpaper(image_path, self.style.value)
-        logger.debug("mount wallpaper: %s", image_path)
+        set_wallpaper(self.mount_path, self.style.value)
+        logger.debug("mount wallpaper: %s", self.mount_path)
 
     def demount(self) -> None:
         """Restore the original wallpaper and style.
