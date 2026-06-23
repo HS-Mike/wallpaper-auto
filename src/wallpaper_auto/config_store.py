@@ -6,15 +6,17 @@ properties for accessing resources, triggers, rules, and fallback settings.
 """
 
 import logging
+from pathlib import Path
 
 import yaml
 
 from .models import ConfigModel, ResourceConfig, Rule, TriggerConfig
+from .util.singleton_meta import SingletonMeta
 
 logger = logging.getLogger(__name__)
 
 
-class ConfigStore:
+class ConfigStore(metaclass=SingletonMeta):
     def __init__(self) -> None:
         self.config: ConfigModel | None = None
 
@@ -47,3 +49,20 @@ class ConfigStore:
     def trigger(self) -> list[TriggerConfig]:
         assert self.config is not None
         return self.config.trigger
+
+    @property
+    def cache(self) -> bool | str | None:
+        assert self.config is not None
+        return self.config.cache
+
+    @property
+    def cache_path(self) -> Path | None:
+        assert self.config is not None
+        return self.config.cache_path
+
+    def ensure_cache_dir(self) -> Path | None:
+        """Create the cache directory if caching is enabled and return its path."""
+        cp = self.cache_path
+        if cp is not None:
+            cp.mkdir(parents=True, exist_ok=True)
+        return cp

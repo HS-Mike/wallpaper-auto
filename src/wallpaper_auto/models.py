@@ -5,11 +5,14 @@ Includes models for triggers, resources, rules (with AND/OR condition trees),
 and the top-level config. Validates that all rule targets reference existing resources.
 """
 
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .resource.wallpaper_utils import WallpaperStyle
+
+DEFAULT_CACHE_DIR = Path.home() / "AppData" / "Local" / "wallpaper-auto" / "cache"
 
 
 class TriggerConfig(BaseModel):
@@ -87,6 +90,15 @@ class ConfigModel(BaseModel):
     rule: list[Rule]
     fallback: str
     at_shutdown: str | None = None
+    cache: bool | str | None = None
+
+    @property
+    def cache_path(self) -> Path | None:
+        if self.cache is None or self.cache is False:
+            return None
+        if self.cache is True:
+            return DEFAULT_CACHE_DIR
+        return Path(self.cache)
 
     @model_validator(mode="after")
     def check_target_exist(self) -> "ConfigModel":
