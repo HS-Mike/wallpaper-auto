@@ -90,15 +90,20 @@ class ConfigModel(BaseModel):
     rule: list[Rule]
     fallback: str
     at_shutdown: str | None = None
-    cache: bool | str | None = None
+    cache: bool | str = False
 
     @property
     def cache_path(self) -> Path | None:
-        if self.cache is None or self.cache is False:
+        if self.cache is False:
             return None
         if self.cache is True:
             return DEFAULT_CACHE_DIR
-        return Path(self.cache)
+        p = Path(self.cache)
+        if not p.exists():
+            raise FileNotFoundError(f"cache path '{self.cache}' does not exist")
+        if not p.is_dir():
+            raise NotADirectoryError(f"cache path '{self.cache}' is not a directory")
+        return p
 
     @model_validator(mode="after")
     def check_target_exist(self) -> "ConfigModel":
