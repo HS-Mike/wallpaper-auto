@@ -72,8 +72,11 @@ class TestMenuRendering:
         assert "AUTO" in action_texts
         assert "wallpaper1" in action_texts
 
+        auto_action = [a for a in actions if a.text() == "AUTO"][0]
+        assert not auto_action.isEnabled()
+
         wp1_action = tray_app._action_groups["wallpaper1"]
-        assert not wp1_action.isEnabled()
+        assert wp1_action.isEnabled()
 
     def test_menu_rendering_manual_mode_with_active_resource(self, tray_app, qtbot):
         """MANUAL mode renders with active resource highlighted."""
@@ -82,12 +85,13 @@ class TestMenuRendering:
         actions = tray_app._menu.actions()
         action_texts = [a.text() for a in actions]
         assert "AUTO" in action_texts
-
-        manual_action = [a for a in actions if a.text() == "MANUAL"][0]
-        assert not manual_action.isEnabled()
+        assert "MANUAL" not in action_texts
 
         res1_action = tray_app._action_groups["res1"]
-        assert res1_action.isEnabled()
+        assert not res1_action.isEnabled()
+
+        res2_action = tray_app._action_groups["res2"]
+        assert res2_action.isEnabled()
 
 
 class TestCallbacks:
@@ -101,17 +105,17 @@ class TestCallbacks:
         tray_app.bridge.register_select_resource_handler(lambda r: mock_called.update({"res": r}))
         tray_app.bridge.register_quit_handler(lambda: mock_called.update({"quit": True}))
 
-        # 1. Switch to MANUAL
-        tray_app.bridge.update_ui([], Mode.AUTO, None, "")
-        manual_action = [a for a in tray_app._menu.actions() if a.text() == "MANUAL"][0]
-        manual_action.trigger()
-        assert mock_called["mode"] == Mode.MANUAL
-
-        # 2. Select resource
-        tray_app.bridge.update_ui(["res_a"], Mode.MANUAL, None, "")
+        # 1. In MANUAL mode, click a resource action (also sets mode to MANUAL)
+        tray_app.bridge.update_ui(["res_a"], Mode.MANUAL, None, None)
         res_action = tray_app._action_groups["res_a"]
         res_action.trigger()
+        assert mock_called["mode"] == Mode.MANUAL
         assert mock_called["res"] == "res_a"
+
+        # 2. Click AUTO to switch mode
+        auto_action = [a for a in tray_app._menu.actions() if a.text() == "AUTO"][0]
+        auto_action.trigger()
+        assert mock_called["mode"] == Mode.AUTO
 
         # 3. Quit
         quit_action = [a for a in tray_app._menu.actions() if a.text() == "quit"][0]
