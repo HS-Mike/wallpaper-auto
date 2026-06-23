@@ -20,8 +20,8 @@ from .task import Mode
 logger = logging.getLogger(__name__)
 
 
-AUTO_MODE_COLOR = "#35FF89FF"
-MANUAL_MODE_COLOR = "#E9B200FF"
+ACTIVATE_COLOR = "#25FF80FF"
+ACTIVATE_AUXILIARY_COLOR = "#64DD9675"
 
 
 class SystemTrayBridge(QObject):
@@ -137,32 +137,30 @@ class WallpaperSwitchSystemTray:
         auto_switch_action = QAction("AUTO", self._menu)
         auto_switch_action.triggered.connect(lambda: self.bridge.request_set_mode(Mode.AUTO))
         self._menu.addAction(auto_switch_action)
-        if mode == Mode.AUTO:
-            tip = f"{'fallback' if active_rule is None else active_rule.name}"
-            auto_switch_action.setToolTip(tip)
-            auto_switch_action.setIcon(create_dot_icon(get_color(AUTO_MODE_COLOR)))
-            auto_switch_action.setEnabled(False)
-        manual_switch_action = QAction("MANUAL", self._menu)
-        manual_switch_action.triggered.connect(lambda: self.bridge.request_set_mode(Mode.MANUAL))
-        if mode == Mode.MANUAL:
-            manual_switch_action.setIcon(create_dot_icon(get_color(MANUAL_MODE_COLOR)))
-            manual_switch_action.setEnabled(False)
-        self._menu.addAction(manual_switch_action)
 
         self._menu.addSeparator()
 
         for rid in resource_ids:
             action = QAction(f"{rid}")
+            action.triggered.connect(lambda: self.bridge.request_set_mode(Mode.MANUAL))
             action.triggered.connect(lambda checked, r=rid: self.bridge.request_select_resource(r))
-            if rid == active_resource_id:
-                if mode == Mode.AUTO:
-                    action.setIcon(create_dot_icon(get_color(AUTO_MODE_COLOR)))
-                elif mode == Mode.MANUAL:
-                    action.setIcon(create_dot_icon(get_color(MANUAL_MODE_COLOR)))
-            if mode == Mode.AUTO:
-                action.setEnabled(False)
             self._menu.addAction(action)
             self._action_groups[rid] = action
+
+        if mode == Mode.AUTO:
+            tip = f"{'fallback' if active_rule is None else active_rule.name}"
+            auto_switch_action.setToolTip(tip)
+            auto_switch_action.setIcon(create_dot_icon(get_color(ACTIVATE_COLOR)))
+            auto_switch_action.setEnabled(False)
+            if active_resource_id is not None:
+                active_action = self._action_groups[active_resource_id]
+                active_action.setIcon(create_dot_icon(get_color(ACTIVATE_AUXILIARY_COLOR)))
+        
+        if mode == Mode.MANUAL:
+            if active_resource_id is not None:
+                active_action = self._action_groups[active_resource_id]
+                active_action.setIcon(create_dot_icon(get_color(ACTIVATE_COLOR)))
+                active_action.setEnabled(False)
 
         self._menu.addSeparator()
 
