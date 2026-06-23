@@ -131,7 +131,21 @@ class TestResourceManagerInitResources:
         """init creates a real StaticWallpaper when given a valid image path."""
         from PIL import Image
 
+        from wallpaper_auto.config_store import ConfigStore
+        from wallpaper_auto.models import ConfigModel
         from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
+
+        ConfigStore.clear_instance()
+        store = ConfigStore()
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        store.config = ConfigModel(
+            resource={"a": {"name": "static_wallpaper", "config": {"path": "dummy"}}},
+            trigger=[],
+            rule=[],
+            fallback="a",
+            cache=str(cache_dir),
+        )
 
         img_path = tmp_path / "test.jpg"
         Image.new("RGB", (64, 64), color="red").save(img_path)
