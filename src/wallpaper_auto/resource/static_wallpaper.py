@@ -53,11 +53,11 @@ class StaticWallpaper(BaseResource):
         self._original_wallpaper: Path | None = None
         self._original_style: tuple[str, str] | None = None
 
-    def _cache_key(self, ext: str = "png") -> str:
-        """Generate an md5 hash key for the cache file based on path, mtime, size, and format."""
+    def _cache_key(self) -> str:
+        """Generate an md5 hash key for the cache file based on path, mtime, and screen size."""
         image_path = str(self.image_path)
         mtime = str(Path(image_path).stat().st_mtime)
-        key_str = f"{image_path}_{mtime}_{self._screen_size[0]}x{self._screen_size[1]}_{ext}"
+        key_str = f"{image_path}_{mtime}_{self._screen_size[0]}x{self._screen_size[1]}"
         return hashlib.md5(key_str.encode()).hexdigest()
 
     def _check_need_cache(self) -> bool:
@@ -75,21 +75,20 @@ class StaticWallpaper(BaseResource):
         Sets ``self.mount_path`` to either the compressed cache or the original
         image path.
         """
-        if self.allow_compress:
-            if not self.cache_dir.exists():
-                raise FileNotFoundError(f"cache directory '{self.cache_dir}' does not exist")
-            with Image.open(self.image_path) as img:
-                need_cache = img.width > self._screen_size[0] * 1.2 or img.height > self._screen_size[1] * 1.2
-                if need_cache:
-                    ext = (img.format or "png").lower()
-                    cache_key = self._cache_key(ext)
-                    save_path = self.cache_dir / f"{cache_key}.{ext}"
-                    if not save_path.exists():
-                        compress_image(str(self.image_path), self._screen_size, str(save_path))
-                    self.mount_path = save_path
-                    logger.info("static wallpaper cache: %s", self.mount_path)
-                    return
-        self.mount_path = self.image_path
+        self._screen_size = get_screen_size()
+        if not self._check_need_cache():
+            self.mount_path = self.image_path
+            return
+        if not self.cache_dir.exists():
+            raise FileNotFoundError(f"cache directory '{self.cache_dir}' does not exist")
+        with Image.open(self.image_path) as img:
+            ext = (img.format or "png").lower()
+        cache_key = self._cache_key()
+        save_path = self.cache_dir / f"{cache_key}.{ext}"
+        if not save_path.exists():
+            compress_image(str(self.image_path), self._screen_size, str(save_path))
+        self.mount_path = save_path
+        logger.info("static wallpaper cache: %s", self.mount_path)
 
     def mount(self) -> None:
         """
