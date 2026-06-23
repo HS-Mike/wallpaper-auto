@@ -51,11 +51,6 @@ class ConfigStore(metaclass=SingletonMeta):
         return self.config.trigger
 
     @property
-    def cache(self) -> bool | str | None:
-        assert self.config is not None
-        return self.config.cache
-
-    @property
     def cache_path(self) -> Path:
         assert self.config is not None
         return self.config.cache_path
