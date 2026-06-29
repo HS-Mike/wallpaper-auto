@@ -1,12 +1,12 @@
 """Tests for display_trigger.py — monitor plug/unplug detection via WM_DISPLAYCHANGE."""
 # ruff: noqa: N806 — mock names may match Win32 constant naming conventions
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 import win32con
 
-from wallpaper_auto.util.display_utils import decode_wmi_string, get_display_set
+from wallpaper_auto.util.display_utils import DisplayInfo
 from wallpaper_auto.trigger.display_trigger import DisplayTrigger
 
 # ---------------------------------------------------------------------------
@@ -15,17 +15,8 @@ from wallpaper_auto.trigger.display_trigger import DisplayTrigger
 
 
 @pytest.fixture
-def mock_wmi_getobject():
-    """Patch ``win32com.client.GetObject`` for ``get_display_set`` tests."""
-    with patch(
-        "wallpaper_auto.util.display_utils.win32com.client.GetObject"
-    ) as mock_getobj:
-        yield mock_getobj
-
-
-@pytest.fixture
 def mock_display_deps():
-    """Patch all Win32 / WMI / COM dependencies for DisplayTrigger instance tests."""
+    """Patch all Win32 / CCD / COM dependencies for DisplayTrigger instance tests."""
     with (
         patch("wallpaper_auto.trigger.display_trigger.win32gui.WNDCLASS"),
         patch(
@@ -47,141 +38,18 @@ def mock_display_deps():
         patch("wallpaper_auto.trigger.display_trigger.win32gui.PostQuitMessage") as pqm,
         patch("wallpaper_auto.trigger.display_trigger.win32gui.DefWindowProc") as dwp,
         patch(
-            "wallpaper_auto.util.display_utils.win32com.client.GetObject"
-        ) as getobj,
+            "wallpaper_auto.trigger.display_trigger.get_display_info"
+        ) as get_display_info_fn,
         patch("wallpaper_auto.trigger.display_trigger.pythoncom") as pythoncom,
     ):
         yield {
             "pqm": pqm,
             "dwp": dwp,
-            "getobj": getobj,
+            "get_display_info": get_display_info_fn,
             "postmsg": postmsg,
             "pythoncom": pythoncom,
             "dw": dw,
         }
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _make_mock_monitor(
-    instance_name: str = r"DISPLAY\DELA123\5&123&0&UID43520_0",
-    manufacturer: bytes = b"DEL",
-    model: bytes = b"U2719D",
-    serial: bytes = b"ABC123",
-) -> MagicMock:
-    monitor = MagicMock()
-    monitor.InstanceName = instance_name
-    monitor.ManufacturerName = manufacturer
-    monitor.UserFriendlyName = model
-    monitor.SerialNumberID = serial
-    return monitor
-
-
-# ===========================================================================
-# TestDecodeWmiString
-# ===========================================================================
-
-
-class TestDecodeWmiString:
-    """Tests for the pure function ``decode_wmi_string``."""
-
-    def test_normal_ascii(self) -> None:
-        assert decode_wmi_string(b"DELL") == "DELL"
-
-    def test_with_null_terminator(self) -> None:
-        assert decode_wmi_string(b"DELL\x00\x00") == "DELL"
-
-    def test_with_trailing_spaces(self) -> None:
-        assert decode_wmi_string(b"DELL ") == "DELL"
-
-    def test_empty_input(self) -> None:
-        assert decode_wmi_string(b"") == "Unknown"
-
-    def test_none_input(self) -> None:
-        assert decode_wmi_string(None) == "Unknown"  # type: ignore[arg-type]
-
-    def test_non_iterable_raises_exception(self) -> None:
-        class _RaisesOnIter:
-            def __iter__(self):
-                raise ValueError("test")
-
-        result = decode_wmi_string(_RaisesOnIter())  # type: ignore[arg-type]
-        assert result == "Unknown"
-
-
-# ===========================================================================
-# TestGetDisplaySet
-# ===========================================================================
-
-
-class TestGetDisplaySet:
-    """Tests for the WMI-dependent function ``get_display_set``."""
-
-    def test_single_monitor(self, mock_wmi_getobject) -> None:
-        mock_wmi = MagicMock()
-        mock_wmi.ExecQuery.return_value = [_make_mock_monitor()]
-        mock_wmi_getobject.return_value = mock_wmi
-
-        result = get_display_set()
-
-        expected_pnp = r"DISPLAY\DELA123\5&123&0&UID43520"
-        assert result == {("DEL", "U2719D", expected_pnp, "ABC123")}
-
-    def test_multiple_monitors(self, mock_wmi_getobject) -> None:
-        mock_wmi = MagicMock()
-        mock_wmi.ExecQuery.return_value = [
-            _make_mock_monitor(
-                instance_name=r"DISPLAY\MON1\5&1_0",
-                manufacturer=b"DEL",
-                model=b"U2719D",
-                serial=b"001",
-            ),
-            _make_mock_monitor(
-                instance_name=r"DISPLAY\MON2\5&2_0",
-                manufacturer=b"BNQ",
-                model=b"XL2730",
-                serial=b"002",
-            ),
-        ]
-        mock_wmi_getobject.return_value = mock_wmi
-
-        result = get_display_set()
-
-        assert result == {
-            ("DEL", "U2719D", r"DISPLAY\MON1\5&1", "001"),
-            ("BNQ", "XL2730", r"DISPLAY\MON2\5&2", "002"),
-        }
-
-    def test_instance_name_without_underscore(self, mock_wmi_getobject) -> None:
-        mock_wmi = MagicMock()
-        mock_wmi.ExecQuery.return_value = [
-            _make_mock_monitor(instance_name=r"DISPLAY\DELA123")
-        ]
-        mock_wmi_getobject.return_value = mock_wmi
-
-        result = get_display_set()
-
-        pnp_id = next(iter(result))[2]
-        assert pnp_id == r"DISPLAY\DELA123"
-
-    def test_wmi_failure_returns_empty_set(self, mock_wmi_getobject) -> None:
-        mock_wmi_getobject.side_effect = Exception("COM error")
-
-        result = get_display_set()
-
-        assert result == set()
-
-    def test_empty_wmi_result(self, mock_wmi_getobject) -> None:
-        mock_wmi = MagicMock()
-        mock_wmi.ExecQuery.return_value = []
-        mock_wmi_getobject.return_value = mock_wmi
-
-        result = get_display_set()
-
-        assert result == set()
 
 
 # ===========================================================================
@@ -196,7 +64,7 @@ class TestDisplayTriggerInit:
         trigger = DisplayTrigger()
 
         assert trigger.hwnd is None
-        assert trigger._prev_displays == set()
+        assert trigger._prev_displays == frozenset()
         assert trigger.current_displays is None
 
 
@@ -205,21 +73,29 @@ class TestDisplayTriggerInit:
 # ===========================================================================
 
 
+_DEVICE_A = r"\\?\DISPLAY#DELA#{...}"
+_DEVICE_B = r"\\?\DISPLAY#INT#{...}"
+
+_SNAPSHOT_A = frozenset([(_DEVICE_A, "U2719D")])
+_SNAPSHOT_B = frozenset([(_DEVICE_A, "U2719D"), (_DEVICE_B, "internal")])
+
+
 class TestDisplayTriggerMsgProc:
     """Tests for the window procedure ``_msg_proc``."""
 
     def test_wm_displaychange_triggers_on_change(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
         callback_called = []
-        trigger._prev_displays = set()
+        trigger._prev_displays = frozenset()
 
-        # Configure get_display_set to return a known set
-        mock_wmi = MagicMock()
-        mock_wmi.ExecQuery.return_value = [_make_mock_monitor(serial=b"ABC")]
-        mock_display_deps["getobj"].return_value = mock_wmi
-
-        expected_pnp = r"DISPLAY\DELA123\5&123&0&UID43520"
-        new_displays = {("DEL", "U2719D", expected_pnp, "ABC")}
+        # Configure get_display_info to return a known display
+        mock_display_deps["get_display_info"].return_value = [
+            DisplayInfo(
+                model="U2719D", source_resolution=(1920, 1080),
+                position=(0, 0), target_resolution=(1920, 1080),
+                monitor_device_path=_DEVICE_A,
+            ),
+        ]
 
         # Capture current_displays during callback
         captured_displays = []
@@ -233,22 +109,24 @@ class TestDisplayTriggerMsgProc:
         result = trigger._msg_proc(0, win32con.WM_DISPLAYCHANGE, 0, 0)
 
         assert callback_called == [True]
-        assert captured_displays == [new_displays]
-        assert trigger._prev_displays == new_displays
+        assert captured_displays == [_SNAPSHOT_A]
+        assert trigger._prev_displays == _SNAPSHOT_A
         assert trigger.current_displays is None  # cleared after callback
         assert result == 0
 
     def test_wm_displaychange_skips_on_no_change(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
-        expected_pnp = r"DISPLAY\DELA123\5&123&0&UID43520"
-        existing = {("DEL", "U2719D", expected_pnp, "ABC")}
-        trigger._prev_displays = existing
+        trigger._prev_displays = _SNAPSHOT_A
 
         with patch.object(trigger, "trigger") as mock_trigger:
-            # Configure get_display_set to return SAME set
-            mock_wmi = MagicMock()
-            mock_wmi.ExecQuery.return_value = [_make_mock_monitor(serial=b"ABC")]
-            mock_display_deps["getobj"].return_value = mock_wmi
+            # Configure get_display_info to return SAME displays
+            mock_display_deps["get_display_info"].return_value = [
+                DisplayInfo(
+                    model="U2719D", source_resolution=(1920, 1080),
+                    position=(0, 0), target_resolution=(1920, 1080),
+                    monitor_device_path=_DEVICE_A,
+                ),
+            ]
 
             trigger._msg_proc(0, win32con.WM_DISPLAYCHANGE, 0, 0)
 
@@ -323,7 +201,7 @@ class TestDisplayTriggerActivateDeactivate:
     def test_activate_deactivate_full_cycle(self) -> None:
         """Full activate → deactivate cycle with real Windows API calls.
 
-        Verifies the complete chain without mocking any Win32/WMI/COM calls:
+        Verifies the complete chain without mocking any Win32/CCD/COM calls:
         activate() → thread creates real hidden window → PumpMessages runs
         → deactivate() posts WM_CLOSE → _msg_proc handles it → DestroyWindow
         → WM_DESTROY → PostQuitMessage → pump exits → thread joins.
@@ -372,8 +250,8 @@ class TestDisplayTriggerRun:
 
         trigger.run()
 
-        # get_display_set was called initially to populate _prev_displays
-        mock_display_deps["getobj"].assert_called_once()
+        # _display_snapshot was called initially to populate _prev_displays
+        mock_display_deps["get_display_info"].assert_called_once()
 
     def test_run_cleans_up_after_pumpmessages_exception(
         self, mock_display_deps

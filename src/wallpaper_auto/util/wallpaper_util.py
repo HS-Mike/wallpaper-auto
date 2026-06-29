@@ -1,5 +1,6 @@
 import contextvars
 import ctypes
+import enum
 import functools
 import logging
 import contextlib
@@ -18,12 +19,24 @@ class RECT(ctypes.Structure):
         ("bottom", ctypes.c_long),
     ]
 
-DWPOS_CENTER: int = 0
-DWPOS_TILE: int = 1
-DWPOS_STRETCH: int = 2
-DWPOS_FIT: int = 3
-DWPOS_FILL: int = 4
-DWPOS_SPAN: int = 5
+class WallpaperPosition(enum.IntEnum):
+    """Position/style constants for IDesktopWallpaper.SetPosition."""
+
+    CENTER = 0
+    TILE = 1
+    STRETCH = 2
+    FIT = 3
+    FILL = 4
+    SPAN = 5
+
+
+# Module-level aliases for backward compatibility.
+DWPOS_CENTER: int = WallpaperPosition.CENTER
+DWPOS_TILE: int = WallpaperPosition.TILE
+DWPOS_STRETCH: int = WallpaperPosition.STRETCH
+DWPOS_FIT: int = WallpaperPosition.FIT
+DWPOS_FILL: int = WallpaperPosition.FILL
+DWPOS_SPAN: int = WallpaperPosition.SPAN
 
 DSD_FORWARD: int = 0
 DSD_BACKWARD: int = 1

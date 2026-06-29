@@ -18,6 +18,7 @@ from .rule_engine import RuleEngine
 from .system_tray import WallpaperSwitchSystemTray
 from .task import Mode, ModeSwitchTask, QuitTask, ResourceSetTask, Task, TaskType
 from .trigger_manager import TriggerManager
+from .util.display_utils import get_display_info
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,18 @@ class WallpaperController:
         self._tray: WallpaperSwitchSystemTray | None = None
         self._mode: Mode = Mode.UNSET
 
+        # Primary monitor device path (resolved once during first use)
+        self._primary_monitor_path: str | None = None
+
+    def _get_primary_monitor_path(self) -> str:
+        """Return the device path of the primary monitor."""
+        if self._primary_monitor_path is None:
+            displays = get_display_info()
+            if not displays:
+                raise RuntimeError("No display connected")
+            self._primary_monitor_path = displays[0].monitor_device_path
+        return self._primary_monitor_path
+
     def _worker_loop(self) -> None:
         logger.debug("worker loop thread start")
         while True:
@@ -63,7 +76,10 @@ class WallpaperController:
 
             elif task.type == TaskType.RESOURCE_SET:
                 self._resource_manager.demount()
-                self._resource_manager.mount(task.target_resource_id)
+                self._resource_manager.mount(
+                    task.target_resource_id,
+                    task.monitor_device_path,
+                )
 
             self.update_system_tray()
             self._task_queue.task_done()
@@ -93,7 +109,11 @@ class WallpaperController:
         self._task_queue.put(ModeSwitchTask(target_mode=mode))
 
     def add_set_resource_id_task(self, resource_id: str) -> None:
-        self._task_queue.put(ResourceSetTask(target_resource_id=resource_id))
+        path = self._get_primary_monitor_path()
+        self._task_queue.put(ResourceSetTask(
+            target_resource_id=resource_id,
+            monitor_device_path=path,
+        ))
 
     def evaluate(self) -> None:
         """
@@ -129,7 +149,8 @@ class WallpaperController:
         logger.info("at shutdown mount triggered")
         if self._resource_manager.active_resource_id != resource_id:
             self._resource_manager.demount()
-            self._resource_manager.mount(resource_id)
+            path = self._get_primary_monitor_path()
+            self._resource_manager.mount(resource_id, path)
             logger.info("applied at-shutdown wallpaper: %s", resource_id)
 
     def at_shutdown(self) -> None:

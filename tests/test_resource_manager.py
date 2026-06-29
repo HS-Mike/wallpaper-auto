@@ -9,6 +9,9 @@ from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource_manager import _BUILTIN_RESOURCES, ResourceManager
 
 
+_DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
+
+
 @pytest.fixture
 def mgr():
     """Provide a fresh ResourceManager instance for each test."""
@@ -162,15 +165,15 @@ class TestResourceManagerMount:
         mock_resource = _mock_resource()
         mgr._resource_objects = {"r1": mock_resource}
 
-        mgr.mount("r1")
+        mgr.mount("r1", _DEVICE_PATH)
 
-        mock_resource.mount.assert_called_once()
+        mock_resource.mount.assert_called_once_with(_DEVICE_PATH)
         assert mgr._active_resource_id == "r1"
 
     def test_mount_unknown_resource_raises(self, mgr):
         """mount raises KeyError when the resource_id does not exist."""
         with pytest.raises(KeyError, match="Resource not found: missing"):
-            mgr.mount("missing")
+            mgr.mount("missing", _DEVICE_PATH)
 
     def test_mount_twice_calls_mount_on_new_resource(self, mgr):
         """Mounting a different resource calls mount on the new one (no auto-demount)."""
@@ -178,12 +181,12 @@ class TestResourceManagerMount:
         mock_b = _mock_resource()
         mgr._resource_objects = {"a": mock_a, "b": mock_b}
 
-        mgr.mount("a")
-        mgr.mount("b")
+        mgr.mount("a", _DEVICE_PATH)
+        mgr.mount("b", _DEVICE_PATH)
 
-        mock_a.mount.assert_called_once()
+        mock_a.mount.assert_called_once_with(_DEVICE_PATH)
         mock_a.demount.assert_not_called()
-        mock_b.mount.assert_called_once()
+        mock_b.mount.assert_called_once_with(_DEVICE_PATH)
         assert mgr._active_resource_id == "b"
 
     def test_mount_same_resource_twice(self, mgr):
@@ -191,8 +194,8 @@ class TestResourceManagerMount:
         mock_resource = _mock_resource()
         mgr._resource_objects = {"r1": mock_resource}
 
-        mgr.mount("r1")
-        mgr.mount("r1")
+        mgr.mount("r1", _DEVICE_PATH)
+        mgr.mount("r1", _DEVICE_PATH)
 
         assert mock_resource.mount.call_count == 2
 
@@ -249,13 +252,13 @@ class TestResourceManagerProperties:
         """active_resource_id returns the currently mounted resource id."""
         mock_resource = _mock_resource()
         mgr._resource_objects = {"r1": mock_resource}
-        mgr.mount("r1")
+        mgr.mount("r1", _DEVICE_PATH)
         assert mgr.active_resource_id == "r1"
 
     def test_active_resource_id_after_demount(self, mgr):
         """active_resource_id returns None after demount."""
         mock_resource = _mock_resource()
         mgr._resource_objects = {"r1": mock_resource}
-        mgr.mount("r1")
+        mgr.mount("r1", _DEVICE_PATH)
         mgr.demount()
         assert mgr.active_resource_id is None

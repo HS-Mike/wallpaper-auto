@@ -1,7 +1,7 @@
 """
 Display change trigger for monitor plug/unplug detection.
 
-Uses WM_DISPLAYCHANGE via a hidden Win32 window and WMI (WmiMonitorID)
+Uses WM_DISPLAYCHANGE via a hidden Win32 window and CCD (QueryDisplayConfig)
 to detect and report connected monitor changes.
 """
 
@@ -13,7 +13,7 @@ import pythoncom
 import win32con
 import win32gui
 
-from ..util.display_utils import get_display_set
+from ..util.display_utils import get_display_info
 
 from .base_trigger import BaseThreadTrigger
 
@@ -30,8 +30,16 @@ class DisplayTrigger(BaseThreadTrigger):
     def __init__(self) -> None:
         super().__init__()
         self.hwnd = None
-        self._prev_displays: set[tuple[str, str, str, str]] = set()
-        self.current_displays: set[tuple[str, str, str, str]] | None = None    # only available in callback
+        self._prev_displays: frozenset[tuple[str, str]] = frozenset()
+        self.current_displays: frozenset[tuple[str, str]] | None = None    # only available in callback
+
+    @staticmethod
+    def _display_snapshot() -> frozenset[tuple[str, str]]:
+        """Return a snapshot of currently connected displays."""
+        return frozenset(
+            (d.monitor_device_path, d.model or "")
+            for d in get_display_info()
+        )
 
     @override
     def activate(self) -> None:
@@ -49,7 +57,7 @@ class DisplayTrigger(BaseThreadTrigger):
 
     def _setup_window(self) -> None:
         """Create a hidden watch window in the current thread."""
-        self._prev_displays = get_display_set()
+        self._prev_displays = self._display_snapshot()
 
         className = f"DisplayMonitorClass_{id(self)}"  # noqa: N806
         hInstance = win32gui.GetModuleHandle(None)   # noqa: N806
@@ -78,7 +86,7 @@ class DisplayTrigger(BaseThreadTrigger):
     def _msg_proc(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
         """Internal window procedure to handle Windows messages."""
         if msg == win32con.WM_DISPLAYCHANGE:
-            curr_display = get_display_set()
+            curr_display = self._display_snapshot()
             if curr_display != self._prev_displays:
                 logger.debug(f"Display change detected: {curr_display}")
                 self._prev_displays = curr_display

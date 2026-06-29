@@ -6,13 +6,15 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from wallpaper_auto.resource.static_wallpaper import (
-    StaticWallpaper,
+from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
+from wallpaper_auto.resource.wallpaper_utils import (
     WallpaperStyle,
     get_current_wallpaper,
     get_screen_size,
     set_wallpaper,
 )
+
+_DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
 
 
 class TestWallpaperStyle:
@@ -157,18 +159,18 @@ class TestStaticWallpaperMount:
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path))
-        wp.mount()
+        wp.mount(_DEVICE_PATH)
         assert wp._original_wallpaper == Path("C:\\original.jpg")
+        assert wp._monitor_device_path == _DEVICE_PATH
 
-    def test_mount_calls_set_wallpaper_with_style(self, tmp_path, mock_mount_deps):
+    def test_mount_sets_wallpaper_for_device(self, tmp_path, mock_mount_deps):
+        """mount calls set_per_display_wallpaper with the device path."""
         mock_set = mock_mount_deps
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), style=WallpaperStyle.STRETCH)
-        wp.mount()
-        mock_set.assert_called_once()
-        args, _ = mock_set.call_args
-        assert args[1] == ("2", "0")
+        wp.mount(_DEVICE_PATH)
+        mock_set.assert_called_once_with(_DEVICE_PATH, str(img_path))
 
     def test_mount_with_allow_compress_false_sends_original_path(self, tmp_path, mock_mount_deps):
         """mount with allow_compress=False sends original path regardless of image size"""
@@ -176,22 +178,22 @@ class TestStaticWallpaperMount:
         img_path = tmp_path / "test.png"
         Image.new("RGB", (3840, 2160)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), allow_compress=False)
-        wp.mount()
+        wp.mount(_DEVICE_PATH)
         mock_set.assert_called_once()
         args, _ = mock_set.call_args
-        assert args[0] == Path(img_path)
+        assert args[1] == str(img_path)
 
     def test_mount_stores_original_before_overwrite(self, tmp_path, mock_mount_deps):
-        """mount does not call get_current_wallpaper after setting wallpaper"""
+        """mount calls get_wallpaper to save original before overwriting"""
         with patch(
-            "wallpaper_auto.resource.static_wallpaper.get_current_wallpaper",
+            "wallpaper_auto.resource.static_wallpaper.get_wallpaper",
             return_value="C:\\original.jpg",
         ) as mock_get:
             img_path = tmp_path / "test.png"
             Image.new("RGB", (100, 100)).save(img_path)
             wp = StaticWallpaper(path=str(img_path))
-            wp.mount()
-            mock_get.assert_called_once()
+            wp.mount(_DEVICE_PATH)
+            mock_get.assert_called_once_with(_DEVICE_PATH)
 
 
 class TestStaticWallpaperDemount:
@@ -200,13 +202,14 @@ class TestStaticWallpaperDemount:
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), restore=True)
-        wp.mount()
+        wp.mount(_DEVICE_PATH)
         mock_set.reset_mock()
 
         wp.demount()
         mock_set.assert_called_once()
         args, _ = mock_set.call_args
-        assert args[0] == Path("C:\\original.jpg")
+        assert args[0] == _DEVICE_PATH
+        assert args[1] == "C:\\original.jpg"
 
     def test_demount_without_mount_is_safe(self, tmp_path, mock_mount_deps):
         """demount without prior mount does nothing (no error)"""
@@ -221,16 +224,16 @@ class TestStaticWallpaperDemount:
         """mount then demount correctly restores original"""
         mock_set = mock_mount_deps
         with patch(
-            "wallpaper_auto.resource.static_wallpaper.get_current_wallpaper",
+            "wallpaper_auto.resource.static_wallpaper.get_wallpaper",
             return_value="C:\\original.jpg",
         ) as mock_get:
             img_path = tmp_path / "test.png"
             Image.new("RGB", (100, 100)).save(img_path)
             wp = StaticWallpaper(path=str(img_path), restore=True)
 
-            wp.mount()
+            wp.mount(_DEVICE_PATH)
             assert mock_set.call_count == 1
-            mock_get.assert_called_once()
+            mock_get.assert_called_once_with(_DEVICE_PATH)
 
             wp.demount()
             assert mock_set.call_count == 2
@@ -238,9 +241,9 @@ class TestStaticWallpaperDemount:
             # mount again after demount
             mock_get.reset_mock()
             mock_get.return_value = "C:\\restored.jpg"
-            wp.mount()
+            wp.mount(_DEVICE_PATH)
             assert mock_set.call_count == 3
-            mock_get.assert_called_once()
+            mock_get.assert_called_once_with(_DEVICE_PATH)
             assert wp._original_wallpaper == Path("C:\\restored.jpg")
 
     def test_demount_with_restore_false_skips_restore(self, tmp_path, mock_mount_deps):
@@ -249,7 +252,7 @@ class TestStaticWallpaperDemount:
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), restore=False)
-        wp.mount()
+        wp.mount(_DEVICE_PATH)
         mock_set.reset_mock()
 
         wp.demount()
@@ -261,13 +264,13 @@ class TestStaticWallpaperDemount:
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), restore=True)
-        wp.mount()
+        wp.mount(_DEVICE_PATH)
         mock_set.reset_mock()
 
         wp.demount()
         mock_set.assert_called_once()
         args, _ = mock_set.call_args
-        assert args[0] == Path("C:\\original.jpg")
+        assert args[1] == "C:\\original.jpg"
 
 
 class TestGetScreenSize:

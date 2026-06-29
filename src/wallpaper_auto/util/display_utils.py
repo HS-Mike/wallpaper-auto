@@ -36,7 +36,6 @@ class DISPLAYCONFIG_DEVICE_INFO_HEADER(ctypes.Structure):
     ]
 
 
-# 专门用于获取显示器路径和名称的结构体
 class DISPLAYCONFIG_TARGET_DEVICE_NAME(ctypes.Structure):
     _fields_ = [
         ("header", DISPLAYCONFIG_DEVICE_INFO_HEADER),
@@ -77,7 +76,6 @@ class DISPLAYCONFIG_2DREGION(ctypes.Structure):
 
 
 class DISPLAYCONFIG_VIDEO_SIGNAL_INFO(ctypes.Structure):
-    # 只需定义我们要用到的分辨率部分
     _fields_ = [
         ("pixelRate", wintypes.ULARGE_INTEGER),
         ("hSyncFreq", DISPLAYCONFIG_RATIONAL),
@@ -244,9 +242,4 @@ def get_display_info() -> list[DisplayInfo]:
         )
 
     return res_display_info
-
-
-if __name__ == "__main__":
-    for i in get_display_info():
-        print(i)
         

@@ -16,12 +16,16 @@ from wallpaper_auto.wallpaper_controller import WallpaperController
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
+_DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
+
+
 def _mock_config_for_start(controller):
     """Give the controller a fake config so ``start()`` can read ``fallback_resource_id``."""
     mock_cs = MagicMock()
     mock_cs.fallback_resource_id = "fallback"
     mock_cs.at_shutdown_resource_id = None
     controller._config_store = mock_cs
+    controller._primary_monitor_path = _DEVICE_PATH
 
 
 def _start_controller(controller):
@@ -157,6 +161,7 @@ class TestWallpaperControllerWorkerLoop:
     def test_mode_switch_auto_resumes_triggers(self, controller):
         controller._trigger_manager = MagicMock()
         controller._config_store = MagicMock(fallback_resource_id="fallback")
+        controller._primary_monitor_path = _DEVICE_PATH
         controller._task_queue.put(ModeSwitchTask(target_mode=Mode.AUTO))
         controller._task_queue.put(QuitTask())
 
@@ -184,17 +189,21 @@ class TestWallpaperControllerWorkerLoop:
 
     def test_resource_set_demounts_then_mounts(self, controller):
         controller._resource_manager = MagicMock()
-        controller._task_queue.put(ResourceSetTask(target_resource_id="res_x"))
+        controller._task_queue.put(ResourceSetTask(
+            target_resource_id="res_x", monitor_device_path=_DEVICE_PATH,
+        ))
         controller._task_queue.put(QuitTask())
 
         controller._worker_loop()
 
         controller._resource_manager.demount.assert_called_once()
-        controller._resource_manager.mount.assert_called_once_with("res_x")
+        controller._resource_manager.mount.assert_called_once_with("res_x", _DEVICE_PATH)
 
     def test_update_system_tray_called_after_each_non_quit_task(self, controller):
         controller._resource_manager = MagicMock()
-        controller._task_queue.put(ResourceSetTask(target_resource_id="r1"))
+        controller._task_queue.put(ResourceSetTask(
+            target_resource_id="r1", monitor_device_path=_DEVICE_PATH,
+        ))
         controller._task_queue.put(QuitTask())
 
         with patch.object(controller, "update_system_tray") as mock_update:
@@ -221,6 +230,7 @@ class TestWallpaperControllerEvaluate:
         mock_cs = MagicMock()
         mock_cs.fallback_resource_id = "fallback"
         controller._config_store = mock_cs
+        controller._primary_monitor_path = _DEVICE_PATH
 
         controller.evaluate()
 
@@ -228,6 +238,7 @@ class TestWallpaperControllerEvaluate:
         task = controller._task_queue.get_nowait()
         assert isinstance(task, ResourceSetTask)
         assert task.target_resource_id == "work_res"
+        assert task.monitor_device_path == _DEVICE_PATH
 
     def test_no_matching_rule_uses_fallback(self, controller):
         mock_rm = MagicMock()
@@ -237,6 +248,7 @@ class TestWallpaperControllerEvaluate:
         mock_cs = MagicMock()
         mock_cs.fallback_resource_id = "fallback_res"
         controller._config_store = mock_cs
+        controller._primary_monitor_path = _DEVICE_PATH
 
         controller.evaluate()
 
@@ -253,6 +265,7 @@ class TestWallpaperControllerEvaluate:
         mock_cs = MagicMock()
         mock_cs.fallback_resource_id = "fallback_res"
         controller._config_store = mock_cs
+        controller._primary_monitor_path = _DEVICE_PATH
 
         controller.evaluate()
 
@@ -266,6 +279,7 @@ class TestWallpaperControllerEvaluate:
         mock_rm.active_resource_id = "work_res"
         controller._resource_manager = mock_rm
         controller._rule_engine.evaluate = MagicMock(return_value=rule)
+        controller._primary_monitor_path = _DEVICE_PATH
 
         controller.evaluate()
 
@@ -280,6 +294,7 @@ class TestWallpaperControllerEvaluate:
         mock_cs = MagicMock()
         mock_cs.fallback_resource_id = "fallback"
         controller._config_store = mock_cs
+        controller._primary_monitor_path = _DEVICE_PATH
 
         controller.active_rule = Mode.UNSET
         controller.evaluate()
@@ -499,11 +514,12 @@ class TestWallpaperControllerAtShutdown:
         mock_rm = MagicMock()
         mock_rm.active_resource_id = None
         controller._resource_manager = mock_rm
+        controller._primary_monitor_path = _DEVICE_PATH
 
         controller._shutdown_mount("shutdown_wall")
 
         mock_rm.demount.assert_called_once()
-        mock_rm.mount.assert_called_once_with("shutdown_wall")
+        mock_rm.mount.assert_called_once_with("shutdown_wall", _DEVICE_PATH)
 
     def test_shutdown_mount_skipped_when_already_active(self, controller):
         """_shutdown_mount() should skip when the resource is already active."""

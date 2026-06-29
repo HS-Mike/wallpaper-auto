@@ -1,7 +1,7 @@
 """
 Static image wallpaper resource.
 
-Mounts a single image file as the Windows desktop wallpaper with configurable
+Mounts a single image file as the desktop wallpaper with configurable
 scaling style (fill, fit, stretch, center, tile).
 
 In some situations, windows fail to load wallpaper if it is too large.
@@ -18,17 +18,31 @@ from pathlib import Path
 from PIL import Image
 
 from ..config_store import ConfigStore
+from ..util.wallpaper_util import (
+    WallpaperPosition,
+    com_session,
+    get_wallpaper,
+    get_wallpaper_position,
+    set_wallpaper as set_per_display_wallpaper,
+    set_wallpaper_position,
+)
 from .base_resource import BaseResource
 from .wallpaper_utils import (
     WallpaperStyle,
     compress_image,
-    get_current_wallpaper,
-    get_current_wallpaper_style,
     get_screen_size,
-    set_wallpaper,
 )
 
 logger = logging.getLogger(__name__)
+
+# Map WallpaperStyle enum to IDesktopWallpaper position constants.
+_STYLE_TO_DWPOS: dict[WallpaperStyle, WallpaperPosition] = {
+    WallpaperStyle.CENTER: WallpaperPosition.CENTER,
+    WallpaperStyle.TILE: WallpaperPosition.TILE,
+    WallpaperStyle.STRETCH: WallpaperPosition.STRETCH,
+    WallpaperStyle.FIT: WallpaperPosition.FIT,
+    WallpaperStyle.FILL: WallpaperPosition.FILL,
+}
 
 
 class StaticWallpaper(BaseResource):
@@ -50,8 +64,10 @@ class StaticWallpaper(BaseResource):
         self.cache_dir: Path = ConfigStore.instance.cache_path
         self.mount_path: Path | None = None
 
+        # Per-display mount tracking.
+        self._monitor_device_path: str | None = None
         self._original_wallpaper: Path | None = None
-        self._original_style: tuple[str, str] | None = None
+        self._original_position: int | None = None
 
     def _cache_key(self) -> str:
         """Generate an md5 hash key for the cache file based on path, mtime, and screen size."""
@@ -90,37 +106,58 @@ class StaticWallpaper(BaseResource):
         self.mount_path = save_path
         logger.info("static wallpaper cache: %s", self.mount_path)
 
-    def mount(self) -> None:
+    def mount(self, monitor_device_path: str) -> None:
         """
-        Apply the static image as the desktop wallpaper.
+        Apply the image as wallpaper on the specified display.
 
         Calls :meth:`prepare_wallpaper` first to ensure ``self.mount_path``
-        is set (with cache if needed), then saves the current wallpaper path
-        and style before replacing them.
+        is set (with cache if needed), then saves the current wallpaper
+        before replacing it via the COM per-display API.
         """
         self.prepare_wallpaper()
-        self._original_wallpaper = Path(get_current_wallpaper())
-        self._original_style = get_current_wallpaper_style()
-        logger.debug(
-            "origin wallpaper: %s, style: %s",
-            self._original_wallpaper,
-            self._original_style,
-        )
-        set_wallpaper(self.mount_path, self.style.value)
-        logger.debug("mount wallpaper: %s", self.mount_path)
+        self._monitor_device_path = monitor_device_path
+
+        with com_session():
+            orig = get_wallpaper(monitor_device_path)
+            orig_pos = get_wallpaper_position(monitor_device_path)
+            self._original_wallpaper = Path(orig) if orig else None
+            self._original_position = orig_pos
+
+            assert self.mount_path is not None
+            dwpos = _STYLE_TO_DWPOS[self.style]
+            set_per_display_wallpaper(monitor_device_path, str(self.mount_path))
+            set_wallpaper_position(monitor_device_path, dwpos)
+
+            logger.info(
+                "static_wallpaper: '%s' <- %s (style=%s)",
+                monitor_device_path,
+                self.mount_path,
+                self.style.name,
+            )
 
     def demount(self) -> None:
-        """Restore the original wallpaper and style.
+        """Restore the original wallpaper for the display mounted on.
 
-        When *restore* is ``False`` (set at init time), the original wallpaper
-        is *not* restored and the current wallpaper remains in place.
+        When *restore* is ``False`` (set at init time), no-op.
         """
-        if self.restore and self._original_wallpaper and self._original_style:
-            set_wallpaper(self._original_wallpaper, self._original_style)
-            logger.debug(
-                "restore origin wallpaper: %s, style: %s",
-                self._original_wallpaper,
-                self._original_style,
+        if not self.restore or self._original_wallpaper is None:
+            return
+        assert self._monitor_device_path is not None
+        assert self._original_position is not None
+
+        with com_session():
+            set_per_display_wallpaper(
+                self._monitor_device_path, str(self._original_wallpaper)
             )
-            self._original_wallpaper = None
-            self._original_style = None
+            set_wallpaper_position(
+                self._monitor_device_path, self._original_position
+            )
+            logger.info(
+                "static_wallpaper: restore '%s' <- %s",
+                self._monitor_device_path,
+                self._original_wallpaper,
+            )
+
+        self._original_wallpaper = None
+        self._original_position = None
+        self._monitor_device_path = None

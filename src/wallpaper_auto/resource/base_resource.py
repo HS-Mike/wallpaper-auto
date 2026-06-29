@@ -18,13 +18,16 @@ class BaseResource(ABC):
     """
 
     @abstractmethod
-    def mount(self) -> None:
+    def mount(self, monitor_device_path: str) -> None:
         """
         Prepare and make the wallpaper resource available.
 
         The wallpaper system calls mount() before applying a wallpaper
         and demount() after the wallpaper has been applied or when
         switching to a different wallpaper.
+
+        Args:
+            monitor_device_path: Target display device path.
         """
         ...
 

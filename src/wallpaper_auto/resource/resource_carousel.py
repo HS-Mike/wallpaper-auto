@@ -13,9 +13,13 @@ import random
 import threading
 from typing import Any
 
+from ..util.wallpaper_util import (
+    com_session,
+    get_wallpaper,
+    set_wallpaper as set_per_display_wallpaper,
+)
 from .base_resource import BaseResource
 from .wallpaper_utils import (
-    get_current_wallpaper,
     get_current_wallpaper_style,
     set_wallpaper,
 )
@@ -27,10 +31,10 @@ class ResourceCarousel(BaseResource):
     """
     A wallpaper resource that cycles through a list of sub-resources.
 
-    On mount, saves the current wallpaper, mounts the first sub-resource,
-    and starts a background thread that advances to the next sub-resource
-    every *interval* seconds. On demount, stops the thread, demounts the
-    current sub-resource, and restores the original wallpaper.
+    On mount, saves the current wallpaper for the target display, mounts the
+    first sub-resource, and starts a background thread that advances to the
+    next sub-resource every *interval* seconds. On demount, stops the thread,
+    demounts the current sub-resource, and restores the original wallpaper.
 
     Accepts either pre-instantiated ``BaseResource`` objects (programmatic
     use) or raw config dicts (YAML).  Dicts are resolved through the
@@ -81,7 +85,8 @@ class ResourceCarousel(BaseResource):
         self._cycling_thread: threading.Thread | None = None
         self._index = 0
 
-        # Original wallpaper tracking
+        # Display and original wallpaper tracking
+        self._monitor_device_path: str | None = None
         self._original_wallpaper: str | None = None
         self._original_style: tuple[str, str] | None = None
 
@@ -115,35 +120,34 @@ class ResourceCarousel(BaseResource):
     def _cycling_loop(self) -> None:
         """Background thread: cycle sub-resources at the configured interval."""
         logger.debug("resource carousel cycling thread start")
+        assert self._monitor_device_path is not None
         while not self._stop_event.wait(timeout=self.interval):
-            # Demount current sub-resource (no-op when restore=False)
             self._resources[self._index].demount()
             self._advance_index()
-            self._resources[self._index].mount()
+            self._resources[self._index].mount(self._monitor_device_path)
         logger.debug("resource carousel cycling thread exit")
 
     # ---- Lifecycle ---------------------------------------------------------
 
-    def mount(self) -> None:
+    def mount(self, monitor_device_path: str) -> None:
         """
         Start the resource cycling.
 
-        Saves the current wallpaper path and style, mounts the first
+        Saves the current wallpaper for the target display, mounts the first
         sub-resource, then launches a daemon thread that cycles through
         sub-resources every *interval* seconds.
         """
-        self._original_wallpaper = get_current_wallpaper()
+        self._monitor_device_path = monitor_device_path
+
+        # Save original wallpaper for the display via COM
+        with com_session():
+            self._original_wallpaper = get_wallpaper(monitor_device_path)
         self._original_style = get_current_wallpaper_style()
-        logger.debug(
-            "origin wallpaper: %s, style: %s",
-            self._original_wallpaper,
-            self._original_style,
-        )
 
         # Pick the first resource (random start or index 0)
         if self.random:
             self._advance_index()
-        self._resources[self._index].mount()
+        self._resources[self._index].mount(monitor_device_path)
 
         # Start the cycling thread
         self._stop_event.clear()
@@ -181,3 +185,4 @@ class ResourceCarousel(BaseResource):
 
         self._original_wallpaper = None
         self._original_style = None
+        self._monitor_device_path = None

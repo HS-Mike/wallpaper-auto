@@ -36,6 +36,7 @@ class ModeSwitchTask(BaseTask):
 class ResourceSetTask(BaseTask):
     type: Literal[TaskType.RESOURCE_SET] = TaskType.RESOURCE_SET
     target_resource_id: str
+    monitor_device_path: str
 
 
 Task = Annotated[QuitTask | ModeSwitchTask | ResourceSetTask, Field(discriminator="type")]

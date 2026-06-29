@@ -69,12 +69,12 @@ class ResourceManager:
         with self._mutex:
             return self._active_resource_id
 
-    def mount(self, resource_id: str) -> None:
+    def mount(self, resource_id: str, monitor_device_path: str) -> None:
         """Activate the specified resource (automatically demount current one)."""
         with self._mutex:
             if resource_id not in self._resource_objects:
                 raise KeyError(f"Resource not found: {resource_id}")
-            self._resource_objects[resource_id].mount()
+            self._resource_objects[resource_id].mount(monitor_device_path)
             self._active_resource_id = resource_id
 
     def demount(self) -> None:
