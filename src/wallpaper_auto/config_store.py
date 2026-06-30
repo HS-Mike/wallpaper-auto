@@ -10,7 +10,7 @@ from pathlib import Path
 
 import yaml
 
-from .models import ConfigModel, ResourceConfig, Rule, TriggerConfig
+from .models import ConfigModel, ResourceConfig, Rule, TriggerConfig, SceneBinding
 from .util.singleton_meta import SingletonMeta
 
 logger = logging.getLogger(__name__)
@@ -54,3 +54,9 @@ class ConfigStore(metaclass=SingletonMeta):
     def cache_path(self) -> Path:
         assert self.config is not None
         return self.config.cache_path
+
+    @property
+    def scene(self) -> dict[str, list[SceneBinding]]:
+        assert self.config is not None
+        return self.config.scene or {}
+    
