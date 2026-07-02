@@ -15,8 +15,6 @@ from pathlib import Path
 from abc import ABC, abstractmethod
 from typing import Protocol
 
-from PIL import Image
-
 from ..util.wallpaper_util import get_wallpaper, get_wallpaper_style, set_wallpaper, set_wallpaper_style, WallpaperStyle
 
 
@@ -30,7 +28,7 @@ class PlotCanvasProtocol(Protocol):
             (e.g. skip batching).  Defaults to True.
     """
 
-    def __call__(self, style: WallpaperStyle, image: Image.Image, immediate_update: bool = True) -> None: ...
+    def __call__(self, style: WallpaperStyle, image_path: Path, immediate_update: bool = True) -> None: ...
 
 
 class BaseResource(ABC):
@@ -43,36 +41,19 @@ class BaseResource(ABC):
     Subclasses must override :meth:`mount` and :meth:`demount`.
     """
 
-    def __init__(self, monitor_device_id: str):
+    def __init__(self):
         """
         Args:
             monitor_device_id: Unique device path of the target monitor
                 (e.g. ``MONITOR\...``).  Used for per-display wallpaper
                 operations via the COM ``IDesktopWallpaper`` API.
         """
-        self.monitor_device_id: str = monitor_device_id
-        self.original_wallpaper_style: WallpaperStyle | None = None
-        self.original_wallpaper_path: Path | None = None
+        self.monitor_device_path: str | None = None
 
-    def record_origin(self):
-        """Save the current wallpaper style and per-monitor wallpaper path.
-
-        Call before :meth:`mount` to capture the state that
-        :meth:`restore_origin` will later revert to.
-        """
-        self.original_wallpaper_style = get_wallpaper_style()
-        self.original_wallpaper_path = get_wallpaper(self.monitor_device_id)
-
-    def restore_origin(self):
-        """Restore the wallpaper captured by :meth:`record_origin`.
-
-        Raises:
-            AssertionError: If :meth:`record_origin` was not called first.
-        """
-        assert self.original_wallpaper_style is not None, "no origin record"
-        assert self.original_wallpaper_path is not None, "no origin record"
-        set_wallpaper_style(self.original_wallpaper_style)
-        set_wallpaper(self.monitor_device_id, self.original_wallpaper_path)
+    def bind_monitor_device_path(self, monitor_device_path: str):
+        if self.monitor_device_path is not None:
+            raise RuntimeError("monitor_device_path already bound")
+        self.monitor_device_path = monitor_device_path
 
 
     @abstractmethod
