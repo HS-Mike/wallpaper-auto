@@ -5,6 +5,7 @@ import logging
 import contextlib
 from ctypes import wintypes
 from enum import IntEnum
+from pathlib import Path
 from typing import Optional, Dict, Any, Callable, TypeVar, ParamSpec, Tuple
 
 
@@ -61,8 +62,8 @@ PROTO_GET_WALLPAPER: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ct
 PROTO_GET_MONITOR_PATH_AT: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.UINT, ctypes.POINTER(ctypes.c_wchar_p))
 PROTO_GET_MONITOR_COUNT: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(wintypes.UINT))
 PROTO_GET_MONITOR_BOUNDS: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.POINTER(RECT))
-PROTO_SET_WALLPAPER_POS: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int)
-PROTO_GET_WALLPAPER_POS: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int))
+PROTO_SET_WALLPAPER_POS: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_int)
+PROTO_GET_WALLPAPER_POS: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int))
 PROTO_ADVANCE_SLIDESHOW: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_wchar_p, wintypes.DWORD)
 PROTO_GET_STATUS: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD))
 PROTO_ENABLE: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.BOOL)
@@ -197,15 +198,15 @@ def get_monitor_device_path_at(index: int) -> str:
 
 
 @com_managed
-def set_wallpaper(monitor_id: str | None, image_path: str) -> None:
+def set_wallpaper(monitor_id: str | None, image_path: str | Path) -> None:
     """Set the wallpaper for a monitor (None = all monitors)"""
-    hr_call: int = _call_com_vtable(3, PROTO_SET_WALLPAPER, monitor_id, image_path)
+    hr_call: int = _call_com_vtable(3, PROTO_SET_WALLPAPER, monitor_id, str(image_path))
     if hr_call != 0:
         raise OSError(f"set_wallpaper failed: 0x{hr_call & 0xFFFFFFFF:08X}")
 
 
 @com_managed
-def get_wallpaper(monitor_id: Optional[str]) -> str:
+def get_wallpaper(monitor_id: Optional[str]) -> Path:
     """
     Return the absolute wallpaper path for the given monitor.
 
@@ -221,8 +222,8 @@ def get_wallpaper(monitor_id: Optional[str]) -> str:
         raise OSError(f"get_wallpaper failed: 0x{hr_call & 0xFFFFFFFF:08X}")
     if path.value is None:
         raise OSError("wallpaper path returned Null")
-    
-    result: str = str(path.value)
+
+    result = Path(str(path.value))
     ole32.CoTaskMemFree(ctypes.cast(path, ctypes.c_void_p))
     return result
 
@@ -243,21 +244,21 @@ def get_monitor_bounds(monitor_id: str) -> Dict[str, int]:
 
 
 @com_managed
-def set_wallpaper_style(monitor_id: str | None, style: int) -> None:
-    """Set wallpaper style/fit for a monitor (None = all monitors).
+def set_wallpaper_style(style: int | WallpaperStyle) -> None:
+    """Set global wallpaper style/fit for all monitors.
 
     Values: DWPOS_CENTER, DWPOS_TILE, DWPOS_STRETCH, DWPOS_FIT, DWPOS_FILL, DWPOS_SPAN.
     """
-    hr_call: int = _call_com_vtable(8, PROTO_SET_WALLPAPER_POS, monitor_id, style)
+    hr_call: int = _call_com_vtable(8, PROTO_SET_WALLPAPER_POS, int(style))
     if hr_call < 0:
         raise OSError(f"set_wallpaper_style failed: 0x{hr_call & 0xFFFFFFFF:08X}")
 
 
 @com_managed
-def get_wallpaper_style(monitor_id: Optional[str]) -> WallpaperStyle:
-    """Get wallpaper style/fit for a monitor"""
+def get_wallpaper_style() -> WallpaperStyle:
+    """Get the current global wallpaper style/fit"""
     style: ctypes.c_int = ctypes.c_int()
-    hr_call: int = _call_com_vtable(9, PROTO_GET_WALLPAPER_POS, monitor_id, ctypes.byref(style))
+    hr_call: int = _call_com_vtable(9, PROTO_GET_WALLPAPER_POS, ctypes.byref(style))
     if hr_call < 0:
         raise OSError(f"get_wallpaper_style failed: 0x{hr_call & 0xFFFFFFFF:08X}")
     return WallpaperStyle(style.value)
