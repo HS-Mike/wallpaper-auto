@@ -16,7 +16,7 @@ from wallpaper_auto.trigger.display_trigger import DisplayTrigger
 
 @pytest.fixture
 def mock_display_deps():
-    """Patch all Win32 / CCD / COM dependencies for DisplayTrigger instance tests."""
+    """Patch all Win32 / CCD / COM / DPI dependencies for DisplayTrigger instance tests."""
     with (
         patch("wallpaper_auto.trigger.display_trigger.win32gui.WNDCLASS"),
         patch(
@@ -41,6 +41,10 @@ def mock_display_deps():
             "wallpaper_auto.trigger.display_trigger.get_display_info"
         ) as get_display_info_fn,
         patch("wallpaper_auto.trigger.display_trigger.pythoncom") as pythoncom,
+        patch.object(
+            DisplayTrigger, "_get_all_monitors_dpi_snapshot",
+            return_value=frozenset(),
+        ) as get_dpi_snapshot_fn,
     ):
         yield {
             "pqm": pqm,
@@ -49,6 +53,7 @@ def mock_display_deps():
             "postmsg": postmsg,
             "pythoncom": pythoncom,
             "dw": dw,
+            "get_dpi_snapshot_fn": get_dpi_snapshot_fn,
         }
 
 
@@ -65,7 +70,7 @@ class TestDisplayTriggerInit:
 
         assert trigger.hwnd is None
         assert trigger._prev_displays == frozenset()
-        assert trigger.current_displays is None
+        assert trigger._prev_monitor_dpis == frozenset()
 
 
 # ===========================================================================
@@ -85,7 +90,6 @@ class TestDisplayTriggerMsgProc:
 
     def test_wm_displaychange_triggers_on_change(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
-        callback_called = []
         trigger._prev_displays = frozenset()
 
         # Configure get_display_info to return a known display
@@ -93,25 +97,17 @@ class TestDisplayTriggerMsgProc:
             DisplayInfo(
                 model="U2719D", source_resolution=(1920, 1080),
                 position=(0, 0), target_resolution=(1920, 1080),
-                monitor_device_path=_DEVICE_A,
+                scale=1.0, monitor_device_path=_DEVICE_A,
             ),
         ]
 
-        # Capture current_displays during callback
-        captured_displays = []
-
-        def on_trigger(t):
-            captured_displays.append(t.current_displays)
-            callback_called.append(True)
-
-        trigger.add_callback(on_trigger)
+        callback_called = []
+        trigger.add_callback(lambda _t: callback_called.append(True))
 
         result = trigger._msg_proc(0, win32con.WM_DISPLAYCHANGE, 0, 0)
 
         assert callback_called == [True]
-        assert captured_displays == [_SNAPSHOT_A]
         assert trigger._prev_displays == _SNAPSHOT_A
-        assert trigger.current_displays is None  # cleared after callback
         assert result == 0
 
     def test_wm_displaychange_skips_on_no_change(self, mock_display_deps) -> None:
@@ -124,14 +120,13 @@ class TestDisplayTriggerMsgProc:
                 DisplayInfo(
                     model="U2719D", source_resolution=(1920, 1080),
                     position=(0, 0), target_resolution=(1920, 1080),
-                    monitor_device_path=_DEVICE_A,
+                    scale=1.0, monitor_device_path=_DEVICE_A,
                 ),
             ]
 
             trigger._msg_proc(0, win32con.WM_DISPLAYCHANGE, 0, 0)
 
             mock_trigger.assert_not_called()
-            assert trigger.current_displays is None
 
     def test_wm_destroy_posts_quit_message(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
@@ -296,3 +291,103 @@ class TestDisplayTriggerRun:
         # CoUninitialize must still be called despite the UnregisterClass error
         mock_display_deps["pythoncom"].CoUninitialize.assert_called_once()
         assert "UnregisterClass failed" in caplog.text
+
+
+# ===========================================================================
+# TestDisplayTriggerDpi
+# ===========================================================================
+
+
+class TestDisplayTriggerDpi:
+    """Tests for DPI scaling change detection via all-monitors snapshot."""
+
+    _MONITOR_96 = frozenset({((0, 0, 1920, 1080), 96)})
+    _MONITOR_144 = frozenset({((0, 0, 1920, 1080), 144)})
+    _MONITOR_DUAL = frozenset({
+        ((0, 0, 1920, 1080), 96),
+        ((1920, 0, 3840, 1080), 96),
+    })
+
+    def test_initial_dpi_captured_on_setup(self, mock_display_deps) -> None:
+        """_setup_window should capture the initial all-monitors DPI snapshot."""
+        trigger = DisplayTrigger()
+        assert trigger._prev_monitor_dpis == frozenset()
+
+        mock_display_deps["get_dpi_snapshot_fn"].return_value = self._MONITOR_96
+        trigger._setup_window()
+
+        assert trigger._prev_monitor_dpis == self._MONITOR_96
+
+    def test_wm_settingchange_detects_dpi_change(self, mock_display_deps) -> None:
+        """WM_SETTINGCHANGE should trigger when DPI changes on any monitor."""
+        trigger = DisplayTrigger()
+        trigger._prev_monitor_dpis = self._MONITOR_96
+        mock_display_deps["get_dpi_snapshot_fn"].return_value = self._MONITOR_144
+
+        callback_called = []
+        trigger.add_callback(lambda _t: callback_called.append(True))
+
+        result = trigger._msg_proc(0, win32con.WM_SETTINGCHANGE, 0, 0)
+
+        assert callback_called == [True]
+        assert trigger._prev_monitor_dpis == self._MONITOR_144
+        assert result == 0
+
+    def test_wm_settingchange_skips_on_no_dpi_change(self, mock_display_deps) -> None:
+        """WM_SETTINGCHANGE without DPI change should not trigger."""
+        trigger = DisplayTrigger()
+        trigger._prev_monitor_dpis = self._MONITOR_96
+        mock_display_deps["get_dpi_snapshot_fn"].return_value = self._MONITOR_96
+
+        with patch.object(trigger, "trigger") as mock_trigger:
+            trigger._msg_proc(0, win32con.WM_SETTINGCHANGE, 0, 0)
+
+            mock_trigger.assert_not_called()
+
+    def test_wm_settingchange_handles_empty_snapshot(self, mock_display_deps) -> None:
+        """WM_SETTINGCHANGE with empty snapshot and prev should not trigger."""
+        trigger = DisplayTrigger()
+        trigger._prev_monitor_dpis = frozenset()
+
+        with patch.object(trigger, "trigger") as mock_trigger:
+            trigger._msg_proc(0, win32con.WM_SETTINGCHANGE, 0, 0)
+
+            mock_trigger.assert_not_called()
+
+    def test_wm_displaychange_also_detects_dpi_change(self, mock_display_deps) -> None:
+        """WM_DISPLAYCHANGE should also detect DPI scaling transitions."""
+        trigger = DisplayTrigger()
+        trigger._prev_monitor_dpis = self._MONITOR_96
+        mock_display_deps["get_dpi_snapshot_fn"].return_value = self._MONITOR_144
+
+        callback_called = []
+
+        def on_trigger(t: DisplayTrigger) -> None:
+            callback_called.append(True)
+
+        trigger.add_callback(on_trigger)
+
+        trigger._msg_proc(0, win32con.WM_DISPLAYCHANGE, 0, 0)
+
+        assert callback_called == [True]
+        assert trigger._prev_monitor_dpis == self._MONITOR_144
+
+    def test_dual_monitor_secondary_dpi_change(self, mock_display_deps) -> None:
+        """Changing DPI on secondary monitor (not at origin) still triggers."""
+        trigger = DisplayTrigger()
+        trigger._prev_monitor_dpis = self._MONITOR_DUAL
+
+        # Secondary monitor's DPI changed from 96 to 144
+        changed_dual = frozenset({
+            ((0, 0, 1920, 1080), 96),
+            ((1920, 0, 3840, 1080), 144),
+        })
+        mock_display_deps["get_dpi_snapshot_fn"].return_value = changed_dual
+
+        callback_called = []
+        trigger.add_callback(lambda t: callback_called.append(True))
+
+        trigger._msg_proc(0, win32con.WM_SETTINGCHANGE, 0, 0)
+
+        assert callback_called == [True]
+        assert trigger._prev_monitor_dpis == changed_dual

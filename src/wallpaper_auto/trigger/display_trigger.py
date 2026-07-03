@@ -56,8 +56,6 @@ class DisplayTrigger(BaseThreadTrigger):
         self.hwnd = None
         self._prev_displays: frozenset[tuple[str, str]] = frozenset()
         self._prev_monitor_dpis: frozenset[tuple[tuple[int, int, int, int], int]] = frozenset()
-        self.current_displays: frozenset[tuple[str, str]] | None = None    # only available in callback
-        self.current_dpi: int | None = None  # pass primary monitor DPI value to the callback
 
     @staticmethod
     def _display_snapshot() -> frozenset[tuple[str, str]]:
@@ -156,7 +154,6 @@ class DisplayTrigger(BaseThreadTrigger):
             if curr_display != self._prev_displays:
                 logger.debug(f"Display hardware change detected: {curr_display}")
                 self._prev_displays = curr_display
-                self.current_displays = curr_display
                 is_changed = True
 
             # 2. Check for DPI scaling transition on any monitor
@@ -167,14 +164,11 @@ class DisplayTrigger(BaseThreadTrigger):
                     f"Primary DPI: {primary_dpi} ({int((primary_dpi / 96.0) * 100)}%)"
                 )
                 self._prev_monitor_dpis = curr_monitor_dpis
-                self.current_dpi = primary_dpi
                 is_changed = True
 
             # 3. Fire callback once if anything changed
             if is_changed:
                 self.trigger()
-                self.current_displays = None
-                self.current_dpi = None
             return 0
 
         elif msg == win32con.WM_CLOSE:
