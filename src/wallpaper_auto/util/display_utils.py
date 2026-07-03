@@ -10,6 +10,7 @@ class DisplayInfo:
     source_resolution: tuple[int, int]
     position: tuple[int, int]
     target_resolution: tuple[int, int]
+    scale: float = 1.0
     monitor_device_path: str = ""
 
 
@@ -138,11 +139,21 @@ class DISPLAYCONFIG_PATH_INFO(ctypes.Structure):
 
 
 user32 = ctypes.windll.user32
+shcore = ctypes.windll.shcore
 
 user32.DisplayConfigGetDeviceInfo.argtypes = [
     ctypes.POINTER(DISPLAYCONFIG_DEVICE_INFO_HEADER)
 ]
 user32.DisplayConfigGetDeviceInfo.restype = wintypes.LONG
+
+user32.MonitorFromPoint.argtypes = [POINTL, wintypes.DWORD]
+user32.MonitorFromPoint.restype = wintypes.HANDLE
+
+shcore.GetDpiForMonitor.argtypes = [
+    wintypes.HANDLE, ctypes.c_int,
+    ctypes.POINTER(wintypes.UINT), ctypes.POINTER(wintypes.UINT),
+]
+shcore.GetDpiForMonitor.restype = wintypes.LONG
 
 
 def get_display_info() -> list[DisplayInfo]:
@@ -231,12 +242,23 @@ def get_display_info() -> list[DisplayInfo]:
         else:
             raise OSError(f"DisplayConfigGetDeviceInfo error return: {res}")
         
+        # 4. compute per-monitor DPI scale factor via position-based HMONITOR lookup
+        pt = POINTL(pos_x, pos_y)
+        h_monitor = user32.MonitorFromPoint(pt, 2)  # MONITOR_DEFAULTTONEAREST
+        scale = 1.0
+        if h_monitor:
+            dpi_x = wintypes.UINT(0)
+            dpi_y = wintypes.UINT(0)
+            if shcore.GetDpiForMonitor(h_monitor, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y)) == 0:
+                scale = round(dpi_x.value / 96.0, 2)
+
         res_display_info.append(
             DisplayInfo(
-                model=friendly_name, 
-                source_resolution=source_resolution, 
-                position=position, 
-                target_resolution=target_resolution, 
+                model=friendly_name,
+                source_resolution=source_resolution,
+                position=position,
+                target_resolution=target_resolution,
+                scale=scale,
                 monitor_device_path=monitor_device_path
             )
         )
