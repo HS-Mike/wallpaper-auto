@@ -166,7 +166,6 @@ def com_session():
             vtable = ctypes.cast(ppv.contents, ctypes.POINTER(ctypes.c_void_p))
             release_func = ctypes.cast(vtable[2], PROTO_RELEASE)
             release_func(p_wallpaper)
-            logger.debug("IDesktopWallpaper COM session object released")
         if com_initialized:
             ole32.CoUninitialize()
 
@@ -244,54 +243,6 @@ def get_monitor_bounds(monitor_id: str) -> Dict[str, int]:
 
 
 @com_managed
-def set_wallpaper_style(style: int | WallpaperStyle) -> None:
-    """Set global wallpaper style/fit for all monitors.
-
-    Values: DWPOS_CENTER, DWPOS_TILE, DWPOS_STRETCH, DWPOS_FIT, DWPOS_FILL, DWPOS_SPAN.
-    """
-    hr_call: int = _call_com_vtable(8, PROTO_SET_WALLPAPER_POS, int(style))
-    if hr_call < 0:
-        raise OSError(f"set_wallpaper_style failed: 0x{hr_call & 0xFFFFFFFF:08X}")
-
-
-@com_managed
-def get_wallpaper_style() -> WallpaperStyle:
-    """Get the current global wallpaper style/fit"""
-    style: ctypes.c_int = ctypes.c_int()
-    hr_call: int = _call_com_vtable(9, PROTO_GET_WALLPAPER_POS, ctypes.byref(style))
-    if hr_call < 0:
-        raise OSError(f"get_wallpaper_style failed: 0x{hr_call & 0xFFFFFFFF:08X}")
-    return WallpaperStyle(style.value)
-
-
-@com_managed
-def advance_slideshow(monitor_id: Optional[str], forward: bool = True) -> None:
-    """Advance to the next/previous slideshow image"""
-    direction: int = DSD_FORWARD if forward else DSD_BACKWARD
-    hr_call: int = _call_com_vtable(12, PROTO_ADVANCE_SLIDESHOW, monitor_id, wintypes.DWORD(direction))
-    if hr_call < 0:
-        raise OSError(f"advance_slideshow failed: 0x{hr_call & 0xFFFFFFFF:08X}")
-
-
-@com_managed
-def get_status() -> int:
-    """Return the slideshow status"""
-    status: wintypes.DWORD = wintypes.DWORD()
-    hr_call: int = _call_com_vtable(13, PROTO_GET_STATUS, ctypes.byref(status))
-    if hr_call < 0:
-        raise OSError(f"get_status failed: 0x{hr_call & 0xFFFFFFFF:08X}")
-    return int(status.value)
-
-
-@com_managed
-def enable(enable_: bool) -> None:
-    """Enable or disable wallpaper rendering"""
-    hr_call: int = _call_com_vtable(14, PROTO_ENABLE, wintypes.BOOL(enable_))
-    if hr_call < 0:
-        raise OSError(f"enable failed: 0x{hr_call & 0xFFFFFFFF:08X}")
-
-
-@com_managed
 def set_background_color(color: int | Tuple[int, int, int]) -> None:
     """Set the background color used when wallpaper style is Center or Fit.
 
@@ -302,7 +253,7 @@ def set_background_color(color: int | Tuple[int, int, int]) -> None:
         color_ref = int(r | (g << 8) | (b << 16))
     else:
         color_ref = int(color)
-    hr_call: int = _call_com_vtable(15, PROTO_SET_BACKGROUND_COLOR, wintypes.COLORREF(color_ref))
+    hr_call: int = _call_com_vtable(8, PROTO_SET_BACKGROUND_COLOR, wintypes.COLORREF(color_ref))
     if hr_call < 0:
         raise OSError(f"set_background_color failed: 0x{hr_call & 0xFFFFFFFF:08X}")
 
@@ -311,7 +262,7 @@ def set_background_color(color: int | Tuple[int, int, int]) -> None:
 def get_background_color() -> Tuple[int, int, int]:
     """Return the background color as an (R, G, B) tuple."""
     color_ref: wintypes.COLORREF = wintypes.COLORREF()
-    hr_call: int = _call_com_vtable(16, PROTO_GET_BACKGROUND_COLOR, ctypes.byref(color_ref))
+    hr_call: int = _call_com_vtable(9, PROTO_GET_BACKGROUND_COLOR, ctypes.byref(color_ref))
     if hr_call < 0:
         raise OSError(f"get_background_color failed: 0x{hr_call & 0xFFFFFFFF:08X}")
     val: int = color_ref.value
@@ -319,4 +270,52 @@ def get_background_color() -> Tuple[int, int, int]:
     g: int = (val >> 8) & 0xFF
     b: int = (val >> 16) & 0xFF
     return (r, g, b)
-        
+
+
+@com_managed
+def set_wallpaper_style(style: int | WallpaperStyle) -> None:
+    """Set global wallpaper style/fit for all monitors.
+
+    Values: DWPOS_CENTER, DWPOS_TILE, DWPOS_STRETCH, DWPOS_FIT, DWPOS_FILL, DWPOS_SPAN.
+    """
+    hr_call: int = _call_com_vtable(10, PROTO_SET_WALLPAPER_POS, int(style))
+    if hr_call < 0:
+        raise OSError(f"set_wallpaper_style failed: 0x{hr_call & 0xFFFFFFFF:08X}")
+
+
+@com_managed
+def get_wallpaper_style() -> WallpaperStyle:
+    """Get the current global wallpaper style/fit"""
+    style: ctypes.c_int = ctypes.c_int()
+    hr_call: int = _call_com_vtable(11, PROTO_GET_WALLPAPER_POS, ctypes.byref(style))
+    if hr_call < 0:
+        raise OSError(f"get_wallpaper_style failed: 0x{hr_call & 0xFFFFFFFF:08X}")
+    return WallpaperStyle(style.value)
+
+
+@com_managed
+def advance_slideshow(monitor_id: Optional[str], forward: bool = True) -> None:
+    """Advance to the next/previous slideshow image"""
+    direction: int = DSD_FORWARD if forward else DSD_BACKWARD
+    hr_call: int = _call_com_vtable(14, PROTO_ADVANCE_SLIDESHOW, monitor_id, wintypes.DWORD(direction))
+    if hr_call < 0:
+        raise OSError(f"advance_slideshow failed: 0x{hr_call & 0xFFFFFFFF:08X}")
+
+
+@com_managed
+def get_status() -> int:
+    """Return the slideshow status"""
+    status: wintypes.DWORD = wintypes.DWORD()
+    hr_call: int = _call_com_vtable(15, PROTO_GET_STATUS, ctypes.byref(status))
+    if hr_call < 0:
+        raise OSError(f"get_status failed: 0x{hr_call & 0xFFFFFFFF:08X}")
+    return int(status.value)
+
+
+@com_managed
+def enable(enable_: bool) -> None:
+    """Enable or disable wallpaper rendering"""
+    hr_call: int = _call_com_vtable(16, PROTO_ENABLE, wintypes.BOOL(enable_))
+    if hr_call < 0:
+        raise OSError(f"enable failed: 0x{hr_call & 0xFFFFFFFF:08X}")
+
