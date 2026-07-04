@@ -26,9 +26,9 @@ class ConfigStore(metaclass=SingletonMeta):
         self.config = ConfigModel(**raw_data)
 
     @property
-    def fallback_resource_id(self) -> str:
+    def fallback_target(self) -> str:
         assert self.config is not None
-        return self.config.fallback
+        return self.config.fallback_target
 
     @property
     def at_shutdown_resource_id(self) -> str | None:

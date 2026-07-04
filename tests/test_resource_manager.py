@@ -146,7 +146,7 @@ class TestResourceManagerInitResources:
             resource={"a": {"name": "static_wallpaper", "config": {"path": "dummy"}}},
             trigger=[],
             rule=[],
-            fallback="a",
+            fallback_target="a",
             cache=str(cache_dir),
         )
 

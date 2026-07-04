@@ -80,7 +80,7 @@ See `wallpaper-auto init-config --help` for all options. You can also create a `
 ```yaml
 # 1. Wallpaper resource pool
 resource:
-  work_wallpaper:                         # Resource ID — referenced by rules & fallback
+  work_wallpaper:                         # Resource ID — referenced by rules & fallback_target
     name: static_wallpaper                # Single-image wallpaper
     config:
       path: "C:/path/to/wallpaper.jpg"
@@ -122,7 +122,7 @@ rule:
         - day_of_week_is: [0, 1, 2, 3, 4] # Monday to Friday
     target: "dark_wallpaper"
 # 4. Fallback wallpaper (used when no rule matches)
-fallback: "default_wallpaper"
+fallback_target: "default_wallpaper"
 
 # 5. (Optional) At-shutdown wallpaper — applied when Windows shuts down
 # at_shutdown: "work_wallpaper"

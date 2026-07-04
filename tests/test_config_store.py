@@ -30,7 +30,7 @@ def _make_valid_yaml(**overrides) -> str:
                 "target": "office_view",
             },
         ],
-        "fallback": "office_view",
+        "fallback_target": "office_view",
     }
     data.update(overrides)
     return yaml.dump(data)
@@ -40,7 +40,7 @@ _MINIMAL = {
     "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
     "trigger": [{"name": "windows_session"}],
     "rule": [],
-    "fallback": "a",
+    "fallback_target": "a",
 }
 
 
@@ -89,7 +89,7 @@ class TestLoad:
     def test_load_sets_config_model(self, store: ConfigStore, valid_yaml: str):
         store.load(valid_yaml)
         assert store.config is not None
-        assert store.config.fallback == "office_view"
+        assert store.config.fallback_target == "office_view"
         assert "office_view" in store.config.resource
         assert "black" in store.config.resource
         assert len(store.config.trigger) == 2
@@ -158,7 +158,7 @@ class TestLoad:
                         "target": "a",
                     }
                 ],
-                "fallback": "a",
+                "fallback_target": "a",
             }
         )
         path = tmp_path / "complex.yaml"
@@ -203,7 +203,7 @@ class TestLoadErrors:
     def test_missing_fallback(self, store: ConfigStore, tmp_path):
         """load should fail when fallback key is missing."""
         path = tmp_path / "no_fallback.yaml"
-        path.write_text(_make_minimal_yaml(fallback=None), encoding="utf-8")
+        path.write_text(_make_minimal_yaml(fallback_target=None), encoding="utf-8")
         with pytest.raises(ValueError):
             store.load(str(path))
 
@@ -227,7 +227,7 @@ class TestLoadErrors:
 
     def test_fallback_target_not_found(self, store: ConfigStore, tmp_path):
         path = tmp_path / "bad_fallback.yaml"
-        path.write_text(_make_minimal_yaml(fallback="nonexistent_resource"), encoding="utf-8")
+        path.write_text(_make_minimal_yaml(fallback_target="nonexistent_resource"), encoding="utf-8")
         with pytest.raises(ValueError, match="Fallback target.*not found"):
             store.load(str(path))
 
@@ -294,7 +294,7 @@ class TestLoadValidation:
                 "rule": [
                     {"name": "r", "condition": {"time_range": ["09:00", "17:00"]}, "target": "a"}
                 ],
-                "fallback": "a",
+                "fallback_target": "a",
             }
         )
         path = tmp_path / "trigger_config.yaml"
@@ -316,7 +316,7 @@ class TestLoadValidation:
                     {"name": "second", "condition": {"network": "X"}, "target": "a"},
                     {"name": "third", "condition": {"network": "Y"}, "target": "a"},
                 ],
-                "fallback": "a",
+                "fallback_target": "a",
             }
         )
         path = tmp_path / "multi_rule.yaml"
@@ -332,9 +332,9 @@ class TestLoadValidation:
 class TestProperties:
     """Accessor properties after config load."""
 
-    def test_fallback_resource_id(self, store: ConfigStore, valid_yaml: str):
+    def test_fallback_target(self, store: ConfigStore, valid_yaml: str):
         store.load(valid_yaml)
-        assert store.fallback_resource_id == "office_view"
+        assert store.fallback_target == "office_view"
 
     def test_resource(self, store: ConfigStore, valid_yaml: str):
         store.load(valid_yaml)
@@ -359,7 +359,7 @@ class TestProperties:
     def test_properties_before_load_raises(self, store: ConfigStore):
         """Accessing properties before load() should raise AssertionError."""
         with pytest.raises(AssertionError):
-            _ = store.fallback_resource_id
+            _ = store.fallback_target
         with pytest.raises(AssertionError):
             _ = store.resource
         with pytest.raises(AssertionError):

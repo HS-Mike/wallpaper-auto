@@ -37,7 +37,7 @@ def _auto_config_store():
             resource={"a": {"name": "static_wallpaper", "config": {"path": "dummy"}}},
             trigger=[],
             rule=[],
-            fallback="a",
+            fallback_target="a",
         )
     yield
 

@@ -95,7 +95,7 @@ class ConfigModel(BaseModel):
     scene: dict[str, list[SceneBinding]] | None = None
     trigger: list[TriggerConfig]
     rule: list[Rule]
-    fallback: str
+    fallback_target: str
     at_shutdown: str | None = None
     cache: str | None = None
 
@@ -112,8 +112,8 @@ class ConfigModel(BaseModel):
 
     @model_validator(mode="after")
     def check_target_exist(self) -> "ConfigModel":
-        if self.fallback not in self.resource.keys():
-            raise ValueError(f"Fallback target '{self.fallback}' not found in resource")
+        if self.fallback_target not in self.resource.keys():
+            raise ValueError(f"Fallback target '{self.fallback_target}' not found in resource")
         scene_keys = set(self.scene or {})
         for rule in self.rule:
             if rule.target not in self.resource and rule.target not in scene_keys:

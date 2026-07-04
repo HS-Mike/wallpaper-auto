@@ -20,9 +20,9 @@ _DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
 
 
 def _mock_config_for_start(controller):
-    """Give the controller a fake config so ``start()`` can read ``fallback_resource_id``."""
+    """Give the controller a fake config so ``start()`` can read ``fallback_target``."""
     mock_cs = MagicMock()
-    mock_cs.fallback_resource_id = "fallback"
+    mock_cs.fallback_target = "fallback"
     mock_cs.at_shutdown_resource_id = None
     controller._config_store = mock_cs
     controller._primary_monitor_path = _DEVICE_PATH
@@ -160,7 +160,7 @@ class TestWallpaperControllerWorkerLoop:
 
     def test_mode_switch_auto_resumes_triggers(self, controller):
         controller._trigger_manager = MagicMock()
-        controller._config_store = MagicMock(fallback_resource_id="fallback")
+        controller._config_store = MagicMock(fallback_target="fallback")
         controller._primary_monitor_path = _DEVICE_PATH
         controller._task_queue.put(ModeSwitchTask(target_mode=Mode.AUTO))
         controller._task_queue.put(QuitTask())
@@ -228,7 +228,7 @@ class TestWallpaperControllerEvaluate:
         controller._resource_manager = mock_rm
         controller._rule_engine.evaluate = MagicMock(return_value=rule)
         mock_cs = MagicMock()
-        mock_cs.fallback_resource_id = "fallback"
+        mock_cs.fallback_target = "fallback"
         controller._config_store = mock_cs
         controller._primary_monitor_path = _DEVICE_PATH
 
@@ -246,7 +246,7 @@ class TestWallpaperControllerEvaluate:
         controller._resource_manager = mock_rm
         controller._rule_engine.evaluate = MagicMock(return_value=None)
         mock_cs = MagicMock()
-        mock_cs.fallback_resource_id = "fallback_res"
+        mock_cs.fallback_target = "fallback_res"
         controller._config_store = mock_cs
         controller._primary_monitor_path = _DEVICE_PATH
 
@@ -263,7 +263,7 @@ class TestWallpaperControllerEvaluate:
         controller._resource_manager = mock_rm
         controller._rule_engine.evaluate = MagicMock(return_value=None)
         mock_cs = MagicMock()
-        mock_cs.fallback_resource_id = "fallback_res"
+        mock_cs.fallback_target = "fallback_res"
         controller._config_store = mock_cs
         controller._primary_monitor_path = _DEVICE_PATH
 
@@ -292,7 +292,7 @@ class TestWallpaperControllerEvaluate:
         controller._resource_manager = mock_rm
         controller._rule_engine.evaluate = MagicMock(return_value=None)
         mock_cs = MagicMock()
-        mock_cs.fallback_resource_id = "fallback"
+        mock_cs.fallback_target = "fallback"
         controller._config_store = mock_cs
         controller._primary_monitor_path = _DEVICE_PATH
 
