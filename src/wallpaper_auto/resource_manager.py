@@ -1,8 +1,10 @@
 """
 Resource manager.
 
-Manages wallpaper resource lifecycle (mount/demount) at runtime.
+Initializes and resolves wallpaper resources from config.
 Handles registration of built-in and custom resource types.
+No longer manages mount/demount lifecycle — resources are
+bound to displays and mounted by the wallpaper controller.
 """
 
 import logging
@@ -26,7 +28,7 @@ _BUILTIN_RESOURCES: dict[str, type[BaseResource]] = {
 
 
 class ResourceManager:
-    """Resource lifecycle manager — mount/demount wallpapers and init from config."""
+    """Resource initializer — resolves config targets into per-display resource instances."""
 
     _support_resources = _BUILTIN_RESOURCES.copy()
     
@@ -64,7 +66,7 @@ class ResourceManager:
             res = {}
             for i in display_info:
                 resource_obj = _BUILTIN_RESOURCES[resource_cfg.name](**resource_cfg.config)
-                resource_obj.bind_monitor_device_path(i.monitor_device_path)
+                resource_obj._bind_monitor_device_path(i.monitor_device_path)
                 res[i.monitor_device_path] = resource_obj
             return res
         elif target in ConfigStore.instance.scene:
@@ -74,7 +76,7 @@ class ResourceManager:
             for monitor_device_path, resource_id in scene_map.items():
                 resource_cfg: ResourceConfig = ConfigStore.instance.resource[resource_id]
                 resource_obj = _BUILTIN_RESOURCES[resource_cfg.name](**resource_cfg.config)
-                resource_obj.bind_monitor_device_path(monitor_device_path)
+                resource_obj._bind_monitor_device_path(monitor_device_path)
                 res[monitor_device_path] = resource_obj
             return res
         else:

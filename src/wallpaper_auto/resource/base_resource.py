@@ -15,7 +15,9 @@ from pathlib import Path
 from abc import ABC, abstractmethod
 from typing import Protocol
 
-from ..util.wallpaper_util import get_wallpaper, get_wallpaper_style, set_wallpaper, set_wallpaper_style, WallpaperStyle
+from PIL import Image
+
+from ..util.wallpaper_util import WallpaperStyle
 
 
 class PlotCanvasProtocol(Protocol):
@@ -25,10 +27,10 @@ class PlotCanvasProtocol(Protocol):
         style: Wallpaper fit/style (fill, fit, stretch, etc.).
         image: The PIL image to display.
         immediate_update: If True, apply the change immediately
-            (e.g. skip batching).  Defaults to True.
+            (e.g. skip batching).  Defaults to False.
     """
 
-    def __call__(self, style: WallpaperStyle, image_path: Path, immediate_update: bool = True) -> None: ...
+    def __call__(self, monitor_device_path: str, style: WallpaperStyle, image: Path | Image.Image, immediate_update: bool = False) -> None: ...
 
 
 class BaseResource(ABC):
@@ -49,34 +51,63 @@ class BaseResource(ABC):
                 operations via the COM ``IDesktopWallpaper`` API.
         """
         self.monitor_device_path: str | None = None
+        self._plot_canvas: PlotCanvasProtocol | None = None
 
-    def bind_monitor_device_path(self, monitor_device_path: str):
+    def _bind_monitor_device_path(self, monitor_device_path: str):
         if self.monitor_device_path is not None:
             raise RuntimeError("monitor_device_path already bound")
         self.monitor_device_path = monitor_device_path
+    
+    def _bind_plot_canvas(self, plot_canvas: PlotCanvasProtocol):
+        """
+        Bind a plot canvas callable to this resource.
 
+        Args:
+            plot_canvas: Callable that renders a wallpaper image on the
+                target monitor.  Accepts a :class:`WallpaperStyle`, a
+                :class:`PIL.Image`, and an optional *immediate_update*
+                flag.
+        """
+        if self._plot_canvas is not None:
+            raise RuntimeError("plot_canvas already bound")
+        self._plot_canvas = plot_canvas
+    
+    def _unbind_plot_canvas(self):
+        """Unbind the plot canvas callable from this resource."""
+        if self._plot_canvas is None:
+            raise RuntimeError("plot_canvas not bound")
+        self._plot_canvas = None
+    
+    def plot_canvas(self, style: WallpaperStyle, image: Path | Image.Image, immediate_update: bool = False):
+        """
+        Render a wallpaper image on the target monitor.
+
+        Args:
+            style: Wallpaper fit/style (fill, fit, stretch, etc.).
+            image: The PIL image to display.
+            immediate_update: If True, apply the change immediately
+                (e.g. skip batching).  Defaults to False.
+        """
+        if self._plot_canvas is None:
+            raise RuntimeError("plot_canvas not bound")
+        if self.monitor_device_path is None:
+            raise RuntimeError("monitor_device_path not bound")
+        self._plot_canvas(self.monitor_device_path, style, image, immediate_update)
 
     @abstractmethod
-    def mount(self, plot_canvas: PlotCanvasProtocol) -> None:
+    def mount(self) -> None:
         """
         Prepare and render the wallpaper resource.
 
-        Subclasses receive a *plot_canvas* callable that performs the actual
-        wallpaper update.  Implementations should call::
+        Subclasses should call :meth:`plot_canvas` to set wallpaper::
 
-            plot_canvas(style=..., image=..., immediate_update=True)
+            self.plot_canvas(style=..., image=..., immediate_update=True)
 
         rather than setting wallpaper directly, so the caller can control
         composition and batching across multiple displays.
 
         The wallpaper system calls :meth:`mount` before applying a wallpaper
         and :meth:`demount` after switching away.
-
-        Args:
-            plot_canvas: Callback that applies a styled image to the
-                target monitor.  Accepts a :class:`WallpaperStyle`, a
-                :class:`PIL.Image`, and an optional *immediate_update*
-                flag.
         """
         ...
 
