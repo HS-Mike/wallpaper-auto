@@ -11,8 +11,8 @@ wallpaper through a :class:`PlotCanvasProtocol` callable passed to
 :meth:`mount`.  Origin wallpaper state can be saved via
 :meth:`record_origin` and restored via :meth:`restore_origin`.
 """
-from pathlib import Path
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Protocol
 
 from PIL import Image
@@ -30,7 +30,13 @@ class PlotCanvasProtocol(Protocol):
             (e.g. skip batching).  Defaults to False.
     """
 
-    def __call__(self, monitor_device_path: str, style: WallpaperStyle, image: Path | Image.Image, immediate_update: bool = False) -> None: ...
+    def __call__(
+        self,
+        monitor_device_path: str,
+        style: WallpaperStyle,
+        image: Path | Image.Image,
+        immediate_update: bool = False,
+    ) -> None: ...
 
 
 class BaseResource(ABC):
@@ -43,8 +49,8 @@ class BaseResource(ABC):
     Subclasses must override :meth:`mount` and :meth:`demount`.
     """
 
-    def __init__(self):
-        """
+    def __init__(self) -> None:
+        r"""
         Args:
             monitor_device_id: Unique device path of the target monitor
                 (e.g. ``MONITOR\...``).  Used for per-display wallpaper
@@ -53,12 +59,12 @@ class BaseResource(ABC):
         self.monitor_device_path: str | None = None
         self._plot_canvas: PlotCanvasProtocol | None = None
 
-    def _bind_monitor_device_path(self, monitor_device_path: str):
+    def _bind_monitor_device_path(self, monitor_device_path: str) -> None:
         if self.monitor_device_path is not None:
             raise RuntimeError("monitor_device_path already bound")
         self.monitor_device_path = monitor_device_path
-    
-    def _bind_plot_canvas(self, plot_canvas: PlotCanvasProtocol):
+
+    def _bind_plot_canvas(self, plot_canvas: PlotCanvasProtocol) -> None:
         """
         Bind a plot canvas callable to this resource.
 
@@ -71,14 +77,16 @@ class BaseResource(ABC):
         if self._plot_canvas is not None:
             raise RuntimeError("plot_canvas already bound")
         self._plot_canvas = plot_canvas
-    
-    def _unbind_plot_canvas(self):
+
+    def _unbind_plot_canvas(self) -> None:
         """Unbind the plot canvas callable from this resource."""
         if self._plot_canvas is None:
             raise RuntimeError("plot_canvas not bound")
         self._plot_canvas = None
-    
-    def plot_canvas(self, style: WallpaperStyle, image: Path | Image.Image, immediate_update: bool = False):
+
+    def plot_canvas(
+        self, style: WallpaperStyle, image: Path | Image.Image, immediate_update: bool = False,
+    ) -> None:
         """
         Render a wallpaper image on the target monitor.
 

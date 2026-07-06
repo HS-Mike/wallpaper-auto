@@ -1,22 +1,21 @@
 """
-Resource manager.
+Per-display wallpaper manager.
 
-Manages wallpaper resource lifecycle (mount/demount) at runtime.
-Handles registration of built-in and custom resource types.
+Tracks per-monitor wallpaper state across multiple displays,
+composites per-monitor images into a spanned wallpaper, and applies
+it via the COM IDesktopWallpaper API.
 """
 
 import logging
-import threading
 from pathlib import Path
 
 from PIL import Image
 
-from .models import ResourceConfig
+from .config_store import ConfigStore
 from .resource.base_resource import BaseResource
 from .resource.resource_carousel import ResourceCarousel
 from .resource.static_wallpaper import StaticWallpaper
-from .config_store import ConfigStore
-from .util.display_utils import get_display_info, DisplayInfo
+from .util.display_utils import DisplayInfo, get_display_info
 from .util.wallpaper_util import (
     WallpaperStyle,
     com_session,
@@ -36,54 +35,70 @@ _BUILTIN_RESOURCES: dict[str, type[BaseResource]] = {
 
 
 class DisplayManager:
-    """Resource lifecycle manager — mount/demount wallpapers and init from config."""
+    """Per-display wallpaper lifecycle — mount/demount per monitor and composite canvas."""
 
     _support_resources = _BUILTIN_RESOURCES.copy()
 
     def __init__(self) -> None:
-        self._restore_wallpaper: dict[str, tuple[WallpaperStyle, Path]] = {}
-        self._display_resoruce_map: dict[str, BaseResource | None]  = {}
-        self._canvas_buffer: dict[str, tuple[WallpaperStyle, Path]] = {}
-    
-    def start(self):
+        self._restore_wallpaper: dict[str, BaseResource] = {}
+        self._display_resource_map: dict[str, BaseResource]  = {}
+        self._canvas_buffer: dict[str, tuple[WallpaperStyle, Path | Image.Image]] = {}
+
+    def start(self) -> None:
         # record original wallpaper status
         curr_display_info: list[DisplayInfo] = get_display_info()
         for i in curr_display_info:
-            self.add_new_display(i.monitor_device_path)
-    
-    def add_new_display(self, monitor_device_path: str):
-        if monitor_device_path in self._display_resoruce_map:
+            self.add_display(i.monitor_device_path)
+
+    def stop(self) -> None:
+        # restore original wallpaper status
+        curr_display_info: list[DisplayInfo] = get_display_info()
+        for i in curr_display_info:
+            self.remove_display(i.monitor_device_path)
+
+    @property
+    def active_monitor_device_path(self) -> set[str]:
+        return set(self._display_resource_map.keys())
+
+    def add_display(self, monitor_device_path: str) -> None:
+        if monitor_device_path in self._display_resource_map:
             return
         style = get_wallpaper_style()
         image_path = get_wallpaper(monitor_device_path)
-        self._restore_wallpaper[monitor_device_path] = (style, image_path)
-        self._display_resoruce_map[monitor_device_path] = StaticWallpaper(monitor_device_path, style, image_path)
-    
-    def end(self):
-        # restore original wallpaper status
-        curr_display_info: list[DisplayInfo] = get_display_info()
-        active_monitor_device_id = set(i.monitor_device_path for i in curr_display_info)
-        for i, restore_info in self._restore_wallpaper.items():
-            if i not in active_monitor_device_id:
-                continue
-            wallpaper_style, wallpaper_path = restore_info
-            set_wallpaper_style(wallpaper_style)
-            set_wallpaper(i, wallpaper_path)
-    
-    def update_resource(self, monitor_device_path: str, resource: BaseResource | None):
-        curr_resource = self._display_resoruce_map.pop(monitor_device_path)
-        if curr_resource is not None:
-            curr_resource.demount()
-        self._display_resoruce_map[monitor_device_path] = resource
-        if resource is not None:
-            def cb(style: WallpaperStyle, image_path: Path, immediate_update: bool = True):
-                self.update_canvas(monitor_device_path, style, image_path)
-            resource.mount(cb)
-    
-    def update_canvas(self, monitor_device_path: str, style: WallpaperStyle, image_path: Path, immediate_update: bool = True):
-        self._canvas_buffer[monitor_device_path] = (style, image_path)
+        restore_res = StaticWallpaper(style, image_path)
+        restore_res._bind_monitor_device_path(monitor_device_path)
+        restore_res._bind_plot_canvas(self.update_canvas_buffer)
+        self._restore_wallpaper[monitor_device_path] = restore_res
+        self._display_resource_map[monitor_device_path] = restore_res
 
-    def plot_canvas(self):
+    def remove_display(self, monitor_device_path: str) -> None:
+        res = self._display_resource_map.pop(monitor_device_path)
+        res.demount()
+        res._unbind_plot_canvas()
+        original_res = self._restore_wallpaper.pop(monitor_device_path)
+        original_res._bind_plot_canvas(self.update_canvas_buffer)
+        original_res.mount()
+
+    def update_resource(self, monitor_device_path: str, resource: BaseResource) -> None:
+        prev_resource = self._display_resource_map.pop(monitor_device_path)
+        prev_resource.demount()
+        prev_resource._unbind_plot_canvas()
+        self._display_resource_map[monitor_device_path] = resource
+        resource._bind_plot_canvas(self.update_canvas_buffer)
+        resource.mount()
+
+    def update_canvas_buffer(
+        self,
+        monitor_device_path: str,
+        style: WallpaperStyle,
+        image: Path | Image.Image,
+        immediate_update: bool = False,
+    ) -> None:
+        self._canvas_buffer[monitor_device_path] = (style, image)
+        if immediate_update is True:
+            self.plot_canvas()
+
+    def plot_canvas(self) -> None:
         """Composite buffered per-monitor images into a spanned wallpaper and apply it.
 
         Reads ``self._canvas_buffer`` (``{monitor_id: (style, image)}``),
@@ -119,14 +134,15 @@ class DisplayManager:
             None,
         )
         if span_entry:
-            _, span_path = span_entry
-            span_img = Image.open(span_path)
+            _, img = span_entry
+            if isinstance(img, Path):
+                img = Image.open(img)
             rendered, _, _ = DisplayManager._render_image_for_region(
-                span_img, WallpaperStyle.FILL, canvas_w, canvas_h,
+                img, WallpaperStyle.FILL, canvas_w, canvas_h,
             )
             canvas.paste(rendered, (0, 0))
         else:
-            for monitor_id, (style, img_path) in buffer.items():
+            for monitor_id, (style, img) in buffer.items():
                 d = display_map.get(monitor_id)
                 if d is None:
                     continue
@@ -134,8 +150,11 @@ class DisplayManager:
                 canvas_x = d.position[0] - min_left
                 canvas_y = d.position[1] - min_top
 
-                img = Image.open(img_path)
-                rendered, offset_x, offset_y = DisplayManager._render_image_for_region(img, style, region_w, region_h)
+                if isinstance(img, Path):
+                    img = Image.open(img)
+                rendered, offset_x, offset_y = DisplayManager._render_image_for_region(
+                    img, style, region_w, region_h,
+                )
                 canvas.paste(rendered, (canvas_x + offset_x, canvas_y + offset_y))
 
         # Save to a temp file in the cache dir.
