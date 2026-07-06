@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .resource.wallpaper_utils import WallpaperStyle
+from .util.wallpaper_util import WallpaperStyle
 
 DEFAULT_CACHE_DIR = Path.home() / "AppData" / "Local" / "wallpaper-auto" / "cache"
 
