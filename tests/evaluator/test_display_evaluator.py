@@ -17,13 +17,13 @@ def evaluator():
 
 _SINGLE = [
     DisplayInfo(model="U2719D", source_resolution=(1920, 1080),
-                position=(0, 0), target_resolution=(1920, 1080)),
+                position=(0, 0), target_resolution=(1920, 1080), scale=1.0),
 ]
 _DUAL = [
     DisplayInfo(model="U2719D", source_resolution=(1920, 1080),
-                position=(0, 0), target_resolution=(1920, 1080)),
+                position=(0, 0), target_resolution=(1920, 1080), scale=1.0),
     DisplayInfo(model="XL2730", source_resolution=(2560, 1440),
-                position=(1920, 0), target_resolution=(2560, 1440)),
+                position=(1920, 0), target_resolution=(2560, 1440), scale=1.0),
 ]
 
 
@@ -51,7 +51,7 @@ class TestHaveDisplayEvaluator:
     def test_returns_false_when_model_is_none(self, evaluator):
         with patch(f"{_MOD}.get_display_info", return_value=[
             DisplayInfo(model=None, source_resolution=(1920, 1080),
-                        position=(0, 0), target_resolution=(1920, 1080)),
+                        position=(0, 0), target_resolution=(1920, 1080), scale=1.0),
         ]):
             assert not evaluator("U2719D")
 
