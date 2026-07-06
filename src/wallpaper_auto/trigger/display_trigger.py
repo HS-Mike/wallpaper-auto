@@ -18,7 +18,7 @@ import win32api
 import win32con
 import win32gui
 
-from ..util.display_utils import get_display_info
+from ..util.display_utils import get_display_info, DisplayTopologyTransientError
 from .base_trigger import BaseThreadTrigger
 
 logger = logging.getLogger(__name__)
@@ -58,11 +58,15 @@ class DisplayTrigger(BaseThreadTrigger):
         self._prev_monitor_dpis: frozenset[tuple[tuple[int, int, int, int], int]] = frozenset()
 
     @staticmethod
-    def _display_snapshot() -> frozenset[tuple[str, str]]:
+    def _display_snapshot() -> frozenset[tuple[str, str]] | None:
         """Return a snapshot of currently connected displays."""
+        try:
+            display_info = get_display_info()
+        except DisplayTopologyTransientError:
+            return None
         return frozenset(
             (d.monitor_device_path, d.model or "")
-            for d in get_display_info()
+            for d in display_info
         )
 
     def _get_all_monitors_dpi_snapshot(self) -> frozenset[tuple[tuple[int, int, int, int], int]]:
@@ -146,6 +150,10 @@ class DisplayTrigger(BaseThreadTrigger):
         # Unified: both message types check hardware + DPI snapshots in a single pass.
         if msg in (win32con.WM_DISPLAYCHANGE, win32con.WM_SETTINGCHANGE):
             curr_display = self._display_snapshot()
+            if curr_display is None:
+                logger.debug("Discard display trigger signal due to topology transition period")
+                return 0
+
             curr_monitor_dpis = self._get_all_monitors_dpi_snapshot()
 
             is_changed = False
@@ -159,10 +167,6 @@ class DisplayTrigger(BaseThreadTrigger):
             # 2. Check for DPI scaling transition on any monitor
             if curr_monitor_dpis != self._prev_monitor_dpis:
                 primary_dpi = self._extract_primary_dpi(curr_monitor_dpis)
-                logger.info(
-                    f"DPI scaling transition detected on a monitor! "
-                    f"Primary DPI: {primary_dpi} ({int((primary_dpi / 96.0) * 100)}%)"
-                )
                 self._prev_monitor_dpis = curr_monitor_dpis
                 is_changed = True
 
