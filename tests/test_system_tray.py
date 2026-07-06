@@ -62,7 +62,7 @@ class TestMenuRendering:
                 name="Work",
                 condition=ConditionNode(**{"random_condition": "random_param"}),  # type: ignore
                 target="random_target",
-            ),
+            ).name,
             active_id,
         )
 
@@ -102,7 +102,7 @@ class TestCallbacks:
         mock_called = {"mode": None, "res": None, "quit": False}
 
         tray_app.bridge.register_set_mode_handler(lambda m: mock_called.update({"mode": m}))
-        tray_app.bridge.register_select_resource_handler(lambda r: mock_called.update({"res": r}))
+        tray_app.bridge.register_select_target_handler(lambda r: mock_called.update({"res": r}))
         tray_app.bridge.register_quit_handler(lambda: mock_called.update({"quit": True}))
 
         # 1. In MANUAL mode, click a resource action (also sets mode to MANUAL)

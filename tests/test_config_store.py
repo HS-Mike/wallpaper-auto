@@ -418,6 +418,36 @@ class TestProperties:
         with pytest.raises(NotADirectoryError, match="is not a directory"):
             _ = store.cache_path
 
+    def test_scene_returns_dict_from_yaml(self, store: ConfigStore, tmp_path):
+        """scene returns the configured scene map when present."""
+        yaml_str = yaml.dump(
+            {
+                "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
+                "trigger": [{"name": "windows_session"}],
+                "rule": [],
+                "fallback_target": "a",
+                "scene": {
+                    "office": [{"display_model": "Dell U27", "resource": "a"}],
+                },
+            }
+        )
+        path = tmp_path / "with_scene.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        scenes = store.scene
+        assert "office" in scenes
+        assert scenes["office"][0].display_model == "Dell U27"
+        assert scenes["office"][0].resource == "a"
+
+    def test_scene_returns_empty_dict_when_unset(self, store: ConfigStore, valid_yaml: str):
+        """scene falls back to an empty dict when no scene is configured."""
+        store.load(valid_yaml)
+        assert store.scene == {}
+
+    def test_scene_raises_before_load(self, store: ConfigStore):
+        with pytest.raises(AssertionError):
+            _ = store.scene
+
 
 class TestAtShutdownValidation:
     """Validation of at_shutdown target in ConfigModel."""

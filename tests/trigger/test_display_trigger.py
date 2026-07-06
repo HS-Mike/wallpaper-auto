@@ -9,6 +9,12 @@ import win32con
 from wallpaper_auto.util.display_utils import DisplayInfo
 from wallpaper_auto.trigger.display_trigger import DisplayTrigger
 
+# Capture the real, unpatched implementation of _get_all_monitors_dpi_snapshot
+# at import time — the `mock_display_deps` fixture replaces it with a MagicMock
+# at test setup, but tests that need the real method (to exercise its except
+# branch) can restore it via this reference.
+_REAL_GET_DPI_SNAPSHOT = DisplayTrigger.__dict__["_get_all_monitors_dpi_snapshot"]
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -391,3 +397,135 @@ class TestDisplayTriggerDpi:
 
         assert callback_called == [True]
         assert trigger._prev_monitor_dpis == changed_dual
+
+
+# ===========================================================================
+# TestDisplayTriggerErrorPaths
+# ===========================================================================
+
+
+class TestDisplayTriggerErrorPaths:
+    """Error paths in _display_snapshot, _get_all_monitors_dpi_snapshot, _msg_proc, run."""
+
+    def test_display_snapshot_returns_none_on_transient_error(
+        self, mock_display_deps
+    ) -> None:
+        """DisplayTopologyTransientError → _display_snapshot returns None."""
+        from wallpaper_auto.util.display_utils import DisplayTopologyTransientError
+
+        trigger = DisplayTrigger()
+        mock_display_deps["get_display_info"].side_effect = DisplayTopologyTransientError(
+            "topology transition"
+        )
+        assert trigger._display_snapshot() is None
+
+    def test_get_all_monitors_dpi_snapshot_logs_on_exception(
+        self, caplog
+    ) -> None:
+        """An exception during DPI enumeration is logged and returns empty frozenset.
+
+        Restores the real method (which the fixture has replaced) so the
+        production except branch runs and is covered.
+        """
+        import logging
+
+        trigger = DisplayTrigger()
+        with patch.object(
+            DisplayTrigger, "_get_all_monitors_dpi_snapshot", _REAL_GET_DPI_SNAPSHOT
+        ):
+            with patch(
+                "wallpaper_auto.trigger.display_trigger.win32api.EnumDisplayMonitors",
+                side_effect=OSError("enum failed"),
+            ):
+                with caplog.at_level(
+                    logging.ERROR, logger="wallpaper_auto.trigger.display_trigger"
+                ):
+                    result = trigger._get_all_monitors_dpi_snapshot()
+
+        assert result == frozenset()
+        assert "Failed to query all monitors DPI" in caplog.text
+
+    def test_extract_primary_dpi_returns_default_96(self) -> None:
+        """When no monitor has origin (0, 0), default DPI 96 is returned."""
+        trigger = DisplayTrigger()
+        snapshot = frozenset({
+            ((1920, 0, 3840, 1080), 144),  # not at origin
+        })
+        assert DisplayTrigger._extract_primary_dpi(snapshot) == 96
+
+    def test_msg_proc_discards_when_curr_display_none(
+        self, mock_display_deps
+    ) -> None:
+        """If _display_snapshot returns None (transient error), no trigger fires."""
+        from wallpaper_auto.util.display_utils import DisplayTopologyTransientError
+
+        trigger = DisplayTrigger()
+        mock_display_deps["get_display_info"].side_effect = DisplayTopologyTransientError(
+            "transition"
+        )
+        with patch.object(trigger, "trigger") as mock_trigger:
+            result = trigger._msg_proc(0, win32con.WM_DISPLAYCHANGE, 0, 0)
+        mock_trigger.assert_not_called()
+        assert result == 0
+
+    def test_run_logs_setthreaddpi_failure(
+        self, mock_display_deps, caplog
+    ) -> None:
+        """If SetThreadDpiAwarenessContext raises, run logs and continues."""
+        import logging
+
+        trigger = DisplayTrigger()
+        with (
+            patch(
+                "wallpaper_auto.trigger.display_trigger.user32",
+                **{"SetThreadDpiAwarenessContext.side_effect": OSError("dpi failed")},
+            ) if False else patch(
+                "wallpaper_auto.trigger.display_trigger.user32",
+            ),
+        ):
+            pass
+        # Simpler: patch SetThreadDpiAwarenessContext directly via the user32 mock.
+        fake_user32 = mock_display_deps  # not used; replaced below
+        with patch(
+            "wallpaper_auto.trigger.display_trigger.user32"
+        ) as fake_user32_mock:
+            fake_user32_mock.SetThreadDpiAwarenessContext.side_effect = OSError("dpi failed")
+            with caplog.at_level(
+                logging.ERROR, logger="wallpaper_auto.trigger.display_trigger"
+            ):
+                trigger.run()
+
+        assert "Failed to set thread DPI awareness" in caplog.text
+        # COM lifecycle still ran.
+        mock_display_deps["pythoncom"].CoUninitialize.assert_called_once()
+
+    def test_module_level_attribute_error_handled(self) -> None:
+        """The try/except at module load is exercised by re-importing with the
+        SetThreadDpiAwarenessContext attribute absent."""
+        import importlib
+        import sys
+
+        import ctypes
+
+        # Remove the attribute so the module-level argtypes assignment raises.
+        # We patch the windll user32 attribute lookup via a thin wrapper.
+        original = ctypes.windll.user32
+
+        class _NoDpiUser32:
+            @property
+            def DisplayConfigGetDeviceInfo(self):
+                return original.DisplayConfigGetDeviceInfo
+
+            def __getattr__(self, name):
+                if name == "SetThreadDpiAwarenessContext":
+                    raise AttributeError(name)
+                return getattr(original, name)
+
+        ctypes.windll.user32 = _NoDpiUser32()
+        try:
+            sys.modules.pop("wallpaper_auto.trigger.display_trigger", None)
+            importlib.import_module("wallpaper_auto.trigger.display_trigger")
+        finally:
+            ctypes.windll.user32 = original
+            sys.modules.pop("wallpaper_auto.trigger.display_trigger", None)
+            importlib.import_module("wallpaper_auto.trigger.display_trigger")

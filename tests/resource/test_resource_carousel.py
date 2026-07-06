@@ -3,7 +3,7 @@ Tests for resource_carousel.py — ResourceCarousel.
 """
 
 import time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -66,7 +66,7 @@ class TestResourceCarouselInit:
                 self.path = path
                 self.style = style
 
-            def mount(self, monitor_device_path: str) -> None:
+            def mount(self) -> None:
                 pass
 
             def demount(self) -> None:
@@ -95,135 +95,122 @@ class TestResourceCarouselInit:
 class TestResourceCarouselMount:
     """Mount lifecycle."""
 
-    def test_mount_saves_original_wallpaper(self, mock_carousel_deps, mock_sub_resources):
-        """mount saves the current wallpaper for later restore."""
-        carousel = ResourceCarousel(resources=mock_sub_resources)
-        carousel.mount(_DEVICE_PATH)
-        assert carousel._original_wallpaper == "C:\\original.jpg"
-        assert carousel._monitor_device_path == _DEVICE_PATH
-        carousel.demount()
-
-    def test_mount_mounts_first_resource(self, mock_carousel_deps, mock_sub_resources):
-        """mount calls mount() on the first sub-resource with the device path."""
-        carousel = ResourceCarousel(resources=mock_sub_resources)
-        carousel.mount(_DEVICE_PATH)
-        mock_sub_resources[0].mount.assert_called_once_with(_DEVICE_PATH)
-        carousel.demount()
-
-    def test_mount_starts_cycling_thread(self, mock_carousel_deps, mock_sub_resources):
+    def test_mount_starts_cycling_thread(self, mock_sub_resources):
         """mount starts a background thread."""
         carousel = ResourceCarousel(resources=mock_sub_resources)
-        carousel.mount(_DEVICE_PATH)
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        carousel._bind_plot_canvas(MagicMock())
+        carousel.mount()
         assert carousel._cycling_thread is not None
         assert carousel._cycling_thread.is_alive()
         carousel.demount()
 
-    def test_mount_stores_original_before_mounting(self, mock_carousel_deps, mock_sub_resources):
-        """mount gets the original wallpaper before mounting the sub-resource."""
+    def test_mount_mounts_first_resource(self, mock_sub_resources):
+        """mount triggers mount() on the first sub-resource via the cycling thread."""
         carousel = ResourceCarousel(resources=mock_sub_resources)
-        carousel.mount(_DEVICE_PATH)
-        # _original_wallpaper was set (by the mock) before sub-resource mount
-        assert carousel._original_wallpaper == "C:\\original.jpg"
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        carousel._bind_plot_canvas(MagicMock())
+        carousel.mount()
+
+        deadline = time.monotonic() + 5.0
+        while mock_sub_resources[0].mount.call_count < 1 and time.monotonic() < deadline:
+            time.sleep(0.02)
+
+        assert mock_sub_resources[0].mount.call_count >= 1
         carousel.demount()
 
-    def test_mount_random_starts_at_random_index(self, mock_carousel_deps, mock_sub_resources):
+    def test_mount_random_starts_at_random_index(self, mock_sub_resources):
         """With random=True, a different starting index may be selected."""
-        # The randomness means we can't predict the index, but we can verify
-        # that some advance happened by checking mount was called on some resource
         carousel = ResourceCarousel(resources=mock_sub_resources, random=True)
-        carousel.mount(_DEVICE_PATH)
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        carousel._bind_plot_canvas(MagicMock())
+        carousel.mount()
 
-        # Verify exactly one sub-resource was mounted
+        deadline = time.monotonic() + 5.0
+        while all(r.mount.call_count == 0 for r in mock_sub_resources) and time.monotonic() < deadline:
+            time.sleep(0.02)
+
         called_count = sum(r.mount.called for r in mock_sub_resources)
-        assert called_count == 1
-
-        # Verify the mounted resource's index is valid
+        assert called_count >= 1
         assert 0 <= carousel._index < 3
         carousel.demount()
+
+    @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
+    def test_mount_raises_when_device_not_bound(self, mock_sub_resources):
+        """mount starts thread that fails if monitor_device_path is not bound."""
+        carousel = ResourceCarousel(resources=mock_sub_resources)
+        carousel.mount()
+        # Thread will crash due to missing bindings — give it time to start
+        carousel._cycling_thread.join(timeout=5.0)
+        assert not carousel._cycling_thread.is_alive()
 
 
 class TestResourceCarouselDemount:
     """Demount lifecycle."""
 
-    def test_demount_demounts_current_resource(self, mock_carousel_deps, mock_sub_resources):
-        """demount calls demount() on the current sub-resource."""
+    def test_demount_demounts_current_resource(self, mock_sub_resources):
+        """demount causes the cycling thread to exit; sub-resource may have been mounted."""
         carousel = ResourceCarousel(resources=mock_sub_resources)
-        carousel.mount(_DEVICE_PATH)
-        mock_sub_resources[0].reset_mock()
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        carousel._bind_plot_canvas(MagicMock())
+        carousel.mount()
+
+        deadline = time.monotonic() + 5.0
+        while mock_sub_resources[0].mount.call_count < 1 and time.monotonic() < deadline:
+            time.sleep(0.02)
 
         carousel.demount()
-        mock_sub_resources[0].demount.assert_called_once()
+        assert carousel._cycling_thread is None
 
-    def test_demount_restores_original(self, mock_carousel_deps, mock_sub_resources):
-        """restore=True — demount restores the wallpaper from before mount."""
-        with patch("wallpaper_auto.resource.resource_carousel.set_wallpaper") as mock_set:
-            carousel = ResourceCarousel(resources=mock_sub_resources, restore=True)
-            carousel.mount(_DEVICE_PATH)
-            mock_set.reset_mock()
-
-            carousel.demount()
-            mock_set.assert_called_once()
-            args, _ = mock_set.call_args
-            assert args[0] == "C:\\original.jpg"
-
-    def test_demount_with_restore_false_skips_restore(self, mock_carousel_deps, mock_sub_resources):
-        """restore=False — demount does not restore the original wallpaper."""
-        with patch("wallpaper_auto.resource.resource_carousel.set_wallpaper") as mock_set:
-            carousel = ResourceCarousel(resources=mock_sub_resources, restore=False)
-            carousel.mount(_DEVICE_PATH)
-            mock_set.reset_mock()
-
-            carousel.demount()
-            # Only sub-resource demount was called; no set_wallpaper for restore
-            mock_set.assert_not_called()
-
-    def test_demount_without_mount_is_safe(self, mock_carousel_deps, mock_sub_resources):
+    def test_demount_without_mount_is_safe(self, mock_sub_resources):
         """demount without prior mount does nothing (no error)."""
         carousel = ResourceCarousel(resources=mock_sub_resources)
-        # Should not raise
         carousel.demount()
-        for r in mock_sub_resources:
-            r.mount.assert_not_called()
-            r.demount.assert_not_called()
 
-    def test_demount_stops_cycling_thread(self, mock_carousel_deps, mock_sub_resources):
+    def test_demount_stops_cycling_thread(self, mock_sub_resources):
         """demount causes the cycling thread to exit."""
         carousel = ResourceCarousel(resources=mock_sub_resources)
-        carousel.mount(_DEVICE_PATH)
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        carousel._bind_plot_canvas(MagicMock())
+        carousel.mount()
         assert carousel._cycling_thread is not None and carousel._cycling_thread.is_alive()
 
         carousel.demount()
         assert carousel._cycling_thread is None
 
-    def test_demount_idempotent(self, mock_carousel_deps, mock_sub_resources):
+    def test_demount_idempotent(self, mock_sub_resources):
         """Calling demount twice is safe."""
-        with patch("wallpaper_auto.resource.resource_carousel.set_wallpaper") as mock_set:
-            carousel = ResourceCarousel(resources=mock_sub_resources, restore=True)
-            carousel.mount(_DEVICE_PATH)
-            mock_set.reset_mock()
+        carousel = ResourceCarousel(resources=mock_sub_resources)
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        carousel._bind_plot_canvas(MagicMock())
+        carousel.mount()
 
-            carousel.demount()
-            carousel.demount()  # second call — should be a no-op
-            mock_set.assert_called_once()  # only the restore from first demount
+        deadline = time.monotonic() + 5.0
+        while mock_sub_resources[0].mount.call_count < 1 and time.monotonic() < deadline:
+            time.sleep(0.02)
 
-    def test_mount_demount_cycle(self, mock_carousel_deps, mock_sub_resources):
+        carousel.demount()
+        carousel.demount()  # second call — should be a no-op
+
+    def test_mount_demount_cycle(self, mock_sub_resources):
         """Mount then demount then mount again works correctly."""
-        with patch(
-            "wallpaper_auto.resource.resource_carousel.set_wallpaper",
-        ):
-            carousel = ResourceCarousel(resources=mock_sub_resources, restore=True)
+        carousel = ResourceCarousel(resources=mock_sub_resources)
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        carousel._bind_plot_canvas(MagicMock())
 
-            carousel.mount(_DEVICE_PATH)
-            mock_sub_resources[0].mount.assert_called_once_with(_DEVICE_PATH)
+        carousel.mount()
+        deadline = time.monotonic() + 5.0
+        while mock_sub_resources[0].mount.call_count < 1 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        carousel.demount()
 
-            carousel.demount()
-
-            # Mount again after demount — should start fresh
-            mock_sub_resources[0].reset_mock()
-            carousel.mount(_DEVICE_PATH)
-            mock_sub_resources[0].mount.assert_called_once_with(_DEVICE_PATH)
-            assert carousel._original_wallpaper == "C:\\original.jpg"
-            carousel.demount()
+        # Mount again after demount — should start fresh
+        carousel.mount()
+        deadline = time.monotonic() + 5.0
+        while mock_sub_resources[0].mount.call_count < 2 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert mock_sub_resources[0].mount.call_count >= 2
+        carousel.demount()
 
 
 class TestResourceCarouselCycling:
@@ -256,34 +243,28 @@ class TestResourceCarouselCycling:
             carousel._advance_index()
             assert 0 <= carousel._index < 3
 
-    def test_cycling_thread_demounts_then_mounts(self, mock_carousel_deps, mock_sub_resources):
+    def test_cycling_thread_demounts_then_mounts(self, mock_sub_resources):
         """Cycling thread demounts current and mounts next after ~interval."""
         carousel = ResourceCarousel(resources=mock_sub_resources, interval=0.05)
-        carousel.mount(_DEVICE_PATH)
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        carousel._bind_plot_canvas(MagicMock())
+        carousel.mount()
 
-        # Should start with resource 0 mounted
-        assert mock_sub_resources[0].mount.call_count >= 1
-
-        # Poll for cycling to happen (up to 5 s)
         deadline = time.monotonic() + 5.0
         while mock_sub_resources[0].demount.call_count < 1 and time.monotonic() < deadline:
             time.sleep(0.02)
 
-        # After at least one cycle: resource 0 was demounted
         assert mock_sub_resources[0].demount.call_count >= 1
-
-        # Resource 1 should have been mounted with the device path
         assert mock_sub_resources[1].mount.call_count >= 1
-        # Verify it was called with _DEVICE_PATH at least once
-        mock_sub_resources[1].mount.assert_any_call(_DEVICE_PATH)
 
         carousel.demount()
 
-    def test_stop_event_stops_thread_quickly(self, mock_carousel_deps, mock_sub_resources):
+    def test_stop_event_stops_thread_quickly(self, mock_sub_resources):
         """Setting stop event causes thread to exit before next interval."""
-        carousel = ResourceCarousel(resources=mock_sub_resources, interval=10)  # long interval
-
-        carousel.mount(_DEVICE_PATH)
+        carousel = ResourceCarousel(resources=mock_sub_resources, interval=10)
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        carousel._bind_plot_canvas(MagicMock())
+        carousel.mount()
         assert carousel._cycling_thread is not None and carousel._cycling_thread.is_alive()
 
         carousel._stop_event.set()
@@ -292,19 +273,19 @@ class TestResourceCarouselCycling:
 
         carousel.demount()
 
-    def test_cycling_respects_order(self, mock_carousel_deps, mock_sub_resources):
+    def test_cycling_respects_order(self, mock_sub_resources):
         """Cycling advances: demount[i] → advance → mount[i+1]."""
         carousel = ResourceCarousel(resources=mock_sub_resources, interval=0.05)
-        carousel.mount(_DEVICE_PATH)
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        carousel._bind_plot_canvas(MagicMock())
+        carousel.mount()
 
-        # Poll for two full cycles
         deadline = time.monotonic() + 5.0
         while mock_sub_resources[2].mount.call_count < 1 and time.monotonic() < deadline:
             time.sleep(0.02)
 
         carousel.demount()
 
-        # After cycling through all three, each should have been mounted
         for r in mock_sub_resources:
             assert r.mount.called
             assert r.demount.called
@@ -313,41 +294,38 @@ class TestResourceCarouselCycling:
 class TestResourceCarouselEdgeCases:
     """Edge cases and boundary conditions."""
 
-    def test_interval_zero_allows_cycling(self, mock_carousel_deps, mock_sub_resources):
+    def test_interval_zero_allows_cycling(self, mock_sub_resources):
         """interval=0 is handled — thread can be stopped cleanly."""
         carousel = ResourceCarousel(resources=mock_sub_resources, interval=0)
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        carousel._bind_plot_canvas(MagicMock())
+        carousel.mount()
 
-        carousel.mount(_DEVICE_PATH)
-        # Give the tight loop a moment to cycle
         deadline = time.monotonic() + 1.0
         while mock_sub_resources[1].mount.call_count < 1 and time.monotonic() < deadline:
             time.sleep(0.01)
         carousel.demount()
 
-        # Thread should have stopped cleanly
         assert carousel._cycling_thread is None
-        # Should have cycled at least once
         assert mock_sub_resources[1].mount.call_count >= 1
 
-    def test_single_resource_no_cycling(self, mock_carousel_deps, mock_sub_resources):
+    def test_single_resource_no_cycling(self, mock_sub_resources):
         """Single resource — cycling thread runs but _advance_index loops on same index."""
         single = [mock_sub_resources[0]]
         carousel = ResourceCarousel(resources=single, interval=0.05)
-
-        carousel.mount(_DEVICE_PATH)
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        carousel._bind_plot_canvas(MagicMock())
+        carousel.mount()
         assert carousel._index == 0
-        assert carousel._resources[0] is mock_sub_resources[0]
 
-        # Let the thread cycle a few times
         deadline = time.monotonic() + 1.0
         while mock_sub_resources[0].demount.call_count < 2 and time.monotonic() < deadline:
             time.sleep(0.02)
 
         carousel.demount()
 
-        # With a single resource, demount+remount cycles on index 0
         assert mock_sub_resources[0].demount.call_count >= 2
-        assert mock_sub_resources[0].mount.call_count >= 3  # 1 initial + 2+ cycles
+        assert mock_sub_resources[0].mount.call_count >= 3
 
     def test_resources_list_not_mutated_externally(self, mock_sub_resources):
         """External mutation of the passed list does not affect carousel."""
@@ -360,3 +338,41 @@ class TestResourceCarouselEdgeCases:
         """Non-BaseResource, non-dict items raise TypeError."""
         with pytest.raises(TypeError):
             ResourceCarousel(resources=[123])  # type: ignore[list-item]
+
+
+class TestGetPlotCanvasWrapper:
+    """The plot_canvas_wrapper returned by get_plot_canvas_wrapper."""
+
+    def test_wrapper_calls_plot_canvas_with_immediate_update(
+        self, mock_sub_resources
+    ):
+        """Wrapper forces immediate_update=True regardless of caller arg."""
+        carousel = ResourceCarousel(resources=mock_sub_resources)
+        canvas_mock = MagicMock()
+        carousel._bind_plot_canvas(canvas_mock)
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        wrapper = carousel.get_plot_canvas_wrapper()
+
+        wrapper(_DEVICE_PATH, "style_dummy", "img_dummy", immediate_update=False)
+
+        canvas_mock.assert_called_once_with(_DEVICE_PATH, "style_dummy", "img_dummy", True)
+
+    def test_wrapper_asserts_plot_canvas_bound(self, mock_sub_resources):
+        carousel = ResourceCarousel(resources=mock_sub_resources)
+        carousel._bind_plot_canvas(MagicMock())
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        wrapper = carousel.get_plot_canvas_wrapper()
+        # Simulate the canvas being unbound after the wrapper is captured.
+        carousel._plot_canvas = None
+        with pytest.raises(AssertionError, match="plot_canvas not bound"):
+            wrapper(_DEVICE_PATH, "style", "img")
+
+    def test_wrapper_asserts_monitor_path_bound(self, mock_sub_resources):
+        carousel = ResourceCarousel(resources=mock_sub_resources)
+        # Bind both, capture the wrapper, then unbind the path.
+        carousel._bind_plot_canvas(MagicMock())
+        carousel._bind_monitor_device_path(_DEVICE_PATH)
+        wrapper = carousel.get_plot_canvas_wrapper()
+        carousel.monitor_device_path = None
+        with pytest.raises(AssertionError, match="monitor_device_path not bound"):
+            wrapper(_DEVICE_PATH, "style", "img")

@@ -1,4 +1,4 @@
-"""Tests for static_wallpaper.py — StaticWallpaper mount/demount and caching."""
+"""Tests for static_wallpaper.py — StaticWallpaper mount/demount."""
 
 from unittest.mock import MagicMock, call, patch
 from pathlib import Path
@@ -7,6 +7,7 @@ import pytest
 from PIL import Image
 
 from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
+from wallpaper_auto.resource.static_wallpaper import WallpaperStyle as SWWallpaperStyle
 from wallpaper_auto.resource.wallpaper_utils import (
     WallpaperStyle,
     get_current_wallpaper,
@@ -46,231 +47,57 @@ class TestStaticWallpaperInit:
     def test_init_with_enum_style(self, tmp_path):
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path), style=WallpaperStyle.CENTER)
+        wp = StaticWallpaper(path=str(img_path), style=SWWallpaperStyle.CENTER)
         assert wp.image_path == Path(img_path)
-        assert wp.style == WallpaperStyle.CENTER
-        assert wp.allow_compress
+        assert wp.style == SWWallpaperStyle.CENTER
 
     def test_init_with_string_style(self, tmp_path):
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), style="stretch")
-        assert wp.style == WallpaperStyle.STRETCH
-
-    def test_init_with_allow_compress_false(self, tmp_path):
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path), allow_compress=False)
-        assert not wp.allow_compress
-
-    def test_init_uses_screen_size(self, tmp_path, mock_screen_size):
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
-        assert wp._screen_size == (1920, 1080)
-
-
-class TestCheckNeedCache:
-    def test_need_cache_when_image_larger(self, tmp_path, mock_screen_size):
-        """Image is significantly larger than screen -> needs cache"""
-        img_path = tmp_path / "large.png"
-        Image.new("RGB", (3840, 2160)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
-        assert wp._check_need_cache()
-
-    def test_no_cache_when_image_smaller(self, tmp_path, mock_screen_size):
-        """Image is smaller than 1.2x screen size -> no cache"""
-        img_path = tmp_path / "small.png"
-        Image.new("RGB", (1920, 1080)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
-        assert not wp._check_need_cache()
-
-    def test_no_cache_when_image_slightly_larger_within_threshold(self, tmp_path, mock_screen_size):
-        """Image is within 1.2x threshold -> no cache"""
-        img_path = tmp_path / "close.png"
-        close_width = int(1920 * 1.19)
-        close_height = int(1080 * 1.19)
-        Image.new("RGB", (close_width, close_height)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
-        assert not wp._check_need_cache()
-
-    def test_no_compress_flag_skips_cache(self, tmp_path, mock_screen_size):
-        """allow_compress=False means no cache regardless of image size"""
-        img_path = tmp_path / "large.png"
-        Image.new("RGB", (3840, 2160)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path), allow_compress=False)
-        assert not wp._check_need_cache()
-
-
-class TestStaticWallpaperPrepareCache:
-    def test_cached_path_extension_matches_source(self, tmp_path, mock_screen_size, config_store_with_cache):
-        """prepare_wallpaper sets mount_path inside the cache dir for large images."""
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (4000, 3000)).save(img_path)
-
-        wp = StaticWallpaper(path=str(img_path))
-        wp.prepare_wallpaper()
-        assert wp.mount_path is not None
-        assert str(wp.mount_path).endswith(".png")
-        assert str(wp.cache_dir) in str(wp.mount_path)
-
-    def test_resize_applied_correctly(self, tmp_path, mock_screen_size, config_store_with_cache):
-        """Verify the cached image dimensions match expected scaling"""
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (4000, 3000)).save(img_path)
-
-        wp = StaticWallpaper(path=str(img_path))
-        wp.prepare_wallpaper()
-
-        with Image.open(wp.mount_path) as result:
-            # scale = max(1920/4000, 1080/3000) = max(0.48, 0.36) = 0.48
-            # new_w = int(4000 * 0.48) = 1920
-            # new_h = int(3000 * 0.48) = 1440
-            assert result.width == 1920
-            assert result.height == 1440
-
-    def test_no_cache_small_image(self, tmp_path, mock_screen_size):
-        """Small image does not trigger caching; mount_path is the original path."""
-        img_path = tmp_path / "small.png"
-        Image.new("RGB", (100, 100)).save(img_path)
-
-        wp = StaticWallpaper(path=str(img_path))
-        wp.prepare_wallpaper()
-        assert wp.mount_path == wp.image_path
-
-    def test_zero_dimension_image_raises(self, tmp_path, mock_screen_size, config_store_with_cache):
-        """compress_image raises ValueError when given a zero-dimension image"""
-        img_path = tmp_path / "large.png"
-        Image.new("RGB", (4000, 3000)).save(img_path)
-
-        wp = StaticWallpaper(path=str(img_path))
-        # prepare_wallpaper will call compress_image on the real image (valid),
-        # so we patch compress_image itself to raise.
-        with patch(
-            "wallpaper_auto.resource.static_wallpaper.compress_image",
-            side_effect=ValueError("Invalid image: test"),
-        ):
-            with pytest.raises(ValueError, match="Invalid image"):
-                wp.prepare_wallpaper()
+        assert wp.style == SWWallpaperStyle.STRETCH
 
 
 class TestStaticWallpaperMount:
-    def test_mount_saves_original_wallpaper(self, tmp_path, mock_mount_deps):
+    def test_mount_calls_plot_canvas(self, tmp_path):
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
-        wp.mount(_DEVICE_PATH)
-        assert wp._original_wallpaper == Path("C:\\original.jpg")
-        assert wp._monitor_device_path == _DEVICE_PATH
+        wp = StaticWallpaper(path=str(img_path), style=SWWallpaperStyle.FILL)
+        wp._bind_monitor_device_path(_DEVICE_PATH)
+        mock_plot = MagicMock()
+        wp._bind_plot_canvas(mock_plot)
 
-    def test_mount_sets_wallpaper_for_device(self, tmp_path, mock_mount_deps):
-        """mount calls set_per_display_wallpaper with the device path."""
-        mock_set = mock_mount_deps
+        wp.mount()
+
+        mock_plot.assert_called_once_with(
+            _DEVICE_PATH, SWWallpaperStyle.FILL, Path(img_path), False
+        )
+
+    def test_mount_with_string_style(self, tmp_path):
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path), style=WallpaperStyle.STRETCH)
-        wp.mount(_DEVICE_PATH)
-        mock_set.assert_called_once_with(_DEVICE_PATH, str(img_path))
+        wp = StaticWallpaper(path=str(img_path), style="center")
+        wp._bind_monitor_device_path(_DEVICE_PATH)
+        wp._bind_plot_canvas(MagicMock())
 
-    def test_mount_with_allow_compress_false_sends_original_path(self, tmp_path, mock_mount_deps):
-        """mount with allow_compress=False sends original path regardless of image size"""
-        mock_set = mock_mount_deps
+        wp.mount()  # should not raise
+
+    def test_mount_raises_when_plot_canvas_not_bound(self, tmp_path):
         img_path = tmp_path / "test.png"
-        Image.new("RGB", (3840, 2160)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path), allow_compress=False)
-        wp.mount(_DEVICE_PATH)
-        mock_set.assert_called_once()
-        args, _ = mock_set.call_args
-        assert args[1] == str(img_path)
+        Image.new("RGB", (100, 100)).save(img_path)
+        wp = StaticWallpaper(path=str(img_path), style=SWWallpaperStyle.FILL)
+        wp._bind_monitor_device_path(_DEVICE_PATH)
 
-    def test_mount_stores_original_before_overwrite(self, tmp_path, mock_mount_deps):
-        """mount calls get_wallpaper to save original before overwriting"""
-        with patch(
-            "wallpaper_auto.resource.static_wallpaper.get_wallpaper",
-            return_value="C:\\original.jpg",
-        ) as mock_get:
-            img_path = tmp_path / "test.png"
-            Image.new("RGB", (100, 100)).save(img_path)
-            wp = StaticWallpaper(path=str(img_path))
-            wp.mount(_DEVICE_PATH)
-            mock_get.assert_called_once_with(_DEVICE_PATH)
+        with pytest.raises(RuntimeError, match="plot_canvas not bound"):
+            wp.mount()
 
 
 class TestStaticWallpaperDemount:
-    def test_demount_restores_original(self, tmp_path, mock_mount_deps):
-        mock_set = mock_mount_deps
+    def test_demount_is_safe(self, tmp_path):
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path), restore=True)
-        wp.mount(_DEVICE_PATH)
-        mock_set.reset_mock()
-
-        wp.demount()
-        mock_set.assert_called_once()
-        args, _ = mock_set.call_args
-        assert args[0] == _DEVICE_PATH
-        assert args[1] == "C:\\original.jpg"
-
-    def test_demount_without_mount_is_safe(self, tmp_path, mock_mount_deps):
-        """demount without prior mount does nothing (no error)"""
-        mock_set = mock_mount_deps
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
+        wp = StaticWallpaper(path=str(img_path), style=SWWallpaperStyle.FILL)
         wp.demount()  # should not raise
-        mock_set.assert_not_called()
-
-    def test_mount_demount_cycle(self, tmp_path, mock_mount_deps):
-        """mount then demount correctly restores original"""
-        mock_set = mock_mount_deps
-        with patch(
-            "wallpaper_auto.resource.static_wallpaper.get_wallpaper",
-            return_value="C:\\original.jpg",
-        ) as mock_get:
-            img_path = tmp_path / "test.png"
-            Image.new("RGB", (100, 100)).save(img_path)
-            wp = StaticWallpaper(path=str(img_path), restore=True)
-
-            wp.mount(_DEVICE_PATH)
-            assert mock_set.call_count == 1
-            mock_get.assert_called_once_with(_DEVICE_PATH)
-
-            wp.demount()
-            assert mock_set.call_count == 2
-
-            # mount again after demount
-            mock_get.reset_mock()
-            mock_get.return_value = "C:\\restored.jpg"
-            wp.mount(_DEVICE_PATH)
-            assert mock_set.call_count == 3
-            mock_get.assert_called_once_with(_DEVICE_PATH)
-            assert wp._original_wallpaper == Path("C:\\restored.jpg")
-
-    def test_demount_with_restore_false_skips_restore(self, tmp_path, mock_mount_deps):
-        """When restore=False, demount does not restore the original wallpaper."""
-        mock_set = mock_mount_deps
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path), restore=False)
-        wp.mount(_DEVICE_PATH)
-        mock_set.reset_mock()
-
-        wp.demount()
-        mock_set.assert_not_called()
-
-    def test_demount_with_restore_true_still_restores(self, tmp_path, mock_mount_deps):
-        """When restore=True, demount restores the original wallpaper."""
-        mock_set = mock_mount_deps
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path), restore=True)
-        wp.mount(_DEVICE_PATH)
-        mock_set.reset_mock()
-
-        wp.demount()
-        mock_set.assert_called_once()
-        args, _ = mock_set.call_args
-        assert args[1] == "C:\\original.jpg"
 
 
 class TestGetScreenSize:
@@ -290,7 +117,6 @@ class TestGetScreenSize:
             )
 
     def test_releases_dc_on_success(self):
-        """DC handle is always released after getting screen size"""
         with patch("wallpaper_auto.resource.wallpaper_utils.ctypes.windll") as mock_windll:
             mock_windll.gdi32.GetDeviceCaps.side_effect = [1920, 1080]
             get_screen_size()
@@ -418,73 +244,18 @@ class TestSetWallpaper:
 
 
 class TestStaticWallpaperEdgeCases:
-    def test_unknown_string_style_raises_keyerror(self, tmp_path, mock_screen_size):
+    def test_unknown_string_style_raises_keyerror(self, tmp_path):
         """Passing an invalid style string should raise KeyError"""
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
         with pytest.raises(KeyError):
             StaticWallpaper(path=str(img_path), style="invalid_style")
 
-    def test_cache_dir_available_on_init(self, tmp_path):
-        """cache_dir is set eagerly from ConfigStore in __init__."""
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
-        assert wp.cache_dir is not None
-
-    def test_resize_portrait_image(self, tmp_path, mock_screen_size, config_store_with_cache):
-        """A portrait image should be scaled to fill the screen correctly"""
-        img_path = tmp_path / "portrait.png"
-        # Portrait image large enough to exceed 1.2x threshold (1080 * 1.2 = 1296)
-        Image.new("RGB", (500, 2000)).save(img_path)
-
-        wp = StaticWallpaper(path=str(img_path))
-        wp.prepare_wallpaper()
-        assert wp.mount_path is not None
-        with Image.open(wp.mount_path) as result:
-            assert result.width == 1920
-            assert result.height == 7680
-
-    def test_nonexistent_path_fails_on_prepare(self, tmp_path, mock_screen_size, config_store_with_cache):
-        """A nonexistent file raises FileNotFoundError when prepare_wallpaper is called."""
-        nonexistent = str(tmp_path / "nonexistent.png")
-        wp = StaticWallpaper(path=nonexistent)
-        with pytest.raises(FileNotFoundError):
-            wp.prepare_wallpaper()
-
-    def test_nonexistent_cache_dir_raises(self, tmp_path, mock_screen_size):
-        """prepare_wallpaper raises FileNotFoundError when cache dir does not exist."""
-        from wallpaper_auto.config_store import ConfigStore
-        from wallpaper_auto.models import ConfigModel
-
-        ConfigStore.clear_instance()
-        cache_dir = tmp_path / "my_cache"
-        cache_dir.mkdir()
-        store = ConfigStore()
-        store.config = ConfigModel(
-            resource={"a": {"name": "static_wallpaper", "config": {"path": "dummy"}}},
-            trigger=[],
-            rule=[],
-            fallback_target="a",
-            cache=str(cache_dir),
-        )
-
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (4000, 3000)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path))
-
-        # Delete the cache dir so prepare_wallpaper finds it missing
-        cache_dir.rmdir()
-
-        with pytest.raises(FileNotFoundError, match="cache directory"):
-            wp.prepare_wallpaper()
-
 
 class TestCompressImage:
     """Tests for ``compress_image`` error paths."""
 
     def test_raises_when_cache_already_exists(self, tmp_path):
-        """compress_image raises FileExistsError when save_path already exists."""
         from wallpaper_auto.resource.wallpaper_utils import compress_image
 
         img_path = tmp_path / "test.png"
@@ -496,7 +267,6 @@ class TestCompressImage:
             compress_image(str(img_path), (1920, 1080), str(save_path))
 
     def test_raises_on_zero_dimension_image(self, tmp_path):
-        """compress_image raises ValueError when the image has zero dimensions."""
         from wallpaper_auto.resource.wallpaper_utils import compress_image
 
         img_path = tmp_path / "test.png"
@@ -510,3 +280,73 @@ class TestCompressImage:
 
             with pytest.raises(ValueError, match="Invalid image"):
                 compress_image(str(img_path), (1920, 1080), str(tmp_path / "out.png"))
+
+    def test_compress_png_keeps_png_format(self, tmp_path):
+        from wallpaper_auto.resource.wallpaper_utils import compress_image
+
+        img_path = tmp_path / "test.png"
+        Image.new("RGB", (200, 100), (10, 20, 30)).save(img_path)
+        save_path = tmp_path / "out.png"
+        compress_image(str(img_path), (100, 100), str(save_path))
+        assert save_path.exists()
+        # Output format inferred from input — should be PNG.
+        with Image.open(save_path) as result:
+            assert result.format == "PNG"
+
+    def test_compress_jpeg_keeps_jpeg_format(self, tmp_path):
+        from wallpaper_auto.resource.wallpaper_utils import compress_image
+
+        img_path = tmp_path / "test.jpg"
+        Image.new("RGB", (200, 100), (10, 20, 30)).save(img_path, format="JPEG")
+        save_path = tmp_path / "out.jpg"
+        compress_image(str(img_path), (100, 100), str(save_path))
+        assert save_path.exists()
+
+    def test_compress_unknown_format_falls_back_to_png(self, tmp_path):
+        from wallpaper_auto.resource.wallpaper_utils import compress_image
+
+        img_path = tmp_path / "test.tiff"
+        # Save as TIFF (not in the allowed list).
+        Image.new("RGB", (50, 50)).save(img_path, format="TIFF")
+        save_path = tmp_path / "out.png"
+        compress_image(str(img_path), (50, 50), str(save_path))
+        # Output is PNG (fallback).
+        with Image.open(save_path) as result:
+            assert result.format == "PNG"
+
+
+class TestGetCurrentWallpaperStyle:
+    def test_returns_style_tuple(self):
+        from wallpaper_auto.resource.wallpaper_utils import get_current_wallpaper_style
+
+        with (
+            patch(
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegQueryValueEx",
+                side_effect=[("10", 1), ("0", 1)],
+            ),
+            patch("wallpaper_auto.resource.wallpaper_utils.win32api.RegCloseKey"),
+            patch(
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegOpenKeyEx",
+                return_value=999,
+            ),
+        ):
+            result = get_current_wallpaper_style()
+
+        assert result == ("10", "0")
+
+    def test_closes_key_after_query(self):
+        from wallpaper_auto.resource.wallpaper_utils import get_current_wallpaper_style
+
+        with (
+            patch("wallpaper_auto.resource.wallpaper_utils.win32api.RegCloseKey") as mock_close,
+            patch(
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegOpenKeyEx",
+                return_value=999,
+            ),
+            patch(
+                "wallpaper_auto.resource.wallpaper_utils.win32api.RegQueryValueEx",
+                side_effect=[("6", 1), ("0", 1)],
+            ),
+        ):
+            get_current_wallpaper_style()
+        mock_close.assert_called_once_with(999)

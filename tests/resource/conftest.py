@@ -10,23 +10,6 @@ from wallpaper_auto.resource.base_resource import BaseResource
 _TEST_DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
 
 
-@pytest.fixture
-def mock_screen_size():
-    with patch(
-        "wallpaper_auto.resource.static_wallpaper.get_screen_size", return_value=(1920, 1080)
-    ):
-        yield
-
-
-@pytest.fixture
-def mock_screen_size_utils():
-    """Patch get_screen_size at the wallpaper_utils level."""
-    with patch(
-        "wallpaper_auto.resource.wallpaper_utils.get_screen_size", return_value=(1920, 1080)
-    ):
-        yield
-
-
 @pytest.fixture(autouse=True)
 def _auto_config_store():
     """Ensure ConfigStore is available for every test that creates StaticWallpaper."""
@@ -40,75 +23,6 @@ def _auto_config_store():
             fallback_target="a",
         )
     yield
-
-
-@pytest.fixture
-def mock_mount_deps():
-    """Patch COM wallpaper functions for per-display mount testing."""
-    with (
-        patch(
-            "wallpaper_auto.resource.static_wallpaper.com_session",
-        ),
-        patch(
-            "wallpaper_auto.resource.static_wallpaper.get_wallpaper",
-            return_value="C:\\original.jpg",
-        ),
-        patch(
-            "wallpaper_auto.resource.static_wallpaper.get_wallpaper_position",
-            return_value=0,
-        ),
-        patch(
-            "wallpaper_auto.resource.static_wallpaper.set_per_display_wallpaper",
-        ) as mock_set,
-        patch(
-            "wallpaper_auto.resource.static_wallpaper.set_wallpaper_position",
-        ),
-        patch(
-            "wallpaper_auto.resource.wallpaper_utils.get_screen_size",
-            return_value=(1920, 1080),
-        ),
-    ):
-        yield mock_set
-
-
-@pytest.fixture
-def config_store_with_cache(tmp_path):
-    """Set up a ConfigStore with a cache directory for tests that need caching."""
-    ConfigStore.clear_instance()
-    cache_dir = tmp_path / "wallpaper_cache"
-    cache_dir.mkdir()
-    store = ConfigStore()
-    store.config = ConfigModel(
-        resource={"a": {"name": "static_wallpaper", "config": {"path": "dummy"}}},
-        trigger=[],
-        rule=[],
-        fallback="a",
-        cache=str(cache_dir),
-    )
-    yield
-    ConfigStore.clear_instance()
-
-
-# ── Shared fixtures (patch resource_carousel for ResourceCarousel tests) ──
-
-
-@pytest.fixture
-def mock_carousel_deps():
-    """Patch ResourceCarousel's own wallpaper reads (not sub-resource calls)."""
-    with (
-        patch(
-            "wallpaper_auto.resource.resource_carousel.get_current_wallpaper_style",
-            return_value=("10", "0"),
-        ),
-        patch(
-            "wallpaper_auto.resource.resource_carousel.com_session",
-        ),
-        patch(
-            "wallpaper_auto.resource.resource_carousel.get_wallpaper",
-            return_value="C:\\original.jpg",
-        ),
-    ):
-        yield
 
 
 @pytest.fixture
