@@ -4,6 +4,11 @@ from ctypes import wintypes
 from dataclasses import dataclass
 
 
+class DisplayTopologyTransientError(OSError):
+    """Raised when the system is in a display topology transition period (e.g., RDP switching, sleep/wake)."""
+    pass
+
+
 @dataclass(frozen=True)
 class DisplayInfo:
     model: str | None
@@ -16,6 +21,7 @@ class DisplayInfo:
 
 ERROR_SUCCESS = 0
 ERROR_INSUFFICIENT_BUFFER = 122
+ERROR_NOT_SUPPORTED = 50
 QDC_DATABASE_CURRENT = 0x00000004
 DISPLAYCONFIG_PATH_MODE_IDX_INVALID = 0xFFFFFFFF
 DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE = 1
@@ -239,6 +245,8 @@ def get_display_info() -> list[DisplayInfo]:
             if friendly_name == "":
                 friendly_name = None
             monitor_device_path = device_name_info.monitorDevicePath
+        elif res == ERROR_NOT_SUPPORTED:
+            raise DisplayTopologyTransientError("Windows QueryDisplayConfig returned 50: Not Supported.")
         else:
             raise OSError(f"DisplayConfigGetDeviceInfo error return: {res}")
         
