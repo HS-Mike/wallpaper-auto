@@ -1,5 +1,4 @@
 """Tests for system_tray.py — WallpaperSwitchSystemTray and tray menu rendering."""
-
 import pytest
 from PySide6.QtWidgets import QApplication
 
@@ -8,7 +7,7 @@ from wallpaper_auto.system_tray import WallpaperSwitchSystemTray
 from wallpaper_auto.task import Mode
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="function")
 def ensure_qapp(qtbot, monkeypatch):
     """Ensure a QApplication exists and patch system_tray to reuse it."""
     app = QApplication.instance()
@@ -23,7 +22,9 @@ def ensure_qapp(qtbot, monkeypatch):
 def _make_tray():
     """Create a WallpaperSwitchSystemTray with the shared QApplication."""
     tray = WallpaperSwitchSystemTray()
-    tray._app = QApplication.instance()
+    app = QApplication.instance()
+    assert app is not None
+    tray._app = app
     return tray
 
 
@@ -42,9 +43,11 @@ class TestBridgeSignals:
     def test_bridge_signals(self, qtbot):
         tray = _make_tray()
         tray.show()
-        with qtbot.waitSignal(tray.bridge.update_ui_signal):
-            tray.bridge.update_ui(["res1"], Mode.AUTO, None, "res1")
-        tray.hide()
+        try:
+            with qtbot.waitSignal(tray.bridge.update_ui_signal):
+                tray.bridge.update_ui(["res1"], Mode.AUTO, None, "res1")
+        finally:
+            tray.hide()
 
 
 class TestMenuRendering:
@@ -52,18 +55,18 @@ class TestMenuRendering:
 
     def test_menu_rendering_auto_mode(self, tray_app, qtbot):
         """Test AUTO mode menu rendering logic."""
-        resource_ids = ["wallpaper1", "wallpaper2"]
-        active_id = "wallpaper1"
+        available_targets = ["wallpaper1", "wallpaper2"]
+        active_target = "wallpaper1"
 
         tray_app.bridge.update_ui(
-            resource_ids,
+            available_targets,
             Mode.AUTO,
             Rule(
                 name="Work",
-                condition=ConditionNode(**{"random_condition": "random_param"}),  # type: ignore
+                condition=ConditionNode(**{"random_condition": "random_param"}),  # type: ignore[arg-type]
                 target="random_target",
             ).name,
-            active_id,
+            active_target,
         )
 
         actions = tray_app._menu.actions()
@@ -78,8 +81,8 @@ class TestMenuRendering:
         wp1_action = tray_app._action_groups["wallpaper1"]
         assert wp1_action.isEnabled()
 
-    def test_menu_rendering_manual_mode_with_active_resource(self, tray_app, qtbot):
-        """MANUAL mode renders with active resource highlighted."""
+    def test_menu_rendering_manual_mode_with_active_target(self, tray_app, qtbot):
+        """MANUAL mode renders with active target highlighted."""
         tray_app.bridge.update_ui(["res1", "res2"], Mode.MANUAL, None, "res1")
 
         actions = tray_app._menu.actions()
@@ -99,10 +102,10 @@ class TestCallbacks:
 
     def test_ui_to_logic_callbacks(self, tray_app, qtbot):
         """Test menu item clicks trigger logic-layer callbacks."""
-        mock_called = {"mode": None, "res": None, "quit": False}
+        mock_called: dict[str, Mode | str | bool | None] = {"mode": None, "target": None, "quit": False}
 
         tray_app.bridge.register_set_mode_handler(lambda m: mock_called.update({"mode": m}))
-        tray_app.bridge.register_select_target_handler(lambda r: mock_called.update({"res": r}))
+        tray_app.bridge.register_select_target_handler(lambda r: mock_called.update({"target": r}))
         tray_app.bridge.register_quit_handler(lambda: mock_called.update({"quit": True}))
 
         # 1. In MANUAL mode, click a resource action (also sets mode to MANUAL)
@@ -110,12 +113,12 @@ class TestCallbacks:
         res_action = tray_app._action_groups["res_a"]
         res_action.trigger()
         assert mock_called["mode"] == Mode.MANUAL
-        assert mock_called["res"] == "res_a"
+        assert mock_called["target"] == "res_a"
 
         # 2. Click AUTO to switch mode
         auto_action = [a for a in tray_app._menu.actions() if a.text() == "AUTO"][0]
         auto_action.trigger()
-        assert mock_called["mode"] == Mode.AUTO
+        assert mock_called["mode"] == Mode.AUTO  # type: ignore[comparison-overlap]
 
         # 3. Quit
         quit_action = [a for a in tray_app._menu.actions() if a.text() == "quit"][0]

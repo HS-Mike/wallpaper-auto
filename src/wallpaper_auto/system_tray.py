@@ -14,7 +14,6 @@ from PySide6.QtCore import QCoreApplication, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QCursor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from .models import Rule
 from .task import Mode
 
 logger = logging.getLogger(__name__)
@@ -30,7 +29,7 @@ class SystemTrayBridge(QObject):
     """
 
     # Signal: Logic layer -> UI layer (for updating the interface)
-    # Params: resource_ids, mode, active_rule, active_resource_id
+    # Params: available_targets, mode, active_rule_id, active_target
     update_ui_signal = Signal(list, object, object, object)
 
     def __init__(self) -> None:
@@ -43,8 +42,8 @@ class SystemTrayBridge(QObject):
 
     # --- external communication to tray (Thread-Safe) ---
 
-    def update_ui(self, r_ids: list[str], mode: object, active_rule_id: str | None, active_target: str | None) -> None:
-        self.update_ui_signal.emit(r_ids, mode, active_rule_id, active_target)
+    def update_ui(self, available_targets: list[str], mode: object, active_rule_id: str | None, active_target: str | None) -> None:
+        self.update_ui_signal.emit(available_targets, mode, active_rule_id, active_target)
 
     def register_set_mode_handler(self, cb: Callable[[Mode], None]) -> None:
         self._on_set_mode_handler = cb
@@ -124,7 +123,7 @@ class WallpaperSwitchSystemTray:
 
     def update_menu(
         self,
-        avaliable_targets: list[str],
+        available_targets: list[str],
         mode: Mode,
         active_rule_id: str | None,
         active_target: str | None,
@@ -140,7 +139,7 @@ class WallpaperSwitchSystemTray:
 
         self._menu.addSeparator()
 
-        for t in avaliable_targets:
+        for t in available_targets:
             action = QAction(f"{t}")
             action.triggered.connect(lambda: self.bridge.request_set_mode(Mode.MANUAL))
             action.triggered.connect(lambda checked, t=t: self.bridge.request_select_target(t))
