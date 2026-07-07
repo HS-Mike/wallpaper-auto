@@ -26,6 +26,7 @@ from .util.wallpaper_util import (
 )
 
 logger = logging.getLogger(__name__)
+logging.getLogger("PIL").setLevel(logging.WARNING)
 
 
 _BUILTIN_RESOURCES: dict[str, type[BaseResource]] = {

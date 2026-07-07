@@ -28,9 +28,9 @@ from .util.display_utils import DisplayInfo, get_display_info
 logger = logging.getLogger(__name__)
 
 
-# support up to 32K 16:9 resolution wallpapers (30,720x17,280)
+# support up to 64K 16:9 resolution wallpapers (30,720x17,280)
 # you may set to None to disable the limit
-Image.MAX_IMAGE_PIXELS = 530841600
+Image.MAX_IMAGE_PIXELS = 61440 * 34560
 # Image.MAX_IMAGE_PIXELS = None
 
 
