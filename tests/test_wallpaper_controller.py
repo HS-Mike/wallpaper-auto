@@ -559,7 +559,7 @@ class TestWallpaperControllerStop:
     """stop() – clean shutdown."""
 
     def test_stop_raises_when_thread_not_started(self, controller):
-        with patch.object(controller._display_trigger, "deactivate"):
+        with patch.object(controller._display_trigger, "stop"):
             with pytest.raises(RuntimeError, match="worker loop thread not start"):
                 controller.stop()
 

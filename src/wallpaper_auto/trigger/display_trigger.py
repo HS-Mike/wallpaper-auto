@@ -101,18 +101,18 @@ class DisplayTrigger(BaseThreadTrigger):
         return 96
 
     @override
-    def activate(self) -> None:
+    def start(self) -> None:
         super().start()
-        logger.debug(f"{self.__class__.__name__} activate")
+        logger.debug(f"{self.__class__.__name__} start")
 
     @override
-    def deactivate(self) -> None:
+    def stop(self) -> None:
         """Send WM_CLOSE to safely stop PumpMessages from another thread."""
         hwnd = self.hwnd
         if hwnd:
             win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
-        self.join(timeout=3)
-        logger.debug(f"{self.__class__.__name__} deactivate")
+        super().stop()
+        logger.debug(f"{self.__class__.__name__} stop")
 
     def _setup_window(self) -> None:
         """Create a hidden watch window in the current thread."""

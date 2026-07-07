@@ -72,12 +72,12 @@ class TriggerManager(CallbackRegister[[], None]):
     def activate(self) -> None:
         """Start all triggers."""
         for t in self._triggers:
-            t.activate()
+            t.start()
 
     def deactivate(self) -> None:
         """Stop all triggers."""
         for t in self._triggers:
-            t.deactivate()
+            t.stop()
 
     def pause(self) -> None:
         """Pause triggers (keep thread alive but do not trigger callbacks)."""

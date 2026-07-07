@@ -80,7 +80,7 @@ class NetworkTrigger(BaseThreadTrigger):
         handles = (wintypes.HANDLE * 2)(net_event, self._exit_event)
 
         try:
-            while not self._stop_event.is_set():
+            while not self.stop_event.is_set():
                 res = IPHLPAPI.NotifyAddrChange(ctypes.byref(handle), ctypes.byref(overlap))
                 if res != 0 and res != 997:
                     logger.error(f"NotifyAddrChange registration failed: {res}")
@@ -104,18 +104,18 @@ class NetworkTrigger(BaseThreadTrigger):
             KERNEL32.CloseHandle(net_event)
             logger.info("NetworkTrigger thread exited safely")
 
-    def activate(self) -> None:
+    def start(self) -> None:
         if self._exit_event:
             KERNEL32.CloseHandle(self._exit_event)
         self._exit_event = KERNEL32.CreateEventW(None, False, False, None)
-        super().activate()
-        logger.debug(f"{self.__class__.__name__} activate")
+        super().start()
+        logger.debug(f"{self.__class__.__name__} start")
 
-    def deactivate(self) -> None:
+    def stop(self) -> None:
         if self._exit_event:
             KERNEL32.SetEvent(self._exit_event)
-        super().deactivate()
+        super().stop()
         if self._exit_event:
             KERNEL32.CloseHandle(self._exit_event)
             self._exit_event = None
-        logger.debug(f"{self.__class__.__name__} deactivate")
+        logger.debug(f"{self.__class__.__name__} stop")

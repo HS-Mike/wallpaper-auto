@@ -121,7 +121,8 @@ class TestTriggerManagerInitTriggers:
         assert fired == ["ok"]
 
 
-_METHODS = ["activate", "deactivate"]
+_METHOD_MAP = {"activate": "start", "deactivate": "stop"}
+_METHODS = list(_METHOD_MAP.keys())
 
 
 class TestTriggerManagerActivateDeactivate:
@@ -135,7 +136,7 @@ class TestTriggerManagerActivateDeactivate:
 
         getattr(mgr, method)()
         for m in mocks:
-            getattr(m, method).assert_called_once()
+            getattr(m, _METHOD_MAP[method]).assert_called_once()
 
     @pytest.mark.parametrize("method", _METHODS)
     def test_with_no_triggers(self, mgr, method):

@@ -110,22 +110,21 @@ class TimeTrigger(BaseThreadTrigger):
             next_event = min(candidates)
             return (next_event - now).total_seconds(), next_event
 
-    def activate(self) -> None:
-        super().activate()
-        logger.debug(f"{self.__class__.__name__} activate")
+    def start(self) -> None:
+        super().start()
+        logger.debug(f"{self.__class__.__name__} start")
 
-    def deactivate(self) -> None:
-        self._request_stop()
+    def stop(self) -> None:
         self._update_event.set()
-        super().join(timeout=3)
-        logger.debug(f"{self.__class__.__name__} deactivate")
+        super().stop()
+        logger.debug(f"{self.__class__.__name__} stop")
 
     def run(self) -> None:
         """
         Main loop: waits for the next scheduled trigger time, then fires.
         Respects both fixed-time and interval scheduling.
         """
-        while not self._stop_event.is_set():
+        while not self.stop_event.is_set():
             self._update_event.clear()
             wait_task = self._get_next_wait_time()
             if wait_task is None:
@@ -133,7 +132,7 @@ class TimeTrigger(BaseThreadTrigger):
             else:
                 wait_second, target_time = wait_task
                 interrupted = self._update_event.wait(timeout=wait_second)
-                if self._stop_event.is_set():
+                if self.stop_event.is_set():
                     break
                 if not interrupted:
                     self.current_time = target_time

@@ -171,40 +171,42 @@ class TestGetNextWaitTime:
         assert target == dt(2024, 1, 1, 10, 30)
 
 
-class TestActivateDeactivate:
-    def test_activate_starts_thread(self):
-        trigger = TimeTrigger()
-        with patch("threading.Thread.start") as mock_start:
-            trigger.activate()
-            mock_start.assert_called_once()
-
-    def test_deactivate_sets_stop_and_update_events(self):
+class TestActivateDestart:
+    def test_start_starts_thread(self):
         trigger = TimeTrigger()
         trigger.start()
-        trigger.deactivate()
-        assert trigger._stop_event.is_set()
+        assert trigger._thread is not None
+        assert trigger._thread.is_alive()
+        trigger.stop()
+
+    def test_stop_sets_stop_and_update_events(self):
+        trigger = TimeTrigger()
+        trigger.start()
+        trigger.stop()
+        assert trigger.stop_event.is_set()
         assert trigger._update_event.is_set()
 
 
-class TestBaseThreadTriggerDeactivate:
-    """Tests for BaseThreadTrigger.deactivate() (not overridden by subclasses)."""
+class TestBaseThreadTriggerDestart:
+    """Tests for BaseThreadTrigger.stop() (not overridden by subclasses)."""
 
-    def test_deactivate_stops_thread_and_joins(self):
-        """BaseThreadTrigger.deactivate() stops thread and joins."""
+    def test_stop_stops_thread_and_joins(self):
+        """BaseThreadTrigger.stop() stops thread and joins."""
         from wallpaper_auto.trigger.base_trigger import BaseThreadTrigger
 
         class _MinimalTrigger(BaseThreadTrigger):
             def run(self):
-                while not self._stop_event.is_set():
+                while not self.stop_event.is_set():
                     threading.Event().wait(0.05)
 
         trigger = _MinimalTrigger()
         trigger.start()
-        assert trigger.is_alive()
+        assert trigger._thread is not None
+        assert trigger._thread.is_alive()
 
-        trigger.deactivate()
-        assert trigger._stop_event.is_set()
-        assert not trigger.is_alive()
+        trigger.stop()
+        assert trigger.stop_event.is_set()
+        assert trigger._thread is None
 
 
 class TestRunLoop:

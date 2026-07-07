@@ -162,55 +162,52 @@ class TestDisplayTriggerMsgProc:
 
 
 # ===========================================================================
-# TestDisplayTriggerActivateDeactivate
+# TestDisplayTriggerActivateDestart
 # ===========================================================================
 
 
-class TestDisplayTriggerActivateDeactivate:
-    """Tests for activate and deactivate lifecycle."""
+class TestDisplayTriggerActivateDestart:
+    """Tests for start and stop lifecycle."""
 
-    def test_activate_starts_thread(self, mock_display_deps) -> None:
+    def test_start_starts_thread(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
 
-        with patch("threading.Thread.start") as mock_start:
-            trigger.activate()
+        trigger.start()
 
-            mock_start.assert_called_once()
+        assert trigger._thread is not None
+        assert trigger._thread.is_alive()
+        trigger.stop()
 
-    def test_deactivate_posts_quit_and_joins(self, mock_display_deps) -> None:
+    def test_stop_posts_quit_and_joins(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
         trigger.hwnd = 0xABC
 
-        with patch("threading.Thread.join") as mock_join:
-            trigger.deactivate()
+        trigger.stop()
 
-            mock_display_deps["postmsg"].assert_called_once_with(
-                0xABC, win32con.WM_CLOSE, 0, 0
-            )
-            mock_join.assert_called_once_with(timeout=3)
+        mock_display_deps["postmsg"].assert_called_once_with(
+            0xABC, win32con.WM_CLOSE, 0, 0
+        )
 
-    def test_deactivate_skips_post_when_no_hwnd(self, mock_display_deps) -> None:
+    def test_stop_skips_post_when_no_hwnd(self, mock_display_deps) -> None:
         trigger = DisplayTrigger()
         assert trigger.hwnd is None
 
-        with patch("threading.Thread.join") as mock_join:
-            trigger.deactivate()
+        trigger.stop()
 
-            mock_display_deps["postmsg"].assert_not_called()
-            mock_join.assert_called_once_with(timeout=3)
+        mock_display_deps["postmsg"].assert_not_called()
 
-    def test_activate_deactivate_full_cycle(self) -> None:
-        """Full activate → deactivate cycle with real Windows API calls.
+    def test_start_stop_full_cycle(self) -> None:
+        """Full start → stop cycle with real Windows API calls.
 
         Verifies the complete chain without mocking any Win32/CCD/COM calls:
-        activate() → thread creates real hidden window → PumpMessages runs
-        → deactivate() posts WM_CLOSE → _msg_proc handles it → DestroyWindow
+        start() → thread creates real hidden window → PumpMessages runs
+        → stop() posts WM_CLOSE → _msg_proc handles it → DestroyWindow
         → WM_DESTROY → PostQuitMessage → pump exits → thread joins.
         """
         import time
 
         trigger = DisplayTrigger()
-        trigger.activate()
+        trigger.start()
 
         # Wait for the background thread to create the window
         hwnd = None
@@ -221,12 +218,12 @@ class TestDisplayTriggerActivateDeactivate:
             time.sleep(0.005)
 
         assert hwnd is not None, "Window was not created in background thread"
-        assert trigger.is_alive()
+        assert trigger._thread is not None and trigger._thread.is_alive()
 
-        # deactivate() posts WM_CLOSE and joins the thread
-        trigger.deactivate()
+        # stop() posts WM_CLOSE and joins the thread
+        trigger.stop()
 
-        assert not trigger.is_alive()
+        assert trigger._thread is None  # set to None by stop()
         assert trigger.hwnd is None  # set to None by WM_DESTROY handler
 
 

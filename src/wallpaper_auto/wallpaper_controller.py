@@ -196,7 +196,7 @@ class WallpaperController:
         if self._tray is not None:
             self._tray.show()
 
-        self._display_trigger.activate()
+        self._display_trigger.start()
         self._worker_loop_thread = threading.Thread(target=self._worker_loop)
         self._worker_loop_thread.start()
         self.evaluate()
@@ -205,7 +205,7 @@ class WallpaperController:
 
     def stop(self) -> None:
         logger.info("wallpaper controller stop")
-        self._display_trigger.deactivate()
+        self._display_trigger.stop()
         if self._worker_loop_thread is None:
             raise RuntimeError("worker loop thread not start yet")
         self.add_quit_task()
