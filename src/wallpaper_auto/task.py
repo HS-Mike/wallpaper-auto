@@ -1,7 +1,7 @@
 """
 Task classes transmit across components.
 """
-import uuid
+import secrets
 from enum import Enum
 from typing import Annotated, Literal
 
@@ -24,7 +24,7 @@ class TaskType(Enum):
 
 
 class BaseTask(BaseModel):
-    id: int = Field(default_factory=lambda: uuid.uuid4().int)
+    id: int = Field(default_factory=lambda: secrets.randbits(63))
     model_config = ConfigDict(extra="allow", frozen=True)
 
     def __hash__(self) -> int:

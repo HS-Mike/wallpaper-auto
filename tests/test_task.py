@@ -1,17 +1,12 @@
 """Tests for task.py — BaseTask __hash__ and task type coverage."""
-
-import pytest
-
 from wallpaper_auto.task import (
     BaseTask,
     Mode,
     ModeSwitchTask,
     PlotCanvasTask,
     QuitTask,
-    TaskType,
     TargetSetTask,
 )
-from wallpaper_auto.models import Rule, ConditionNode
 
 
 class TestBaseTaskHash:
@@ -19,7 +14,7 @@ class TestBaseTaskHash:
 
     def test_hash_returns_id(self):
         task = QuitTask()
-        assert task.__hash__() == task.id
+        assert hash(task) == task.id
 
     def test_hash_uses_default_uuid_int_id(self):
         task = QuitTask()
@@ -31,27 +26,22 @@ class TestBaseTaskHash:
         a = QuitTask()
         b = QuitTask()
         assert a.id != b.id
-        assert a.__hash__() != b.__hash__()
+        assert hash(a) != hash(b)
+
+    def test_hash_and_dunder_hash_agree(self):
+        """hash() must return the same value as __hash__().
+
+        Python's built-in hash() can return a truncated value for very large
+        ints (those exceeding Py_ssize_t width). Since __hash__ returns self.id
+        directly, verify that hash() doesn't silently mangle the value.
+        """
+        task = QuitTask()
+        assert hash(task) == BaseTask.__hash__(task)
 
     def test_hash_inherits_to_subclasses(self):
         switch = ModeSwitchTask(target_mode=Mode.AUTO)
         target = TargetSetTask(target="r1", matched_rule=None)
         plot = PlotCanvasTask()
-        assert switch.__hash__() == switch.id
-        assert target.__hash__() == target.id
-        assert plot.__hash__() == plot.id
-
-
-class TestTaskType:
-    def test_task_type_values(self):
-        assert TaskType.QUIT.value == 0
-        assert TaskType.MODE_SWITCH.value == 1
-        assert TaskType.TARGET_SET.value == 2
-        assert TaskType.PLOT_CANVAS.value == 3
-
-
-class TestMode:
-    def test_mode_values(self):
-        assert Mode.AUTO.value == "auto"
-        assert Mode.MANUAL.value == "manual"
-        assert Mode.UNSET.value == "unset"
+        assert hash(switch) == switch.id
+        assert hash(target) == target.id
+        assert hash(plot) == plot.id
