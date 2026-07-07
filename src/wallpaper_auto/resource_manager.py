@@ -14,7 +14,7 @@ import threading
 from .models import ResourceConfig, SceneBinding
 from .resource.base_resource import BaseResource
 from .config_store import ConfigStore
-from .resource.resource_carousel import ResourceCarousel
+from .resource.resource_cycle import ResourceCycle
 from .resource.static_wallpaper import StaticWallpaper
 from .util.display_utils import get_display_info, DisplayInfo
 
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 _BUILTIN_RESOURCES: dict[str, type[BaseResource]] = {
     "static_wallpaper": StaticWallpaper,
-    "resource_carousel": ResourceCarousel,
+    "cycle": ResourceCycle,
 }
 
 
@@ -65,7 +65,7 @@ class ResourceManager:
             resource_cfg: ResourceConfig = ConfigStore.instance.resource[target]
             res = {}
             for i in display_info:
-                resource_obj = _BUILTIN_RESOURCES[resource_cfg.name](**resource_cfg.config)
+                resource_obj = ResourceManager._support_resources[resource_cfg.name](**resource_cfg.config)
                 resource_obj._bind_monitor_device_path(i.monitor_device_path)
                 res[i.monitor_device_path] = resource_obj
             return res
@@ -75,7 +75,7 @@ class ResourceManager:
             res = {}
             for monitor_device_path, resource_id in scene_map.items():
                 resource_cfg: ResourceConfig = ConfigStore.instance.resource[resource_id]
-                resource_obj = _BUILTIN_RESOURCES[resource_cfg.name](**resource_cfg.config)
+                resource_obj = ResourceManager._support_resources[resource_cfg.name](**resource_cfg.config)
                 resource_obj._bind_monitor_device_path(monitor_device_path)
                 res[monitor_device_path] = resource_obj
             return res

@@ -13,7 +13,6 @@ from PIL import Image
 
 from .config_store import ConfigStore
 from .resource.base_resource import BaseResource
-from .resource.resource_carousel import ResourceCarousel
 from .resource.static_wallpaper import StaticWallpaper
 from .util.display_utils import DisplayInfo, get_display_info
 from .util.wallpaper_util import (
@@ -29,16 +28,8 @@ logger = logging.getLogger(__name__)
 logging.getLogger("PIL").setLevel(logging.WARNING)
 
 
-_BUILTIN_RESOURCES: dict[str, type[BaseResource]] = {
-    "static_wallpaper": StaticWallpaper,
-    "resource_carousel": ResourceCarousel,
-}
-
-
 class DisplayManager:
     """Per-display wallpaper lifecycle — mount/demount per monitor and composite canvas."""
-
-    _support_resources = _BUILTIN_RESOURCES.copy()
 
     def __init__(self) -> None:
         self._restore_wallpaper: dict[str, BaseResource] = {}

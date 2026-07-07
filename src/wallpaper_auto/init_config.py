@@ -43,9 +43,9 @@ resource:
   # Shorthand — path only; name and style are inferred
   black: "C:/Users/You/Pictures/black.jpg"
 
-  # ── Resource carousel (cycles through multiple sub-resources) ──────────
-  # carousel:
-  #   name: resource_carousel
+  # ── Resource cycle (cycles through multiple sub-resources) ─────────────
+  # cycle:
+  #   name: cycle
   #   config:
   #     resources:
   #       - name: static_wallpaper

@@ -1,5 +1,5 @@
 """
-Resource carousel that cycles through multiple BaseResource instances.
+Resource cycle that cycles through multiple BaseResource instances.
 
 Mounts and cycles through a collection of sub-resources on a configurable
 interval, optionally in random order. Each sub-resource handles its own
@@ -23,7 +23,7 @@ from .base_resource import BaseResource, PlotCanvasProtocol
 logger = logging.getLogger(__name__)
 
 
-class ResourceCarousel(BaseResource):
+class ResourceCycle(BaseResource):
     """
     A wallpaper resource that cycles through a list of sub-resources.
 
@@ -32,7 +32,7 @@ class ResourceCarousel(BaseResource):
     and cleans up sub-resources.
 
     Sub-resources should be created with ``restore=False`` (the default)
-    so that individual demount calls do not interfere with the carousel's
+    so that individual demount calls do not interfere with the cycle's
     lifecycle management.
 
     Args:
@@ -67,7 +67,7 @@ class ResourceCarousel(BaseResource):
 
         if not self._resources:
             raise ValueError("At least one resource is required")
-        
+
         self.interval = interval
         self.random = random
         self.restore = restore
@@ -101,14 +101,14 @@ class ResourceCarousel(BaseResource):
             self._index = random.randrange(len(self._resources))
         else:
             self._index = (self._index + 1) % len(self._resources)
-    
+
     def get_plot_canvas_wrapper(self) -> PlotCanvasProtocol:
         assert self._plot_canvas is not None, "plot_canvas not bound"
         assert self.monitor_device_path is not None, "monitor_device_path not bound"
         def plot_canvas_wrapper(
-                monitor_device_path: str, 
-                style: WallpaperStyle, 
-                image: Path | Image.Image, 
+                monitor_device_path: str,
+                style: WallpaperStyle,
+                image: Path | Image.Image,
                 immediate_update: bool = False
             ) -> None:
             assert self._plot_canvas is not None, "plot_canvas not bound"
@@ -117,7 +117,7 @@ class ResourceCarousel(BaseResource):
         return plot_canvas_wrapper
 
     def _cycling_loop(self) -> None:
-        logger.debug("resource carousel cycling thread start")
+        logger.debug("resource cycle cycling thread start")
 
         plot_canvas_wrapper = self.get_plot_canvas_wrapper()
 
@@ -128,7 +128,7 @@ class ResourceCarousel(BaseResource):
         assert self.monitor_device_path is not None
         r._bind_monitor_device_path(self.monitor_device_path)
         r._bind_plot_canvas(plot_canvas_wrapper)
-        r.mount() 
+        r.mount()
 
         while not self._stop_event.wait(timeout=self.interval):
             r.demount()
@@ -137,10 +137,10 @@ class ResourceCarousel(BaseResource):
             r = self._resources[self._index]
             r._bind_monitor_device_path(self.monitor_device_path)
             r._bind_plot_canvas(plot_canvas_wrapper)
-            r.mount() 
+            r.mount()
         r.demount()
         r._unbind_plot_canvas()
-        logger.debug("resource carousel cycling thread exit")
+        logger.debug("resource cycle cycling thread exit")
 
     def mount(self) -> None:
         # Start the cycling thread

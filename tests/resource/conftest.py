@@ -27,5 +27,5 @@ def _auto_config_store():
 
 @pytest.fixture
 def mock_sub_resources():
-    """Create 3 mock BaseResource instances for carousel testing."""
+    """Create 3 mock BaseResource instances for resource cycle testing."""
     return [MagicMock(spec=BaseResource) for _ in range(3)]

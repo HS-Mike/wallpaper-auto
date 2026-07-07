@@ -53,11 +53,6 @@ class TestDisplayManagerInit:
         assert dm._display_resource_map == {}
         assert dm._canvas_buffer == {}
 
-    def test_init_registers_builtin_resources(self):
-        assert "static_wallpaper" in DisplayManager._support_resources
-        assert "resource_carousel" in DisplayManager._support_resources
-
-
 class TestDisplayManagerStartStop:
     """start() / stop() iterate the live display topology."""
 
