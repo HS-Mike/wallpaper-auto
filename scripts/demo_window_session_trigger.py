@@ -58,7 +58,7 @@ def main() -> None:
 
     shutdown_event = threading.Event()
 
-    monitor.activate()
+    monitor.start()
     logger.info("Windows session monitor started, press Ctrl+C to exit")
 
     try:
@@ -69,7 +69,7 @@ def main() -> None:
         logger.info("KeyboardInterrupt received, shutting down...")
     finally:
         logger.info("Shutting down WindowsSessionTrigger...")
-        monitor.deactivate()
+        monitor.stop()
         shutdown_event.set()
         logger.info("Demo script exited safely.")
 

@@ -47,7 +47,7 @@ def main() -> None:
 
     monitor = DisplayTrigger()
     monitor.add_callback(on_display_change)
-    monitor.activate()
+    monitor.start()
 
     logger.info("DisplayTrigger started, press Ctrl+C to exit")
 
@@ -59,7 +59,7 @@ def main() -> None:
         logger.info("KeyboardInterrupt received, shutting down...")
     finally:
         logger.info("Shutting down DisplayTrigger...")
-        monitor.deactivate()
+        monitor.stop()
         logger.info("Demo script exited safely.")
 
 
