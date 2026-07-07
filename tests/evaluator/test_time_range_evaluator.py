@@ -79,6 +79,50 @@ class TestTimeRangeEvaluator:
             mock_dt.now.return_value = fake_now
             assert evaluator(["12:00", "12:00"]) is expected
 
+    # ── Normal range from midnight ──
+
+    @pytest.mark.parametrize(
+        "now_time,expected",
+        [
+            (real_dt.time(0, 0), True),    # at start (inclusive)
+            (real_dt.time(6, 0), True),    # within
+            (real_dt.time(12, 0), True),   # at end (inclusive)
+            (real_dt.time(12, 1), False),  # just after
+            (real_dt.time(23, 0), False),  # way after
+        ],
+    )
+    def test_from_midnight_to_noon(self, evaluator, now_time, expected):
+        fake_now = real_dt.datetime.combine(real_dt.date.today(), now_time)
+        with patch(
+            "wallpaper_auto.evaluator.time_range_evaluator.datetime.datetime",
+            wraps=real_dt.datetime,
+        ) as mock_dt:
+            mock_dt.now.return_value = fake_now
+            assert evaluator(["00:00", "12:00"]) is expected
+
+    # ── Overnight range ending at midnight ──
+
+    @pytest.mark.parametrize(
+        "now_time,expected",
+        [
+            (real_dt.time(0, 0), True),    # at end (inclusive)
+            (real_dt.time(0, 1), False),   # after end
+            (real_dt.time(6, 0), False),   # in the gap
+            (real_dt.time(11, 59), False), # just before start
+            (real_dt.time(12, 0), True),   # at start (inclusive)
+            (real_dt.time(15, 0), True),   # within
+            (real_dt.time(23, 0), True),   # within
+        ],
+    )
+    def test_overnight_to_midnight(self, evaluator, now_time, expected):
+        fake_now = real_dt.datetime.combine(real_dt.date.today(), now_time)
+        with patch(
+            "wallpaper_auto.evaluator.time_range_evaluator.datetime.datetime",
+            wraps=real_dt.datetime,
+        ) as mock_dt:
+            mock_dt.now.return_value = fake_now
+            assert evaluator(["12:00", "00:00"]) is expected
+
     def test_invalid_param_not_list_raises(self, evaluator):
         with pytest.raises(ValueError, match="param must be a list/tuple"):
             evaluator("not a list")
