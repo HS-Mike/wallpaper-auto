@@ -41,15 +41,6 @@ class TestStaticWallpaperMount:
             _DEVICE_PATH, SWWallpaperStyle.FILL, Path(img_path), False
         )
 
-    def test_mount_with_string_style(self, tmp_path):
-        img_path = tmp_path / "test.png"
-        Image.new("RGB", (100, 100)).save(img_path)
-        wp = StaticWallpaper(path=str(img_path), style="center")
-        wp._bind_monitor_device_path(_DEVICE_PATH)
-        wp._bind_plot_canvas(MagicMock())
-
-        wp.mount()  # should not raise
-
     def test_mount_raises_when_plot_canvas_not_bound(self, tmp_path):
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)

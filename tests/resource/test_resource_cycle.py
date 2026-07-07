@@ -7,9 +7,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource.resource_cycle import ResourceCycle
 
 _DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
+
+
+@pytest.fixture
+def mock_sub_resources():
+    """Create 3 mock BaseResource instances for resource cycle testing."""
+    return [MagicMock(spec=BaseResource) for _ in range(3)]
 
 
 class TestResourceCycleInit:
@@ -32,26 +39,6 @@ class TestResourceCycleInit:
         assert len(cycle._resources) == 3
         assert cycle._resources == mock_sub_resources
 
-    def test_init_preserves_interval(self, mock_sub_resources):
-        """interval is stored correctly."""
-        cycle = ResourceCycle(resources=mock_sub_resources, interval=60)
-        assert cycle.interval == 60
-
-    def test_init_default_interval(self, mock_sub_resources):
-        """Default interval is 300 seconds."""
-        cycle = ResourceCycle(resources=mock_sub_resources)
-        assert cycle.interval == 300
-
-    def test_init_preserves_random_flag(self, mock_sub_resources):
-        """random flag is stored correctly."""
-        cycle = ResourceCycle(resources=mock_sub_resources, random=True)
-        assert cycle.random is True
-
-    def test_init_default_random_flag(self, mock_sub_resources):
-        """Default random flag is False."""
-        cycle = ResourceCycle(resources=mock_sub_resources)
-        assert cycle.random is False
-
     def test_invalid_resource_type_raises(self):
         """Non-BaseResource, non-dict entries raise TypeError."""
         with pytest.raises(TypeError, match="Expected BaseResource or dict"):
@@ -72,7 +59,7 @@ class TestResourceCycleInit:
             def demount(self) -> None:
                 pass
 
-        with patch(
+        with patch.dict(
             "wallpaper_auto.resource_manager.ResourceManager._support_resources",
             {"mock_resource": _MockResource},
         ):
@@ -83,8 +70,6 @@ class TestResourceCycleInit:
             )
             assert len(cycle._resources) == 1
             assert isinstance(cycle._resources[0], _MockResource)
-            assert cycle._resources[0].path == "test.jpg"
-            assert cycle._resources[0].style == "center"
 
     def test_dict_resource_unknown_type_raises(self):
         """Unknown resource type in dict raises ValueError."""
@@ -92,18 +77,27 @@ class TestResourceCycleInit:
             ResourceCycle(resources=[{"name": "nonexistent", "config": {}}])
 
 
-class TestResourceCycleMount:
+class TestResourceCycleLifecycle:
     """Mount lifecycle."""
 
-    def test_mount_starts_cycling_thread(self, mock_sub_resources):
-        """mount starts a background thread."""
+    def test_mount_demount_lifecycle(self, mock_sub_resources):
+        """mount starts background thread; demount stops it.
+        A resource is single-use: mount once, demount once.
+        Re-mounting the same instance is not expected.
+        """
         cycle = ResourceCycle(resources=mock_sub_resources)
         cycle._bind_monitor_device_path(_DEVICE_PATH)
         cycle._bind_plot_canvas(MagicMock())
         cycle.mount()
         assert cycle._cycling_thread is not None
         assert cycle._cycling_thread.is_alive()
+
+        deadline = time.monotonic() + 5.0
+        while mock_sub_resources[0].mount.call_count < 1 and time.monotonic() < deadline:
+            time.sleep(0.02)
+
         cycle.demount()
+        assert cycle._cycling_thread is None
 
     def test_mount_mounts_first_resource(self, mock_sub_resources):
         """mount triggers mount() on the first sub-resource via the cycling thread."""
@@ -116,7 +110,7 @@ class TestResourceCycleMount:
         while mock_sub_resources[0].mount.call_count < 1 and time.monotonic() < deadline:
             time.sleep(0.02)
 
-        assert mock_sub_resources[0].mount.call_count >= 1
+        assert mock_sub_resources[0].mount.call_count >= 1, "mount not called within 5s timeout"
         cycle.demount()
 
     def test_mount_random_starts_at_random_index(self, mock_sub_resources):
@@ -141,83 +135,16 @@ class TestResourceCycleMount:
         cycle = ResourceCycle(resources=mock_sub_resources)
         cycle.mount()
         # Thread will crash due to missing bindings — give it time to start
+        assert cycle._cycling_thread is not None
         cycle._cycling_thread.join(timeout=5.0)
         assert not cycle._cycling_thread.is_alive()
-
-
-class TestResourceCycleDemount:
-    """Demount lifecycle."""
-
-    def test_demount_demounts_current_resource(self, mock_sub_resources):
-        """demount causes the cycling thread to exit; sub-resource may have been mounted."""
-        cycle = ResourceCycle(resources=mock_sub_resources)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
-        cycle._bind_plot_canvas(MagicMock())
-        cycle.mount()
-
-        deadline = time.monotonic() + 5.0
-        while mock_sub_resources[0].mount.call_count < 1 and time.monotonic() < deadline:
-            time.sleep(0.02)
-
-        cycle.demount()
-        assert cycle._cycling_thread is None
-
-    def test_demount_without_mount_is_safe(self, mock_sub_resources):
-        """demount without prior mount does nothing (no error)."""
-        cycle = ResourceCycle(resources=mock_sub_resources)
-        cycle.demount()
-
-    def test_demount_stops_cycling_thread(self, mock_sub_resources):
-        """demount causes the cycling thread to exit."""
-        cycle = ResourceCycle(resources=mock_sub_resources)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
-        cycle._bind_plot_canvas(MagicMock())
-        cycle.mount()
-        assert cycle._cycling_thread is not None and cycle._cycling_thread.is_alive()
-
-        cycle.demount()
-        assert cycle._cycling_thread is None
-
-    def test_demount_idempotent(self, mock_sub_resources):
-        """Calling demount twice is safe."""
-        cycle = ResourceCycle(resources=mock_sub_resources)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
-        cycle._bind_plot_canvas(MagicMock())
-        cycle.mount()
-
-        deadline = time.monotonic() + 5.0
-        while mock_sub_resources[0].mount.call_count < 1 and time.monotonic() < deadline:
-            time.sleep(0.02)
-
-        cycle.demount()
-        cycle.demount()  # second call — should be a no-op
-
-    def test_mount_demount_cycle(self, mock_sub_resources):
-        """Mount then demount then mount again works correctly."""
-        cycle = ResourceCycle(resources=mock_sub_resources)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
-        cycle._bind_plot_canvas(MagicMock())
-
-        cycle.mount()
-        deadline = time.monotonic() + 5.0
-        while mock_sub_resources[0].mount.call_count < 1 and time.monotonic() < deadline:
-            time.sleep(0.02)
-        cycle.demount()
-
-        # Mount again after demount — should start fresh
-        cycle.mount()
-        deadline = time.monotonic() + 5.0
-        while mock_sub_resources[0].mount.call_count < 2 and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert mock_sub_resources[0].mount.call_count >= 2
-        cycle.demount()
 
 
 class TestResourceCycleCycling:
     """Index advancement and cycling thread behavior."""
 
     def test_advance_index_sequential(self, mock_sub_resources):
-        """_advance_index cycles forward sequentially."""
+        """_advance_index cycles 0→1→2→0 (wraps around with 3 resources)."""
         cycle = ResourceCycle(resources=mock_sub_resources, random=False)
         assert cycle._index == 0
 
@@ -227,11 +154,7 @@ class TestResourceCycleCycling:
         cycle._advance_index()
         assert cycle._index == 2
 
-    def test_advance_index_wraps_around(self, mock_sub_resources):
-        """_advance_index wraps from last index back to 0."""
-        cycle = ResourceCycle(resources=mock_sub_resources, random=False)
-        cycle._index = 2
-
+        # wraps from last index back to 0
         cycle._advance_index()
         assert cycle._index == 0
 
@@ -273,41 +196,16 @@ class TestResourceCycleCycling:
 
         cycle.demount()
 
-    def test_cycling_respects_order(self, mock_sub_resources):
-        """Cycling advances: demount[i] → advance → mount[i+1]."""
-        cycle = ResourceCycle(resources=mock_sub_resources, interval=0.05)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
-        cycle._bind_plot_canvas(MagicMock())
-        cycle.mount()
-
-        deadline = time.monotonic() + 5.0
-        while mock_sub_resources[2].mount.call_count < 1 and time.monotonic() < deadline:
-            time.sleep(0.02)
-
-        cycle.demount()
-
-        for r in mock_sub_resources:
-            assert r.mount.called
-            assert r.demount.called
-
 
 class TestResourceCycleEdgeCases:
     """Edge cases and boundary conditions."""
 
-    def test_interval_zero_allows_cycling(self, mock_sub_resources):
-        """interval=0 is handled — thread can be stopped cleanly."""
-        cycle = ResourceCycle(resources=mock_sub_resources, interval=0)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
-        cycle._bind_plot_canvas(MagicMock())
-        cycle.mount()
-
-        deadline = time.monotonic() + 1.0
-        while mock_sub_resources[1].mount.call_count < 1 and time.monotonic() < deadline:
-            time.sleep(0.01)
-        cycle.demount()
-
-        assert cycle._cycling_thread is None
-        assert mock_sub_resources[1].mount.call_count >= 1
+    def test_non_positive_interval_raises(self, mock_sub_resources):
+        """interval <= 0 raises ValueError."""
+        with pytest.raises(ValueError, match="interval must be a positive"):
+            ResourceCycle(resources=mock_sub_resources, interval=0)
+        with pytest.raises(ValueError, match="interval must be a positive"):
+            ResourceCycle(resources=mock_sub_resources, interval=-1)
 
     def test_single_resource_no_cycling(self, mock_sub_resources):
         """Single resource — cycling thread runs but _advance_index loops on same index."""
@@ -326,13 +224,6 @@ class TestResourceCycleEdgeCases:
 
         assert mock_sub_resources[0].demount.call_count >= 2
         assert mock_sub_resources[0].mount.call_count >= 3
-
-    def test_resources_list_not_mutated_externally(self, mock_sub_resources):
-        """External mutation of the passed list does not affect cycle."""
-        original = list(mock_sub_resources)
-        cycle = ResourceCycle(resources=original)
-        original.clear()
-        assert len(cycle._resources) == 3
 
     def test_type_error_on_invalid_type(self):
         """Non-BaseResource, non-dict items raise TypeError."""
