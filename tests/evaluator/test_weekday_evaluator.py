@@ -64,15 +64,15 @@ class TestWeekdayEvaluatorValidation:
     def test_non_list_param_raises(self):
         evaluator = WeekdayEvaluator()
         with pytest.raises(ValueError, match="invalid WeekdayEvaluator param"):
-            evaluator("not_a_list")
+            evaluator("not_a_list")  # type: ignore[reportArgumentType]
         with pytest.raises(ValueError, match="invalid WeekdayEvaluator param"):
-            evaluator(5)
+            evaluator(5)  # type: ignore[reportArgumentType]
         with pytest.raises(ValueError, match="invalid WeekdayEvaluator param"):
-            evaluator(None)
+            evaluator(None)  # type: ignore[reportArgumentType]
 
     def test_non_int_element_raises(self):
         evaluator = WeekdayEvaluator()
         with pytest.raises(ValueError, match="invalid WeekdayEvaluator param"):
-            evaluator([0, "1"])
+            evaluator([0, "1"])  # type: ignore[list-item]
         with pytest.raises(ValueError, match="invalid WeekdayEvaluator param"):
-            evaluator([1, 2.0])
+            evaluator([1, 2.0])  # type: ignore[list-item]
