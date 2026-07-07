@@ -116,15 +116,8 @@ class DisplayTrigger(BaseThreadTrigger):
 
     def _setup_window(self) -> None:
         """Create a hidden watch window in the current thread."""
-        _prev_displays = self._display_snapshot()
-        if _prev_displays is None:
-            self._prev_displays = frozenset()
-        else:
-            self._prev_displays = _prev_displays
-        self._prev_monitor_dpis = self._get_all_monitors_dpi_snapshot()
-
-        className = f"DisplayMonitorClass_{id(self)}" 
-        hInstance = win32gui.GetModuleHandle(None)   
+        className = f"DisplayMonitorClass_{id(self)}"
+        hInstance = win32gui.GetModuleHandle(None)
 
         wc = win32gui.WNDCLASS()
         wc.lpfnWndProc = self._msg_proc     # type: ignore
@@ -145,6 +138,14 @@ class DisplayTrigger(BaseThreadTrigger):
             hInstance,                              # hInstance
             None                                    # lpParam
         )
+        # Capture initial state after window creation — by now any transient
+        # topology transition from startup is likely resolved, so the snapshot
+        # has a better chance of succeeding.
+        _prev_displays = self._display_snapshot()
+        if _prev_displays is not None:
+            self._prev_displays = _prev_displays
+        self._prev_monitor_dpis = self._get_all_monitors_dpi_snapshot()
+
         logger.debug(f"Window created in thread {threading.get_ident()} and monitoring display/DPI changes")
 
     def _msg_proc(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
