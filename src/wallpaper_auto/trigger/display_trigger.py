@@ -116,16 +116,20 @@ class DisplayTrigger(BaseThreadTrigger):
 
     def _setup_window(self) -> None:
         """Create a hidden watch window in the current thread."""
-        self._prev_displays = self._display_snapshot()
+        _prev_displays = self._display_snapshot()
+        if _prev_displays is None:
+            self._prev_displays = frozenset()
+        else:
+            self._prev_displays = _prev_displays
         self._prev_monitor_dpis = self._get_all_monitors_dpi_snapshot()
 
-        className = f"DisplayMonitorClass_{id(self)}"  # noqa: N806
-        hInstance = win32gui.GetModuleHandle(None)   # noqa: N806
+        className = f"DisplayMonitorClass_{id(self)}" 
+        hInstance = win32gui.GetModuleHandle(None)   
 
         wc = win32gui.WNDCLASS()
-        wc.lpfnWndProc = self._msg_proc
-        wc.lpszClassName = className
-        wc.hInstance = hInstance
+        wc.lpfnWndProc = self._msg_proc     # type: ignore
+        wc.lpszClassName = className        # type: ignore
+        wc.hInstance = hInstance            # type: ignore
         class_atom = win32gui.RegisterClass(wc)
 
         self.hwnd = win32gui.CreateWindow(
@@ -212,7 +216,7 @@ class DisplayTrigger(BaseThreadTrigger):
         finally:
             self.hwnd = None
             try:
-                win32gui.UnregisterClass(className, win32gui.GetModuleHandle(None))
+                win32gui.UnregisterClass(className, win32gui.GetModuleHandle(None))     # type: ignore
             except Exception as e:
                 logger.error(f"UnregisterClass failed: {e}")
             pythoncom.CoUninitialize()
