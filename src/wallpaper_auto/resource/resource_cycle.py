@@ -44,13 +44,13 @@ class ResourceCycle(BaseResource):
         restore: If True, restore the original wallpaper on demount.
 
     Raises:
-        ValueError: If *resources* is empty.
+        ValueError: If *resources* is empty or *interval* is not positive.
     """
 
     def __init__(
         self,
         resources: list[BaseResource | dict[str, Any]],
-        interval: int = 300,
+        interval: float = 300,
         random: bool = False,
         restore: bool = False,
     ) -> None:
@@ -67,6 +67,9 @@ class ResourceCycle(BaseResource):
 
         if not self._resources:
             raise ValueError("At least one resource is required")
+
+        if interval <= 0:
+            raise ValueError(f"interval must be a positive float, got {interval}")
 
         self.interval = interval
         self.random = random

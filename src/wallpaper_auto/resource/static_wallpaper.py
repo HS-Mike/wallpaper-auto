@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class StaticWallpaper(BaseResource):
     def __init__(
         self,
-        style: WallpaperStyle,
+        style: WallpaperStyle | str,
         path: Path | PathLike[str] | str,
     ):
         super().__init__()

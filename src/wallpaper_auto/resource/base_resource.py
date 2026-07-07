@@ -46,6 +46,15 @@ class BaseResource(ABC):
     Each resource is bound to a specific monitor (via *monitor_device_id*)
     and renders wallpaper through a ``PlotCanvasProtocol`` callable.
 
+    ``mount()`` and ``demount()`` are lifecycle notifications — they signal
+    the start and end of this resource's active window.  A resource is
+    **single-use**: mount once, demount once.  Re-mounting the same
+    instance is not expected.
+
+    ``plot_canvas()`` may be called at any point after ``mount()`` and
+    before ``demount()`` (not only during ``mount()`` itself), enabling
+    dynamic wallpaper updates such as cycling or animation.
+
     Subclasses must override :meth:`mount` and :meth:`demount`.
     """
 
@@ -105,27 +114,30 @@ class BaseResource(ABC):
     @abstractmethod
     def mount(self) -> None:
         """
-        Prepare and render the wallpaper resource.
+        Lifecycle notification: this resource is now active.
 
-        Subclasses should call :meth:`plot_canvas` to set wallpaper::
+        Subclasses should call :meth:`plot_canvas` (or defer to a background
+        thread) to set wallpaper::
 
             self.plot_canvas(style=..., image=..., immediate_update=True)
 
         rather than setting wallpaper directly, so the caller can control
         composition and batching across multiple displays.
 
-        The wallpaper system calls :meth:`mount` before applying a wallpaper
-        and :meth:`demount` after switching away.
+        Note that :meth:`plot_canvas` may be called any time after
+        ``mount()`` and before ``demount()`` — not only during ``mount()``
+        itself — enabling subclasses to update the wallpaper dynamically
+        (e.g. cycling, animations) without re-entering the lifecycle.
         """
         ...
 
     @abstractmethod
     def demount(self) -> None:
         """
-        Release and clean up the wallpaper resource.
+        Lifecycle notification: this resource is no longer active.
 
         Subclasses implement this to release any resources held during
-        the mount phase.
+        the mount phase (e.g. stop background threads).
 
         The wallpaper system guarantees that demount() is always called
         after mount(), even if an error occurs during wallpaper application.
