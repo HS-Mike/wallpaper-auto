@@ -10,15 +10,17 @@ DPI virtualisation.
 import ctypes
 import logging
 import threading
-from ctypes import wintypes
 from typing import override
 
 import pythoncom
-import win32api
 import win32con
 import win32gui
 
-from ..util.display_utils import get_display_info, DisplayTopologyTransientError
+from ..util.display_utils import (
+    DisplayTopologyTransientError,
+    get_all_monitors_dpi_snapshot,
+    get_display_info,
+)
 from .base_trigger import BaseThreadTrigger
 
 logger = logging.getLogger(__name__)
@@ -31,16 +33,6 @@ try:
 except AttributeError:
     pass
 
-shcore = ctypes.windll.shcore
-shcore.GetDpiForMonitor.argtypes = [
-    wintypes.HANDLE,                  # HMONITOR
-    wintypes.UINT,                    # MONITOR_DPI_TYPE
-    ctypes.POINTER(wintypes.UINT),    # dpiX out
-    ctypes.POINTER(wintypes.UINT),    # dpiY out
-]
-shcore.GetDpiForMonitor.restype = ctypes.c_long  # HRESULT
-
-
 class DisplayTrigger(BaseThreadTrigger):
     """Display change trigger.
 
@@ -48,8 +40,6 @@ class DisplayTrigger(BaseThreadTrigger):
     messages, detecting monitor plug/unplug and DPI scaling transitions, then
     fires callbacks.
     """
-
-    MDT_EFFECTIVE_DPI = 0
 
     def __init__(self) -> None:
         super().__init__()
@@ -68,29 +58,6 @@ class DisplayTrigger(BaseThreadTrigger):
             (d.monitor_device_path, d.model or "")
             for d in display_info
         )
-
-    def _get_all_monitors_dpi_snapshot(self) -> frozenset[tuple[tuple[int, int, int, int], int]]:
-        """Return a frozenset of (bounding_rect, dpi) tuples for all active monitors."""
-        dpi_snapshot: list[tuple[tuple[int, int, int, int], int]] = []
-        try:
-            for hmonitor, _hdc, rect in win32api.EnumDisplayMonitors():
-                rect_tuple = (rect[0], rect[1], rect[2], rect[3])
-                dpi_x = wintypes.UINT(0)
-                dpi_y = wintypes.UINT(0)
-                # NOTE: int(hmonitor) is required — win32api.EnumDisplayMonitors()
-                # returns PyHANDLE wrappers, not primitive ints.  ctypes can't
-                # auto-convert PyHANDLE and raises a silent ArgumentError.
-                hr = shcore.GetDpiForMonitor(
-                    int(hmonitor),
-                    self.MDT_EFFECTIVE_DPI,
-                    ctypes.byref(dpi_x),
-                    ctypes.byref(dpi_y),
-                )
-                if hr == 0:
-                    dpi_snapshot.append((rect_tuple, dpi_x.value))
-        except Exception as e:
-            logger.error(f"Failed to query all monitors DPI: {e}")
-        return frozenset(dpi_snapshot)
 
     @staticmethod
     def _extract_primary_dpi(dpi_snapshot: frozenset[tuple[tuple[int, int, int, int], int]]) -> int:
@@ -144,7 +111,7 @@ class DisplayTrigger(BaseThreadTrigger):
         _prev_displays = self._display_snapshot()
         if _prev_displays is not None:
             self._prev_displays = _prev_displays
-        self._prev_monitor_dpis = self._get_all_monitors_dpi_snapshot()
+        self._prev_monitor_dpis = get_all_monitors_dpi_snapshot()
 
         logger.debug(f"Window created in thread {threading.get_ident()} and monitoring display/DPI changes")
 
@@ -159,7 +126,7 @@ class DisplayTrigger(BaseThreadTrigger):
                 logger.debug("Discard display trigger signal due to topology transition period")
                 return 0
 
-            curr_monitor_dpis = self._get_all_monitors_dpi_snapshot()
+            curr_monitor_dpis = get_all_monitors_dpi_snapshot()
 
             is_changed = False
 
