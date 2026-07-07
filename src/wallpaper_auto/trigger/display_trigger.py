@@ -59,14 +59,6 @@ class DisplayTrigger(BaseThreadTrigger):
             for d in display_info
         )
 
-    @staticmethod
-    def _extract_primary_dpi(dpi_snapshot: frozenset[tuple[tuple[int, int, int, int], int]]) -> int:
-        """Extract the primary monitor (origin at 0,0) DPI from the full snapshot."""
-        for rect, dpi in dpi_snapshot:
-            if rect[0] == 0 and rect[1] == 0:
-                return dpi
-        return 96
-
     @override
     def start(self) -> None:
         super().start()
@@ -138,7 +130,6 @@ class DisplayTrigger(BaseThreadTrigger):
 
             # 2. Check for DPI scaling transition on any monitor
             if curr_monitor_dpis != self._prev_monitor_dpis:
-                primary_dpi = self._extract_primary_dpi(curr_monitor_dpis)
                 self._prev_monitor_dpis = curr_monitor_dpis
                 is_changed = True
 
