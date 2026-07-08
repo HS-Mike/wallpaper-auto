@@ -40,7 +40,7 @@ def main() -> None:
 
     shutdown_event = threading.Event()
 
-    monitor.activate()
+    monitor.start()
     logger.info("NetworkTrigger started, press Ctrl+C to exit")
 
     initial_ssid = get_current_ssid()
@@ -53,7 +53,7 @@ def main() -> None:
         logger.info("KeyboardInterrupt received, shutting down...")
     finally:
         logger.info("Shutting down NetworkTrigger...")
-        monitor.deactivate()
+        monitor.stop()
         shutdown_event.set()
         logger.info("Demo script exited safely.")
 

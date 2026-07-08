@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from wallpaper_auto.evaluator.display_evaluator import HaveDisplayEvaluator
+from wallpaper_auto.util.display_utils import DisplayInfo
 
 _MOD = "wallpaper_auto.evaluator.display_evaluator"
 
@@ -14,32 +15,44 @@ def evaluator():
     return HaveDisplayEvaluator()
 
 
-MONITOR_SET_SINGLE = {("DEL", "U2719D", r"DISPLAY\DELA123", "ABC123")}
-MONITOR_SET_DUAL = {
-    ("DEL", "U2719D", r"DISPLAY\DELA123", "ABC123"),
-    ("BNQ", "XL2730", r"DISPLAY\BNQ456", "DEF456"),
-}
+_SINGLE = [
+    DisplayInfo(model="U2719D", source_resolution=(1920, 1080),
+                position=(0, 0), target_resolution=(1920, 1080), scale=1.0),
+]
+_DUAL = [
+    DisplayInfo(model="U2719D", source_resolution=(1920, 1080),
+                position=(0, 0), target_resolution=(1920, 1080), scale=1.0),
+    DisplayInfo(model="XL2730", source_resolution=(2560, 1440),
+                position=(1920, 0), target_resolution=(2560, 1440), scale=1.0),
+]
 
 
 class TestHaveDisplayEvaluator:
     def test_exact_model_match(self, evaluator):
-        with patch(f"{_MOD}.get_display_set", return_value=MONITOR_SET_SINGLE):
+        with patch(f"{_MOD}.get_display_info", return_value=_SINGLE):
             assert evaluator("U2719D")
 
     def test_regex_pattern_match(self, evaluator):
-        with patch(f"{_MOD}.get_display_set", return_value=MONITOR_SET_SINGLE):
+        with patch(f"{_MOD}.get_display_info", return_value=_SINGLE):
             assert evaluator(r"27.*")
 
     def test_regex_matches_any_display(self, evaluator):
-        with patch(f"{_MOD}.get_display_set", return_value=MONITOR_SET_DUAL):
+        with patch(f"{_MOD}.get_display_info", return_value=_DUAL):
             assert evaluator(r"XL\d+")
 
     def test_returns_false_when_no_match(self, evaluator):
-        with patch(f"{_MOD}.get_display_set", return_value=MONITOR_SET_SINGLE):
+        with patch(f"{_MOD}.get_display_info", return_value=_SINGLE):
             assert not evaluator("NonExistent")
 
     def test_returns_false_when_no_displays(self, evaluator):
-        with patch(f"{_MOD}.get_display_set", return_value=set()):
+        with patch(f"{_MOD}.get_display_info", return_value=[]):
+            assert not evaluator("U2719D")
+
+    def test_returns_false_when_model_is_none(self, evaluator):
+        with patch(f"{_MOD}.get_display_info", return_value=[
+            DisplayInfo(model=None, source_resolution=(1920, 1080),
+                        position=(0, 0), target_resolution=(1920, 1080), scale=1.0),
+        ]):
             assert not evaluator("U2719D")
 
     def test_raises_when_param_not_string(self, evaluator):

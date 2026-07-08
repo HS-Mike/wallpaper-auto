@@ -2,7 +2,7 @@
 Display Trigger Demo Script
 
 Demonstrates DisplayTrigger display change detection:
-- Monitors monitor plug/unplug events
+- Monitors monitor plug/unplug events via WM_DISPLAYCHANGE
 - Shows current display set on change
 - Shows initial display state
 
@@ -11,11 +11,8 @@ Usage:
 """
 import logging
 import threading
-from datetime import datetime
 
-import pythoncom
-
-from wallpaper_auto.util.display_utils import get_display_set
+from wallpaper_auto.util.display_utils import DisplayInfo, get_display_info
 from wallpaper_auto.trigger.display_trigger import DisplayTrigger
 
 logging.basicConfig(
@@ -25,46 +22,44 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def on_display_change(trigger: DisplayTrigger) -> None:
-    """Display change callback — print current display set from trigger."""
-    displays = trigger.current_displays
-    if displays is None:
-        logger.warning("No display data available")
-        return
-    print(f"\n=== {datetime.now():%H:%M:%S} Connected displays: ===")
-    for i, (manufacturer, model, pnp_id, serial) in enumerate(sorted(displays), 1):
-        print(f"  {i}. {manufacturer} {model} (SN: {serial})")
+def _print_all_displays(header: str = "") -> None:
+    """Query and print all current displays in unified format."""
+    if header:
+        print(f"\n=== {header} ===")
+    for i, d in enumerate(get_display_info(), 1):
+        print(f"  {i}. {d.model or 'Unknown'} — source {d.source_resolution} -> target {d.target_resolution} @ {d.position}  scale {d.scale:.0%}  [{d.monitor_device_path}]")
+
+
+def on_display_change(_trigger: DisplayTrigger) -> None:
+    """Display change callback — print current display set."""
+    _print_all_displays("Connected displays changed")
+    print()
+
+
+def print_initial_displays() -> None:
+    """Print initial display state."""
+    _print_all_displays("Initial connected displays")
     print()
 
 
 def main() -> None:
+    print_initial_displays()
+
     monitor = DisplayTrigger()
     monitor.add_callback(on_display_change)
+    monitor.start()
 
-    shutdown_event = threading.Event()
-
-    monitor.activate()
     logger.info("DisplayTrigger started, press Ctrl+C to exit")
 
-    # Show initial display state
-    try:
-        pythoncom.CoInitialize()
-        monitor.current_displays = get_display_set()
-        on_display_change(monitor)
-        monitor.current_displays = None
-    finally:
-        pythoncom.CoUninitialize()
-
+    shutdown_event = threading.Event()
     try:
         while not shutdown_event.is_set():
             shutdown_event.wait(timeout=0.5)
-            
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt received, shutting down...")
     finally:
         logger.info("Shutting down DisplayTrigger...")
-        monitor.deactivate()
-        shutdown_event.set()
+        monitor.stop()
         logger.info("Demo script exited safely.")
 
 

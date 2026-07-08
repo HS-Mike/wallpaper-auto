@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .resource.wallpaper_utils import WallpaperStyle
+from .util.wallpaper_util import WallpaperStyle
 
 DEFAULT_CACHE_DIR = Path.home() / "AppData" / "Local" / "wallpaper-auto" / "cache"
 
@@ -78,6 +78,12 @@ class ConditionNode(BaseModel):
         return next(iter(self.model_extra.values()))  # type: ignore
 
 
+class SceneBinding(BaseModel):
+    """A single display-scene binding: which display model → which resource."""
+    display_model: str
+    resource: str
+
+
 class Rule(BaseModel):
     name: str
     condition: ConditionNode
@@ -86,9 +92,10 @@ class Rule(BaseModel):
 
 class ConfigModel(BaseModel):
     resource: dict[str, ResourceConfig] = Field(alias="resource")
+    scene: dict[str, list[SceneBinding]] | None = None
     trigger: list[TriggerConfig]
     rule: list[Rule]
-    fallback: str
+    fallback_target: str
     at_shutdown: str | None = None
     cache: str | None = None
 
@@ -105,11 +112,16 @@ class ConfigModel(BaseModel):
 
     @model_validator(mode="after")
     def check_target_exist(self) -> "ConfigModel":
-        if self.fallback not in self.resource.keys():
-            raise ValueError(f"Fallback target '{self.fallback}' not found in resource")
+        if self.fallback_target not in self.resource.keys():
+            raise ValueError(f"Fallback target '{self.fallback_target}' not found in resource")
+        scene_keys = set(self.scene or {})
         for rule in self.rule:
-            if rule.target not in self.resource:
-                raise ValueError(f"Rule '{rule.name}' targets unknown resource: {rule.target}")
+            if rule.target not in self.resource and rule.target not in scene_keys:
+                msg = (
+                    f"Rule '{rule.name}' targets unknown resource or "
+                    f"scene: {rule.target}"
+                )
+                raise ValueError(msg)
         if self.at_shutdown is not None and self.at_shutdown not in self.resource:
             raise ValueError(f"at_shutdown target '{self.at_shutdown}' not found in resource")
         return self

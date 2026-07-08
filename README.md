@@ -20,7 +20,7 @@ The application is built around three pluggable component types:
 Trigger fires ---> Controller evaluates rules ---> Matching rule's resource is applied
      |                        |                                  |
   e.g. WiFi             AND/OR tree of                     static_wallpaper
-  changed               evaluator checks                    or resource_carousel
+  changed               evaluator checks                    or cycle
 ```
 
 ## Features
@@ -80,15 +80,15 @@ See `wallpaper-auto init-config --help` for all options. You can also create a `
 ```yaml
 # 1. Wallpaper resource pool
 resource:
-  work_wallpaper:                         # Resource ID — referenced by rules & fallback
+  work_wallpaper:                         # Resource ID — referenced by rules & fallback_target
     name: static_wallpaper                # Single-image wallpaper
     config:
       path: "C:/path/to/wallpaper.jpg"
       style: fill                         # fill / fit / stretch / center / tile
       restore: false                      # restore original wallpaper on demount (default false)
 
-  carousel:                               # Multi-image cycling wallpaper (resource carousel)
-    name: resource_carousel
+  cycle:                               # Multi-image cycling wallpaper (resource cycle)
+    name: cycle
     config:
       resources:                          # Sub-resources to cycle through
         - name: static_wallpaper
@@ -122,7 +122,7 @@ rule:
         - day_of_week_is: [0, 1, 2, 3, 4] # Monday to Friday
     target: "dark_wallpaper"
 # 4. Fallback wallpaper (used when no rule matches)
-fallback: "default_wallpaper"
+fallback_target: "default_wallpaper"
 
 # 5. (Optional) At-shutdown wallpaper — applied when Windows shuts down
 # at_shutdown: "work_wallpaper"
@@ -189,23 +189,23 @@ resource:
       path: "C:/img.jpg"     # → StaticWallpaper(path="C:/img.jpg", style="fill")
       style: fill
 
-# Resource carousel — cycles through multiple sub-resources on a timer
-  carousel:
-    name: resource_carousel
+# Resource cycle — cycles through multiple sub-resources on a timer
+  cycle:
+    name: cycle
     config:
       resources:
         - name: static_wallpaper
           config: {path: "C:/img1.jpg", style: fill}
         - name: static_wallpaper
           config: {path: "C:/img2.jpg", style: fill}
-      interval: 300           # → ResourceCarousel(resources=[...], interval=300, random=False)
+      interval: 300           # → ResourceCycle(resources=[...], interval=300, random=False)
       random: false
 ```
 
 | Resource | Constructor Parameters | Description |
 |----------|----------------------|-------------|
 | `static_wallpaper` | `path` (str), `style` (str), `restore` (bool, default False), `cache_dir` (str, optional) | Static image wallpaper — `restore=True` restores original wallpaper on demount. `cache_dir` overrides the auto-created temp directory. |
-| `resource_carousel` | `resources` (list[dict]), `interval` (int, default 300), `random` (bool, default False) | Cycles through sub-resources — each sub-resource is a full resource config dict with its own `name` and `config`. |
+| `cycle` | `resources` (list[dict]), `interval` (int, default 300), `random` (bool, default False) | Cycles through sub-resources — each sub-resource is a full resource config dict with its own `name` and `config`. |
 
 The shorthand form (`black: "C:/img.jpg"`) is expanded to `static_wallpaper` with the string as the `path`.
 

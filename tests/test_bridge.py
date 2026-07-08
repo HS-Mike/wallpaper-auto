@@ -25,7 +25,7 @@ class TestBridgeInitialState:
 
     def test_initial_handlers_are_none(self, bridge):
         assert bridge._on_set_mode_handler is None
-        assert bridge._on_select_resource_handler is None
+        assert bridge._on_select_target_handler is None
         assert bridge._on_quit_handler is None
         assert bridge._on_update_ui_handler is None
 
@@ -68,39 +68,39 @@ class TestRegisterSetModeHandler:
         bridge.request_set_mode(Mode.AUTO)  # should not crash
 
 
-class TestRegisterSelectResourceHandler:
-    """register_select_resource_handler + request_select_resource."""
+class TestRegisterSelectTargetHandler:
+    """register_select_target_handler + request_select_target."""
 
     def test_register_and_invoke(self, bridge):
         results = []
-        bridge.register_select_resource_handler(lambda r: results.append(r))
-        bridge.request_select_resource("wallpaper-1")
+        bridge.register_select_target_handler(lambda r: results.append(r))
+        bridge.request_select_target("wallpaper-1")
         assert results == ["wallpaper-1"]
 
     def test_invoke_multiple_resources(self, bridge):
         results = []
-        bridge.register_select_resource_handler(lambda r: results.append(r))
-        bridge.request_select_resource("a")
-        bridge.request_select_resource("b")
-        bridge.request_select_resource("")
+        bridge.register_select_target_handler(lambda r: results.append(r))
+        bridge.request_select_target("a")
+        bridge.request_select_target("b")
+        bridge.request_select_target("")
         assert results == ["a", "b", ""]
 
     def test_overwrite_replaces_old_handler(self, bridge):
         results = []
-        bridge.register_select_resource_handler(lambda r: results.append("old:" + r))
-        bridge.register_select_resource_handler(lambda r: results.append("new:" + r))
-        bridge.request_select_resource("x")
+        bridge.register_select_target_handler(lambda r: results.append("old:" + r))
+        bridge.register_select_target_handler(lambda r: results.append("new:" + r))
+        bridge.request_select_target("x")
         assert results == ["new:x"]
 
     def test_register_none_disables(self, bridge):
         results = []
-        bridge.register_select_resource_handler(lambda r: results.append(r))
-        bridge.register_select_resource_handler(None)
-        bridge.request_select_resource("x")
+        bridge.register_select_target_handler(lambda r: results.append(r))
+        bridge.register_select_target_handler(None)
+        bridge.request_select_target("x")
         assert results == []
 
     def test_unregistered_is_noop(self, bridge):
-        bridge.request_select_resource("x")  # should not crash
+        bridge.request_select_target("x")  # should not crash
 
 
 class TestRegisterQuitHandler:
@@ -211,14 +211,14 @@ class TestAllCallbacksIndependent:
             ui_count += 1
 
         bridge.register_set_mode_handler(on_set_mode)
-        bridge.register_select_resource_handler(on_select_resource)
+        bridge.register_select_target_handler(on_select_resource)
         bridge.register_quit_handler(on_quit)
         bridge.register_update_ui_handler(on_update_ui)
 
         bridge.request_set_mode(Mode.AUTO)
-        bridge.request_select_resource("res-A")
+        bridge.request_select_target("res-A")
         bridge.request_set_mode(Mode.MANUAL)
-        bridge.request_select_resource("res-B")
+        bridge.request_select_target("res-B")
         bridge.request_update_ui()
         bridge.request_quit()
         bridge.request_update_ui()
@@ -239,7 +239,7 @@ class TestAllCallbacksIndependent:
         # Do NOT register other handlers
 
         bridge.request_set_mode(Mode.AUTO)
-        bridge.request_select_resource("x")  # should be noop
+        bridge.request_select_target("x")  # should be noop
         bridge.request_update_ui()  # should be noop
         bridge.request_quit()  # should be noop
 
@@ -323,6 +323,6 @@ class TestBridgeEdgeCases:
         """All request_* methods should be safe without registration."""
         for i in range(5):
             bridge.request_set_mode(Mode.AUTO)
-            bridge.request_select_resource(str(i))
+            bridge.request_select_target(str(i))
             bridge.request_update_ui()
             bridge.request_quit()

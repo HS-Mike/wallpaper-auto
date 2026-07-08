@@ -1,10 +1,13 @@
 """
-Display change trigger for monitor plug/unplug detection.
+Display change trigger for monitor plug/unplug and DPI scale change detection.
 
-Uses WM_DISPLAYCHANGE via a hidden Win32 window and WMI (WmiMonitorID)
-to detect and report connected monitor changes.
+Uses WM_DISPLAYCHANGE and WM_SETTINGCHANGE via a hidden Win32 window to detect
+connected monitor changes or DPI scaling transitions globally across all
+screens.  Uses thread-level DPI awareness isolation to bypass process-level
+DPI virtualisation.
 """
 
+import ctypes
 import logging
 import threading
 from typing import override
@@ -13,51 +16,72 @@ import pythoncom
 import win32con
 import win32gui
 
-from ..util.display_utils import get_display_set
-
+from ..util.display_utils import (
+    DisplayTopologyTransientError,
+    get_all_monitors_dpi_snapshot,
+    get_display_info,
+)
 from .base_trigger import BaseThreadTrigger
 
 logger = logging.getLogger(__name__)
 
+# Windows DPI API setup — thread-level awareness context switcher
+user32 = ctypes.windll.user32
+try:
+    user32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+    user32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+except AttributeError:
+    pass
 
 class DisplayTrigger(BaseThreadTrigger):
     """Display change trigger.
 
-    Monitors Windows display changes via the WM_DISPLAYCHANGE message,
-    detecting monitor plug/unplug, and fires callbacks on transitions.
+    Monitors Windows display changes via WM_DISPLAYCHANGE and WM_SETTINGCHANGE
+    messages, detecting monitor plug/unplug and DPI scaling transitions, then
+    fires callbacks.
     """
 
     def __init__(self) -> None:
         super().__init__()
         self.hwnd = None
-        self._prev_displays: set[tuple[str, str, str, str]] = set()
-        self.current_displays: set[tuple[str, str, str, str]] | None = None    # only available in callback
+        self._prev_displays: frozenset[tuple[str, str]] = frozenset()
+        self._prev_monitor_dpis: frozenset[tuple[tuple[int, int, int, int], int]] = frozenset()
+
+    @staticmethod
+    def _display_snapshot() -> frozenset[tuple[str, str]] | None:
+        """Return a snapshot of currently connected displays."""
+        try:
+            display_info = get_display_info()
+        except DisplayTopologyTransientError:
+            return None
+        return frozenset(
+            (d.monitor_device_path, d.model or "")
+            for d in display_info
+        )
 
     @override
-    def activate(self) -> None:
+    def start(self) -> None:
         super().start()
-        logger.debug(f"{self.__class__.__name__} activate")
+        logger.debug(f"{self.__class__.__name__} start")
 
     @override
-    def deactivate(self) -> None:
+    def stop(self) -> None:
         """Send WM_CLOSE to safely stop PumpMessages from another thread."""
         hwnd = self.hwnd
         if hwnd:
             win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
-        self.join(timeout=3)
-        logger.debug(f"{self.__class__.__name__} deactivate")
+        super().stop()
+        logger.debug(f"{self.__class__.__name__} stop")
 
     def _setup_window(self) -> None:
         """Create a hidden watch window in the current thread."""
-        self._prev_displays = get_display_set()
-
-        className = f"DisplayMonitorClass_{id(self)}"  # noqa: N806
-        hInstance = win32gui.GetModuleHandle(None)   # noqa: N806
+        className = f"DisplayMonitorClass_{id(self)}"
+        hInstance = win32gui.GetModuleHandle(None)
 
         wc = win32gui.WNDCLASS()
-        wc.lpfnWndProc = self._msg_proc          # type: ignore[assignment]
-        wc.lpszClassName = className            # type: ignore[assignment]
-        wc.hInstance = hInstance                # type: ignore[assignment]
+        wc.lpfnWndProc = self._msg_proc     # type: ignore
+        wc.lpszClassName = className        # type: ignore
+        wc.hInstance = hInstance            # type: ignore
         class_atom = win32gui.RegisterClass(wc)
 
         self.hwnd = win32gui.CreateWindow(
@@ -73,18 +97,45 @@ class DisplayTrigger(BaseThreadTrigger):
             hInstance,                              # hInstance
             None                                    # lpParam
         )
-        logger.debug(f"Window created in thread {threading.get_ident()} and monitoring display changes")
+        # Capture initial state after window creation — by now any transient
+        # topology transition from startup is likely resolved, so the snapshot
+        # has a better chance of succeeding.
+        _prev_displays = self._display_snapshot()
+        if _prev_displays is not None:
+            self._prev_displays = _prev_displays
+        self._prev_monitor_dpis = get_all_monitors_dpi_snapshot()
+
+        logger.debug(f"Window created in thread {threading.get_ident()} and monitoring display/DPI changes")
 
     def _msg_proc(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
         """Internal window procedure to handle Windows messages."""
-        if msg == win32con.WM_DISPLAYCHANGE:
-            curr_display = get_display_set()
+
+        # Display topology/hotplug events AND system-wide environment (DPI scale) changes.
+        # Unified: both message types check hardware + DPI snapshots in a single pass.
+        if msg in (win32con.WM_DISPLAYCHANGE, win32con.WM_SETTINGCHANGE):
+            curr_display = self._display_snapshot()
+            if curr_display is None:
+                logger.debug("Discard display trigger signal due to topology transition period")
+                return 0
+
+            curr_monitor_dpis = get_all_monitors_dpi_snapshot()
+
+            is_changed = False
+
+            # 1. Check for monitor (un)plug or resolution change
             if curr_display != self._prev_displays:
-                logger.debug(f"Display change detected: {curr_display}")
+                logger.debug(f"Display hardware change detected: {curr_display}")
                 self._prev_displays = curr_display
-                self.current_displays = curr_display
+                is_changed = True
+
+            # 2. Check for DPI scaling transition on any monitor
+            if curr_monitor_dpis != self._prev_monitor_dpis:
+                self._prev_monitor_dpis = curr_monitor_dpis
+                is_changed = True
+
+            # 3. Fire callback once if anything changed
+            if is_changed:
                 self.trigger()
-                self.current_displays = None
             return 0
 
         elif msg == win32con.WM_CLOSE:
@@ -102,8 +153,21 @@ class DisplayTrigger(BaseThreadTrigger):
 
     @override
     def run(self) -> None:
-        """Initialize COM once for the thread's lifetime and run message loop."""
+        """Initialize COM and DPI awareness once for the thread's lifetime and run message loop."""
         pythoncom.CoInitialize()
+
+        # [Key fix] Use thread-level (not process-level) DPI awareness isolation.
+        # The main process (PySide6) already locks DPI awareness at process level,
+        # so SetProcessDpiAwarenessContext would silently fail.  Thread-level
+        # switching bypasses this restriction, giving this background thread
+        # access to the real per-monitor DPI values from GetDpiForMonitor.
+        try:
+            # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
+            user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+            logger.debug("Successfully forced background thread DPI awareness (V2)")
+        except Exception as e:
+            logger.error(f"Failed to set thread DPI awareness: {e}")
+
         className = f"DisplayMonitorClass_{id(self)}"
         try:
             self._setup_window()
@@ -111,7 +175,7 @@ class DisplayTrigger(BaseThreadTrigger):
         finally:
             self.hwnd = None
             try:
-                win32gui.UnregisterClass(className, win32gui.GetModuleHandle(None))
+                win32gui.UnregisterClass(className, win32gui.GetModuleHandle(None))     # type: ignore
             except Exception as e:
                 logger.error(f"UnregisterClass failed: {e}")
             pythoncom.CoUninitialize()

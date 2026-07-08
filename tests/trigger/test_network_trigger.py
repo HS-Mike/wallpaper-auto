@@ -158,53 +158,57 @@ class TestNetworkTrigger:
             # CloseHandle is called for net_event in finally block
             mock_kernel32.CloseHandle.assert_called_once()
 
-    def test_activate_creates_exit_event(self, mock_kernel32):
-        """activate creates exit_event and delegates to super"""
+    def test_start_creates_exit_event(self, mock_kernel32):
+        """start creates exit_event and delegates to super"""
         mock_kernel32.CreateEventW.return_value = 0xCAFE
         monitor = NetworkTrigger()
 
         with patch("threading.Thread.start") as mock_start:
-            monitor.activate()
+            monitor.start()
 
             mock_kernel32.CreateEventW.assert_called_once_with(None, False, False, None)
             assert monitor._exit_event == 0xCAFE
             mock_start.assert_called_once()
 
-    def test_activate_closes_old_handle(self, mock_kernel32):
-        """activate closes existing exit_event handle before creating new one"""
+    def test_start_closes_old_handle(self, mock_kernel32):
+        """start closes existing exit_event handle before creating new one"""
         mock_kernel32.CreateEventW.return_value = 0xBEEF
         monitor = NetworkTrigger()
         monitor._exit_event = 0xDEAD
 
         with patch("threading.Thread.start"):
-            monitor.activate()
+            monitor.start()
 
             mock_kernel32.CloseHandle.assert_any_call(0xDEAD)
             mock_kernel32.CreateEventW.assert_called_once()
             assert monitor._exit_event == 0xBEEF
 
-    def test_deactivate_signals_and_cleans_up_handle(self, mock_kernel32):
-        """deactivate signals the exit event, joins thread, and closes handle"""
+    def test_stop_signals_and_cleans_up_handle(self, mock_kernel32):
+        """stop signals the exit event, joins thread, and closes handle"""
         monitor = NetworkTrigger()
         monitor._exit_event = 0xCAFE
 
-        with patch("threading.Thread.join") as mock_super_deactivate:
+        with patch(
+            "wallpaper_auto.trigger.base_trigger.BaseThreadTrigger.stop"
+        ) as mock_base_stop:
             with patch.object(monitor, "_request_stop"):
-                monitor.deactivate()
+                monitor.stop()
 
                 mock_kernel32.SetEvent.assert_called_once_with(0xCAFE)
-                mock_super_deactivate.assert_called_once_with(timeout=3)
+                mock_base_stop.assert_called_once()
                 mock_kernel32.CloseHandle.assert_called_once_with(0xCAFE)
                 assert monitor._exit_event is None
 
-    def test_deactivate_skips_when_no_exit_event(self, mock_kernel32):
-        """deactivate is safe when exit_event is None"""
+    def test_stop_skips_when_no_exit_event(self, mock_kernel32):
+        """stop is safe when exit_event is None"""
         monitor = NetworkTrigger()
         assert monitor._exit_event is None
 
-        with patch("threading.Thread.join"):
+        with patch(
+            "wallpaper_auto.trigger.base_trigger.BaseThreadTrigger.stop"
+        ):
             with patch.object(monitor, "_request_stop"):
-                monitor.deactivate()
+                monitor.stop()
 
                 mock_kernel32.SetEvent.assert_not_called()
                 mock_kernel32.CloseHandle.assert_not_called()

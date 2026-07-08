@@ -126,8 +126,8 @@ class TestWindowsSessionTriggerStop:
         mock_gui, _mock_ts = mock_win32
         trigger = WindowsSessionTrigger()
         trigger._setup_window()
-        trigger.activate()
-        trigger.deactivate()
+        trigger.start()
+        trigger.stop()
 
         mock_gui.PostMessage.assert_called_with(trigger.hwnd, win32con.WM_CLOSE, 0, 0)
 
@@ -152,14 +152,13 @@ class TestWindowsSessionTriggerStop:
         assert result == 0
         mock_gui.PostQuitMessage.assert_called_with(0)
 
-    def test_activate_then_deactivate_exits_thread(self, mock_win32):
+    def test_start_then_stop_exits_thread(self, mock_win32):
         trigger = WindowsSessionTrigger()
-        trigger.activate()
+        trigger.start()
 
         time.sleep(0.1)
         assert trigger.hwnd is not None
 
-        trigger.deactivate()
-        trigger.join(timeout=2)
+        trigger.stop()
 
-        assert not trigger.is_alive()
+        assert trigger._thread is None  # stop() joins and cleans up

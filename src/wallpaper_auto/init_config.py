@@ -43,9 +43,9 @@ resource:
   # Shorthand — path only; name and style are inferred
   black: "C:/Users/You/Pictures/black.jpg"
 
-  # ── Resource carousel (cycles through multiple sub-resources) ──────────
-  # carousel:
-  #   name: resource_carousel
+  # ── Resource cycle (cycles through multiple sub-resources) ─────────────
+  # cycle:
+  #   name: cycle
   #   config:
   #     resources:
   #       - name: static_wallpaper
@@ -72,6 +72,29 @@ trigger:
 
 
 # ---------------------------------------------------------------------------
+# Display Scenes  (per-display wallpaper bindings — auto-registered as
+#                  resources)
+# ---------------------------------------------------------------------------
+# Each entry defines how to assign resources to specific monitors by model.
+# ``display_model`` is matched via ``re.search`` against the monitor's model
+# name (case-sensitive, partial match allowed); first match wins per monitor.
+#
+# Display scene entries are **auto-registered** as wallpaper resources.
+# A rule's ``target`` can reference a scene name directly — no need to
+# add a ``scene`` resource entry in the resource section above.
+# ---------------------------------------------------------------------------
+# scene:
+#   work_layout:
+#     - display_model: "U2719D"
+#       resource: "office_view"
+#     - display_model: "internal"
+#       resource: "black"
+#   mobile:
+#     - display_model: ".*"
+#       resource: "black"
+
+
+# ---------------------------------------------------------------------------
 # Rules  (condition → target mapping)
 # ---------------------------------------------------------------------------
 # Rules are checked top-to-bottom.  The **first** rule whose condition
@@ -86,10 +109,13 @@ trigger:
 #   in_time_range: ["HH:MM", "HH:MM"]
 #   day_of_week_is: [0, 1, 2, 3, 4, 5, 6]  # 0=Monday ... 6=Sunday
 #   have_display: <model_name_or_regex>    # e.g. "U2719D" or "27.*"
+#
+# ``target`` can reference a resource ID or a ``scene`` name directly.
+# (Display scene entries are auto-registered as resources.)
 # ---------------------------------------------------------------------------
 rule:
 
-  # ── Example 1: Simple single-condition rule ──────────────────────────────
+  # ── Example 1: Simple single-condition rule (targets a resource) ─────────
   - name: "at_office"
     condition:
       wifi_ssid_is: "Company_WiFi"
@@ -120,17 +146,23 @@ rule:
       day_of_week_is: [5, 6]    # Saturday, Sunday
     target: "office_view"
 
-  # ── Example 5: Display-based rule ────────────────────────────────────────
+  # ── Example 5: Per-display wallpaper rule (targets a scene name) ────
   # - name: "external_monitor"
   #   condition:
   #     have_display: "U2719D"
-  #   target: "office_view"
+  #   target: "work_layout"      # scene name — auto-registered as a resource
+
+  # ── Example 6: Rule targeting a scene ────────────────────────────────────
+  # - name: "mobile"
+  #   condition:
+  #     wifi_ssid_is: "CoffeeShop"
+  #   target: "mobile"          # scene name — auto-registered as a resource
 
 
 # ---------------------------------------------------------------------------
 # Fallback  (used when no rule matches)
 # ---------------------------------------------------------------------------
-fallback: "office_view"
+fallback_target: "office_view"
 
 # ---------------------------------------------------------------------------
 # At-Shutdown Wallpaper  (optional)

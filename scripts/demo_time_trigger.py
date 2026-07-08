@@ -48,14 +48,14 @@ def main() -> None:
     # Graceful shutdown handler
     def signal_handler(signum, frame):
         logger.info("Received signal, shutting down...")
-        monitor.deactivate()
+        monitor.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
     logger.info("Time monitor started, press Ctrl+C to exit")
-    monitor.activate()
+    monitor.start()
 
     while True:
         time.sleep(1)

@@ -41,23 +41,22 @@ class WindowsSessionEvent(Enum):
 class WindowsSessionTrigger(BaseThreadTrigger):
     def __init__(self) -> None:
         super().__init__()
-        self.daemon = True
         self.hwnd = None
         self.current_session_id = 0
         self.current_event: WindowsSessionEvent | None = None
 
     @override
-    def activate(self) -> None:
+    def start(self) -> None:
         super().start()
-        logger.debug(f"{self.__class__.__name__} activate")
+        logger.debug(f"{self.__class__.__name__} start")
 
     @override
-    def deactivate(self) -> None:
+    def stop(self) -> None:
         """send WM_CLOSE to stop PumpMessages"""
         if self.hwnd:
             win32gui.PostMessage(self.hwnd, win32con.WM_CLOSE, 0, 0)
-        self.join(timeout=3)
-        logger.debug(f"{self.__class__.__name__} deactivate")
+        super().stop()
+        logger.debug(f"{self.__class__.__name__} stop")
 
     def _setup_window(self) -> None:
         """create a watch window in current threadi"""

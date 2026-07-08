@@ -14,7 +14,6 @@ from PySide6.QtCore import QCoreApplication, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QCursor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from .models import Rule
 from .task import Mode
 
 logger = logging.getLogger(__name__)
@@ -30,27 +29,27 @@ class SystemTrayBridge(QObject):
     """
 
     # Signal: Logic layer -> UI layer (for updating the interface)
-    # Params: resource_ids, mode, active_rule, active_resource_id
+    # Params: available_targets, mode, active_rule_id, active_target
     update_ui_signal = Signal(list, object, object, object)
 
     def __init__(self) -> None:
         super().__init__()
         # Callback container: UI layer -> Logic layer (for executing actions)
         self._on_set_mode_handler: Callable[[Mode], None] | None = None
-        self._on_select_resource_handler: Callable[[str], None] | None = None
+        self._on_select_target_handler: Callable[[str], None] | None = None
         self._on_quit_handler: Callable[[], None] | None = None
         self._on_update_ui_handler: Callable[[], None] | None = None
 
     # --- external communication to tray (Thread-Safe) ---
 
-    def update_ui(self, r_ids: object, mode: object, rule: object, active_id: str | None) -> None:
-        self.update_ui_signal.emit(r_ids, mode, rule, active_id)
+    def update_ui(self, available_targets: list[str], mode: object, active_rule_id: str | None, active_target: str | None) -> None:
+        self.update_ui_signal.emit(available_targets, mode, active_rule_id, active_target)
 
     def register_set_mode_handler(self, cb: Callable[[Mode], None]) -> None:
         self._on_set_mode_handler = cb
 
-    def register_select_resource_handler(self, cb: Callable[[str], None]) -> None:
-        self._on_select_resource_handler = cb
+    def register_select_target_handler(self, cb: Callable[[str], None]) -> None:
+        self._on_select_target_handler = cb
 
     def register_quit_handler(self, cb: Callable[[], None]) -> None:
         self._on_quit_handler = cb
@@ -60,9 +59,9 @@ class SystemTrayBridge(QObject):
 
     # --- internal communication to external (Thread-Safe) ---
 
-    def request_select_resource(self, resource_id: str) -> None:
-        if self._on_select_resource_handler:
-            self._on_select_resource_handler(resource_id)
+    def request_select_target(self, target: str) -> None:
+        if self._on_select_target_handler:
+            self._on_select_target_handler(target)
 
     def request_set_mode(self, mode: Mode) -> None:
         if self._on_set_mode_handler:
@@ -124,10 +123,10 @@ class WallpaperSwitchSystemTray:
 
     def update_menu(
         self,
-        resource_ids: list[str],
+        available_targets: list[str],
         mode: Mode,
-        active_rule: Rule | None,
-        active_resource_id: str | None,
+        active_rule_id: str | None,
+        active_target: str | None,
     ) -> None:
         if self._menu is None:
             raise RuntimeError("menu not initialized")
@@ -140,25 +139,25 @@ class WallpaperSwitchSystemTray:
 
         self._menu.addSeparator()
 
-        for rid in resource_ids:
-            action = QAction(f"{rid}")
+        for t in available_targets:
+            action = QAction(f"{t}")
             action.triggered.connect(lambda: self.bridge.request_set_mode(Mode.MANUAL))
-            action.triggered.connect(lambda checked, r=rid: self.bridge.request_select_resource(r))
+            action.triggered.connect(lambda checked, t=t: self.bridge.request_select_target(t))
             self._menu.addAction(action)
-            self._action_groups[rid] = action
+            self._action_groups[t] = action
 
         if mode == Mode.AUTO:
-            tip = f"{'fallback' if active_rule is None else active_rule.name}"
+            tip = active_rule_id or "fallback"
             auto_switch_action.setToolTip(tip)
             auto_switch_action.setIcon(create_dot_icon(get_color(ACTIVATE_COLOR)))
             auto_switch_action.setEnabled(False)
-            if active_resource_id is not None:
-                active_action = self._action_groups[active_resource_id]
+            if active_target is not None:
+                active_action = self._action_groups[active_target]
                 active_action.setIcon(create_dot_icon(get_color(ACTIVATE_AUXILIARY_COLOR)))
         
         if mode == Mode.MANUAL:
-            if active_resource_id is not None:
-                active_action = self._action_groups[active_resource_id]
+            if active_target is not None:
+                active_action = self._action_groups[active_target]
                 active_action.setIcon(create_dot_icon(get_color(ACTIVATE_COLOR)))
                 active_action.setEnabled(False)
 
