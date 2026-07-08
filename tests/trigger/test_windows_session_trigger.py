@@ -1,11 +1,22 @@
 import time
+from unittest.mock import patch
 
+import pytest
 import win32con
 
 from wallpaper_auto.trigger.windows_session_trigger import (
     WindowsSessionEvent,
     WindowsSessionTrigger,
 )
+
+
+@pytest.fixture
+def mock_win32():
+    with (
+        patch("wallpaper_auto.trigger.windows_session_trigger.win32gui") as gui,
+        patch("wallpaper_auto.trigger.windows_session_trigger.win32ts") as ts,
+    ):
+        yield gui, ts
 
 
 class TestWindowsSessionTriggerProcessEvent:
