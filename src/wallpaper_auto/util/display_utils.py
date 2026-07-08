@@ -7,6 +7,10 @@ from dataclasses import dataclass
 import win32api
 
 
+logger = logging.getLogger(__name__)
+
+
+
 class DisplayTopologyTransientError(OSError):
     """Raised when the system is in a display topology transition period (e.g., RDP switching, sleep/wake)."""
     pass
@@ -164,34 +168,6 @@ shcore.GetDpiForMonitor.argtypes = [
 ]
 shcore.GetDpiForMonitor.restype = wintypes.LONG
 
-MDT_EFFECTIVE_DPI = 0
-
-logger = logging.getLogger(__name__)
-
-
-def get_all_monitors_dpi_snapshot() -> frozenset[tuple[tuple[int, int, int, int], int]]:
-    """Return a frozenset of (bounding_rect, dpi) tuples for all active monitors."""
-    dpi_snapshot: list[tuple[tuple[int, int, int, int], int]] = []
-    try:
-        for hmonitor, _hdc, rect in win32api.EnumDisplayMonitors():
-            rect_tuple = (rect[0], rect[1], rect[2], rect[3])
-            dpi_x = wintypes.UINT(0)
-            dpi_y = wintypes.UINT(0)
-            # NOTE: int(hmonitor) is required — win32api.EnumDisplayMonitors()
-            # returns PyHANDLE wrappers, not primitive ints.  ctypes can't
-            # auto-convert PyHANDLE and raises a silent ArgumentError.
-            hr = shcore.GetDpiForMonitor(
-                int(hmonitor),
-                MDT_EFFECTIVE_DPI,
-                ctypes.byref(dpi_x),
-                ctypes.byref(dpi_y),
-            )
-            if hr == 0:
-                dpi_snapshot.append((rect_tuple, dpi_x.value))
-    except Exception as e:
-        logger.error(f"Failed to query all monitors DPI: {e}")
-    return frozenset(dpi_snapshot)
-
 
 def get_display_info() -> list[DisplayInfo]:
     num_paths = wintypes.UINT(0)
@@ -303,4 +279,31 @@ def get_display_info() -> list[DisplayInfo]:
         )
 
     return res_display_info
+
+
+MDT_EFFECTIVE_DPI = 0
+
+
+def get_all_monitors_dpi_snapshot() -> frozenset[tuple[tuple[int, int, int, int], int]]:
+    """Return a frozenset of (bounding_rect, dpi) tuples for all active monitors."""
+    dpi_snapshot: list[tuple[tuple[int, int, int, int], int]] = []
+    try:
+        for hmonitor, _hdc, rect in win32api.EnumDisplayMonitors():
+            rect_tuple = (rect[0], rect[1], rect[2], rect[3])
+            dpi_x = wintypes.UINT(0)
+            dpi_y = wintypes.UINT(0)
+            # int(hmonitor) is required — win32api.EnumDisplayMonitors()
+            # returns PyHANDLE wrappers, not primitive ints.  ctypes can't
+            # auto-convert PyHANDLE and raises a silent ArgumentError.
+            hr = shcore.GetDpiForMonitor(
+                int(hmonitor),
+                MDT_EFFECTIVE_DPI,
+                ctypes.byref(dpi_x),
+                ctypes.byref(dpi_y),
+            )
+            if hr == 0:
+                dpi_snapshot.append((rect_tuple, dpi_x.value))
+    except Exception as e:
+        logger.error(f"Failed to query all monitors DPI: {e}")
+    return frozenset(dpi_snapshot)
         

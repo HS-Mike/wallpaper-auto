@@ -1,6 +1,8 @@
 """Tests for display_utils.py — get_display_info() error paths and edge cases."""
 
 import ctypes
+import logging
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -12,6 +14,7 @@ from wallpaper_auto.util.display_utils import (
     ERROR_NOT_SUPPORTED,
     ERROR_SUCCESS,
     get_display_info,
+    get_all_monitors_dpi_snapshot,
 )
 
 
@@ -38,12 +41,12 @@ def _install_user32(
     def _device_info(*args):
         return device_info_result
 
-    fake = ctypes.windll.user32
-    fake.GetDisplayConfigBufferSizes = _buffer_sizes
-    fake.QueryDisplayConfig = _query
-    fake.DisplayConfigGetDeviceInfo = _device_info
-    fake.MonitorFromPoint = lambda *_a, **_kw: 0
-    monkeypatch.setattr(display_utils, "user32", fake)
+    monkeypatch.setattr(ctypes.windll.user32, "GetDisplayConfigBufferSizes", _buffer_sizes)
+    monkeypatch.setattr(ctypes.windll.user32, "QueryDisplayConfig", _query)
+    monkeypatch.setattr(ctypes.windll.user32, "DisplayConfigGetDeviceInfo", _device_info)
+    monkeypatch.setattr(ctypes.windll.user32, "MonitorFromPoint", lambda *_a, **_kw: 0)
+
+    monkeypatch.setattr(display_utils, "user32", ctypes.windll.user32)
     monkeypatch.setattr(display_utils, "shcore", ctypes.windll.shcore)
 
 
@@ -65,24 +68,24 @@ def _stub_paths_and_modes(monkeypatch, source_idx: int, target_idx: int):
     def _make_meta(base):
         class _Meta(base_meta):
             def __mul__(cls, n):
-                if base is path_base:
-                    class _InitArray(base * n):
+                class _InitArray(base * n):
+                    if base is path_base:
                         def __init__(self):
                             for i in range(len(self)):
                                 self[i].sourceInfo.modeInfoIdx = source_idx
                                 self[i].targetInfo.modeInfoIdx = target_idx
-                    return _InitArray
-                # modes array — set each entry's infoType to SOURCE; the function
-                # asserts SOURCE on first read and TARGET on second.
-                class _InitArray(base * n):
-                    def __init__(self):
-                        for i in range(len(self)):
-                            # Alternate types so reading mode[0] as source and
-                            # mode[target_idx] as target both pass the asserts
-                            # when target_idx != source_idx.
-                            self[i].infoType = (
-                                target_type if i == target_idx else source_type
-                            )
+                    else:
+                    # modes array — set each entry's infoType to SOURCE; the function
+                    # asserts SOURCE on first read and TARGET on second.
+                    # class _InitArray(base * n):
+                        def __init__(self):
+                            for i in range(len(self)):
+                                # Alternate types so reading mode[0] as source and
+                                # mode[target_idx] as target both pass the asserts
+                                # when target_idx != source_idx.
+                                self[i].infoType = (
+                                    target_type if i == target_idx else source_type
+                                )
                 return _InitArray
 
         return _Meta
@@ -182,3 +185,87 @@ class TestGetDisplayInfoDeviceInfoErrors:
         result = get_display_info()
         assert len(result) == 1
         assert result[0].model is None
+
+
+class TestGetAllMonitorsDpiSnapshot:
+    
+    def test_success_multiple_monitors(self, monkeypatch):
+        """Normal multi-monitor flow: successfully get coordinates and DPI for all monitors."""
+        # 1. Mock win32api.EnumDisplayMonitors to return two monitors
+        # Use plain integer handles (12345 and 67890) so int(hmonitor)
+        # works without PyHANDLE complexity.
+        mock_monitors = [
+            (12345, None, (0, 0, 1920, 1080)),
+            (67890, None, (1920, 0, 2560, 1440)),
+        ]
+        mock_win32api = MagicMock()
+        mock_win32api.EnumDisplayMonitors.return_value = mock_monitors
+        monkeypatch.setattr(display_utils, "win32api", mock_win32api)
+
+        # 2. Mock shcore.GetDpiForMonitor to write data into C pointers
+        # Build a mapping from handles to expected DPI values
+        dpi_map = {12345: 96, 67890: 144}
+
+        def _mock_get_dpi(hmonitor, dpi_type, dpi_x_ptr, dpi_y_ptr):
+            dpi = dpi_map.get(hmonitor, 96)
+            # Write test data into the provided UINT pointer via ctypes.cast
+            ctypes.cast(dpi_x_ptr, ctypes.POINTER(ctypes.c_uint))[0] = dpi
+            ctypes.cast(dpi_y_ptr, ctypes.POINTER(ctypes.c_uint))[0] = dpi
+            return 0  # S_OK (success)
+
+        mock_shcore = MagicMock()
+        mock_shcore.GetDpiForMonitor = _mock_get_dpi
+        monkeypatch.setattr(display_utils, "shcore", mock_shcore)
+
+        # 3. Call the target function and assert
+        result = get_all_monitors_dpi_snapshot()
+        
+        expected = frozenset([
+            ((0, 0, 1920, 1080), 96),
+            ((1920, 0, 2560, 1440), 144)
+        ])
+        assert result == expected
+
+    def test_get_dpi_partially_fails(self, monkeypatch):
+        """Partial failure flow: one monitor fails to get DPI, that monitor should be skipped."""
+        mock_monitors = [
+            (12345, None, (0, 0, 1920, 1080)),
+            (67890, None, (1920, 0, 2560, 1440)),
+        ]
+        mock_win32api = MagicMock()
+        mock_win32api.EnumDisplayMonitors.return_value = mock_monitors
+        monkeypatch.setattr(display_utils, "win32api", mock_win32api)
+
+        def _mock_get_dpi(hmonitor, dpi_type, dpi_x_ptr, dpi_y_ptr):
+            if hmonitor == 67890:
+                return 0x80004005  # Simulate Win32 error code E_FAIL
+            
+            ctypes.cast(dpi_x_ptr, ctypes.POINTER(ctypes.c_uint))[0] = 96
+            return 0
+
+        mock_shcore = MagicMock()
+        mock_shcore.GetDpiForMonitor = _mock_get_dpi
+        monkeypatch.setattr(display_utils, "shcore", mock_shcore)
+
+        # Execute: 67890 should be filtered out, leaving only 12345
+        result = get_all_monitors_dpi_snapshot()
+        
+        expected = frozenset([
+            ((0, 0, 1920, 1080), 96)
+        ])
+        assert result == expected
+
+    def test_enum_monitors_exception_returns_empty(self, monkeypatch, caplog):
+        """Exception flow: when win32api raises, the function should catch, log, and return an empty set."""
+        mock_win32api = MagicMock()
+        # Force the iterator to raise an exception
+        mock_win32api.EnumDisplayMonitors.side_effect = Exception("OS driver detached")
+        monkeypatch.setattr(display_utils, "win32api", mock_win32api)
+
+        # Use caplog to capture log output
+        with caplog.at_level(logging.ERROR):
+            result = get_all_monitors_dpi_snapshot()
+        
+        # Assert result is an empty set with expected error message in the log
+        assert result == frozenset()
+        assert "Failed to query all monitors DPI" in caplog.text
