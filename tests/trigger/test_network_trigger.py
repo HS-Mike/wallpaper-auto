@@ -1,5 +1,4 @@
 """Tests for network_trigger.py — WiFi network change detection via WMI."""
-# ruff: noqa: N806 — mock names match uppercase Win32 constant names
 
 from unittest.mock import MagicMock, patch
 
@@ -8,33 +7,39 @@ import pytest
 from wallpaper_auto.trigger.network_trigger import NetworkTrigger
 
 
-@pytest.fixture
-def mock_run_deps():
-    """Patch the four external dependencies common to ``run()`` tests
-    and set up the standard KERNEL32/IPHLPAPI return values."""
-    with (
-        patch("wallpaper_auto.trigger.network_trigger.pythoncom") as mock_pythoncom,
-        patch("wallpaper_auto.trigger.network_trigger.wmi"),
-        patch("wallpaper_auto.trigger.network_trigger.KERNEL32") as mock_KERNEL32,
-        patch("wallpaper_auto.trigger.network_trigger.IPHLPAPI") as mock_IPHLPAPI,
-    ):
-        mock_KERNEL32.CreateEventW.return_value = 0xCAFE
-        mock_IPHLPAPI.NotifyAddrChange.return_value = 0
-        yield mock_KERNEL32, mock_IPHLPAPI, mock_pythoncom
-
-
-@pytest.fixture
+@pytest.fixture(scope="function")
 def mock_kernel32():
-    with patch("wallpaper_auto.trigger.network_trigger.KERNEL32") as mock_k:
-        yield mock_k
+    with patch("wallpaper_auto.trigger.network_trigger.KERNEL32") as m:
+        yield m
+
+
+@pytest.fixture(scope="function")
+def mock_iphlpapi():
+    with patch("wallpaper_auto.trigger.network_trigger.IPHLPAPI") as m:
+        yield m
+
+
+@pytest.fixture(scope="function")
+def mock_pythoncom():
+    with patch("wallpaper_auto.trigger.network_trigger.pythoncom") as m:
+        yield m
+
+
+@pytest.fixture(scope="function")
+def mock_wmi():
+    with patch("wallpaper_auto.trigger.network_trigger.wmi") as m:
+        yield m
 
 
 class TestNetworkTrigger:
     """Test NetworkTrigger core logic, fully isolated from WMI and Win32 API dependencies"""
 
-    def test_run_detects_network_change(self, mock_run_deps):
+    def test_run_detects_network_change(
+        self, mock_kernel32, mock_iphlpapi, mock_pythoncom
+    ):
         """Run method detects network fingerprint change and triggers"""
-        mock_KERNEL32, mock_IPHLPAPI, _ = mock_run_deps
+        mock_kernel32.CreateEventW.return_value = 0xCAFE
+        mock_iphlpapi.NotifyAddrChange.return_value = 0
         monitor = NetworkTrigger()
         monitor._exit_event = 0xBEEF
 
@@ -54,7 +59,7 @@ class TestNetworkTrigger:
                         {"wifi_192.168.2.1"},  # after network change
                     ]
                     # first wait: network change (idx 0), second wait: exit (idx 1)
-                    mock_KERNEL32.WaitForMultipleObjects.side_effect = [0, 1]
+                    mock_kernel32.WaitForMultipleObjects.side_effect = [0, 1]
 
                     monitor.run()
 
@@ -63,31 +68,36 @@ class TestNetworkTrigger:
                     assert captured_ssid == ["HomeWiFi"]
                     assert monitor.current_ssid is None  # cleared after trigger
 
-    def test_run_does_not_trigger_on_same_fingerprint(self, mock_run_deps):
+    def test_run_does_not_trigger_on_same_fingerprint(
+        self, mock_kernel32, mock_iphlpapi, mock_pythoncom
+    ):
         """Run method does not trigger when fingerprint hasn't changed after event"""
-        mock_KERNEL32, mock_IPHLPAPI, _ = mock_run_deps
+        mock_kernel32.CreateEventW.return_value = 0xCAFE
+        mock_iphlpapi.NotifyAddrChange.return_value = 0
         monitor = NetworkTrigger()
         monitor._exit_event = 0xBEEF
 
         with patch.object(monitor, "trigger") as mock_trigger:
             with patch.object(monitor, "_get_network_fingerprint", return_value={"same_gateway"}):
-                mock_KERNEL32.WaitForMultipleObjects.side_effect = [0, 1]
+                mock_kernel32.WaitForMultipleObjects.side_effect = [0, 1]
 
                 monitor.run()
 
                 mock_trigger.assert_not_called()
 
-    def test_run_breaks_on_notify_addr_change_error(self, mock_run_deps):
+    def test_run_breaks_on_notify_addr_change_error(
+        self, mock_kernel32, mock_iphlpapi, mock_pythoncom
+    ):
         """Run breaks loop when NotifyAddrChange returns an unexpected error"""
-        mock_KERNEL32, mock_IPHLPAPI, _ = mock_run_deps
-        mock_IPHLPAPI.NotifyAddrChange.return_value = 1  # error (not 0 or 997)
+        mock_kernel32.CreateEventW.return_value = 0xCAFE
+        mock_iphlpapi.NotifyAddrChange.return_value = 1  # error (not 0 or 997)
         monitor = NetworkTrigger()
         monitor._exit_event = 0xBEEF
 
         with patch.object(monitor, "_get_network_fingerprint", return_value=set()):
             monitor.run()
 
-            mock_KERNEL32.WaitForMultipleObjects.assert_not_called()
+            mock_kernel32.WaitForMultipleObjects.assert_not_called()
 
     def test_get_network_fingerprint_logic(self):
         """Network fingerprint parsing extracts strings from WMI config"""
@@ -130,10 +140,13 @@ class TestNetworkTrigger:
 
             assert fingerprint == {"WiFi_10.0.0.1"}
 
-    def test_lifecycle_and_com_cleanup(self, mock_run_deps):
+    def test_lifecycle_and_com_cleanup(
+        self, mock_kernel32, mock_iphlpapi, mock_pythoncom
+    ):
         """COM init/uninit is called during run"""
-        mock_KERNEL32, mock_IPHLPAPI, mock_pythoncom = mock_run_deps
-        mock_KERNEL32.WaitForMultipleObjects.return_value = 1  # immediate exit
+        mock_kernel32.CreateEventW.return_value = 0xCAFE
+        mock_iphlpapi.NotifyAddrChange.return_value = 0
+        mock_kernel32.WaitForMultipleObjects.return_value = 1  # immediate exit
         monitor = NetworkTrigger()
         monitor._exit_event = 0xBEEF
 
@@ -143,7 +156,7 @@ class TestNetworkTrigger:
             mock_pythoncom.CoInitialize.assert_called_once()
             mock_pythoncom.CoUninitialize.assert_called_once()
             # CloseHandle is called for net_event in finally block
-            mock_KERNEL32.CloseHandle.assert_called_once()
+            mock_kernel32.CloseHandle.assert_called_once()
 
     def test_activate_creates_exit_event(self, mock_kernel32):
         """activate creates exit_event and delegates to super"""
