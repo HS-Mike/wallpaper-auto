@@ -185,6 +185,37 @@ class TestGetDisplayInfoDeviceInfoErrors:
         result = get_display_info()
         assert len(result) == 1
         assert result[0].model is None
+    
+    def test_dpi_scale_calculation_coverage(self, monkeypatch):
+        """Normal DPI scale calculation flow: cover the if h_monitor branch."""
+        _install_user32(monkeypatch, num_paths=1, num_modes=2)
+        _stub_paths_and_modes(monkeypatch, source_idx=0, target_idx=1)
+
+        # make MonitorFromPoint return a valid non-zero handle
+        monkeypatch.setattr(
+            ctypes.windll.user32, 
+            "MonitorFromPoint", 
+            lambda *_a, **_kw: 12345
+        )
+
+        # Mock GetDpiForMonitor to write 144 DPI into the C pointer
+        # 144 / 96.0 = 1.5x scale
+        def _mock_get_dpi(hmonitor, dpi_type, dpi_x_ptr, dpi_y_ptr):
+            assert hmonitor == 12345
+            ctypes.cast(dpi_x_ptr, ctypes.POINTER(ctypes.c_uint))[0] = 144
+            ctypes.cast(dpi_y_ptr, ctypes.POINTER(ctypes.c_uint))[0] = 144
+            return 0  # S_OK
+
+        monkeypatch.setattr(
+            ctypes.windll.shcore, 
+            "GetDpiForMonitor", 
+            _mock_get_dpi
+        )
+
+        result = get_display_info()
+
+        assert len(result) == 1
+        assert result[0].scale == 1.5
 
 
 class TestGetAllMonitorsDpiSnapshot:
