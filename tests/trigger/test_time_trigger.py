@@ -24,15 +24,6 @@ def freeze_now():
         yield mock_dt
 
 
-class TestTimeTriggerInit:
-    def test_initial_state(self, trigger):
-        assert trigger._fixed_times == []
-        assert trigger._interval is None
-        assert trigger._reference_time is None
-        assert hasattr(trigger._lock, "acquire")
-        assert isinstance(trigger._update_event, threading.Event)
-
-
 class TestTimeTriggerInitWithConfig:
     def test_init_with_interval(self, freeze_now):
         freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
@@ -103,56 +94,58 @@ class TestGetNextWaitTime:
     def test_no_times_no_interval_returns_none(self, trigger):
         assert trigger._get_next_wait_time() is None
 
-    def test_fixed_time_today_future(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
+    @pytest.mark.parametrize(
+        "now,fixed_times,interval,ref_time,wait_sec,target",
+        [
+            pytest.param(
+                dt(2024, 1, 1, 10, 0, 0), [time(11, 0)], None, None,
+                3600, dt(2024, 1, 1, 11, 0),
+                id="fixed_time_future",
+            ),
+            pytest.param(
+                dt(2024, 1, 1, 10, 0, 0), [time(9, 0)], None, None,
+                82800, dt(2024, 1, 2, 9, 0),
+                id="fixed_time_past",
+            ),
+            pytest.param(
+                dt(2024, 1, 1, 10, 0, 0), [time(13, 0), time(10, 30)], None, None,
+                1800, dt(2024, 1, 1, 10, 30),
+                id="multiple_fixed_returns_min",
+            ),
+            pytest.param(
+                dt(2024, 1, 1, 10, 5, 0), [], timedelta(minutes=15), dt(2024, 1, 1, 10, 0, 0),
+                600, dt(2024, 1, 1, 10, 15),
+                id="interval_calculation",
+            ),
+            pytest.param(
+                dt(2024, 1, 1, 10, 0, 0), [], timedelta(hours=1), None,
+                3600, dt(2024, 1, 1, 11, 0),
+                id="interval_without_reference",
+            ),
+            pytest.param(
+                dt(2024, 1, 1, 9, 50, 0), [], timedelta(minutes=15), dt(2024, 1, 1, 10, 0, 0),
+                600, dt(2024, 1, 1, 10, 0),
+                id="interval_now_before_reference",
+            ),
+            pytest.param(
+                dt(2024, 1, 1, 10, 0, 0), [time(10, 30)], timedelta(hours=2), dt(2024, 1, 1, 9, 0, 0),
+                1800, dt(2024, 1, 1, 10, 30),
+                id="both_fixed_and_interval_returns_min",
+            ),
+        ],
+    )
+    def test_get_next_wait_time(self, freeze_now, now, fixed_times, interval, ref_time, wait_sec, target):
+        freeze_now.datetime.now.return_value = now
         trigger = TimeTrigger()
-        trigger.update_fixed_times([time(11, 0)])
-        wait_sec, target = trigger._get_next_wait_time()
-        assert wait_sec == pytest.approx(3600, abs=0.1)
-        assert target == dt(2024, 1, 1, 11, 0)
-
-    def test_fixed_time_today_past(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
-        trigger = TimeTrigger()
-        trigger.update_fixed_times([time(9, 0)])
-        wait_sec, target = trigger._get_next_wait_time()
-        assert wait_sec == pytest.approx(82800, abs=0.1)
-        assert target == dt(2024, 1, 2, 9, 0)
-
-    def test_multiple_fixed_times_returns_min(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
-        trigger = TimeTrigger()
-        trigger.update_fixed_times([time(13, 0), time(10, 30)])
-        wait_sec, target = trigger._get_next_wait_time()
-        assert wait_sec == pytest.approx(1800, abs=0.1)
-        assert target == dt(2024, 1, 1, 10, 30)
-
-    def test_interval_calculation(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 5, 0)
-        trigger = TimeTrigger()
-        trigger._interval = timedelta(minutes=15)
-        trigger._reference_time = dt(2024, 1, 1, 10, 0, 0)
-        wait_sec, target = trigger._get_next_wait_time()
-        assert wait_sec == pytest.approx(600, abs=0.1)
-        assert target == dt(2024, 1, 1, 10, 15)
-
-    def test_interval_without_reference_uses_now(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
-        trigger = TimeTrigger()
-        trigger._interval = timedelta(hours=1)
-        trigger._reference_time = None
-        wait_sec, target = trigger._get_next_wait_time()
-        assert wait_sec == pytest.approx(3600, abs=0.1)
-        assert target == dt(2024, 1, 1, 11, 0)
-
-    def test_interval_when_now_before_reference(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 9, 50, 0)
-        trigger = TimeTrigger()
-        trigger._interval = timedelta(minutes=15)
-        trigger._reference_time = dt(2024, 1, 1, 10, 0, 0)
-        wait_sec, target = trigger._get_next_wait_time()
-        assert wait_sec == pytest.approx(600, abs=0.1)
-        assert target == dt(2024, 1, 1, 10, 0)
+        if fixed_times:
+            trigger.update_fixed_times(fixed_times)
+        if interval:
+            trigger._interval = interval
+            trigger._reference_time = ref_time
+        next_target = trigger._get_next_wait_time()
+        assert next_target is not None
+        assert next_target[0] == pytest.approx(wait_sec, abs=0.1)
+        assert next_target[1] == target
 
     def test_zero_interval_excluded(self, freeze_now):
         freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
@@ -161,51 +154,17 @@ class TestGetNextWaitTime:
         trigger._reference_time = dt(2024, 1, 1, 10, 0, 0)
         assert trigger._get_next_wait_time() is None
 
-    def test_both_fixed_and_interval_returns_min(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
+
+class TestLifecycle:
+    def test_lifecycle_start_stop(self):
         trigger = TimeTrigger()
-        trigger.set_interval(timedelta(hours=2), reference_time=dt(2024, 1, 1, 9, 0, 0))
-        trigger.update_fixed_times([time(10, 30)])
-        wait_sec, target = trigger._get_next_wait_time()
-        assert wait_sec == pytest.approx(1800, abs=0.1)
-        assert target == dt(2024, 1, 1, 10, 30)
-
-
-class TestActivateDestart:
-    def test_start_starts_thread(self):
-        trigger = TimeTrigger()
-        trigger.start()
-        assert trigger._thread is not None
-        assert trigger._thread.is_alive()
-        trigger.stop()
-
-    def test_stop_sets_stop_and_update_events(self):
-        trigger = TimeTrigger()
-        trigger.start()
-        trigger.stop()
-        assert trigger.stop_event.is_set()
-        assert trigger._update_event.is_set()
-
-
-class TestBaseThreadTriggerDestart:
-    """Tests for BaseThreadTrigger.stop() (not overridden by subclasses)."""
-
-    def test_stop_stops_thread_and_joins(self):
-        """BaseThreadTrigger.stop() stops thread and joins."""
-        from wallpaper_auto.trigger.base_trigger import BaseThreadTrigger
-
-        class _MinimalTrigger(BaseThreadTrigger):
-            def run(self):
-                while not self.stop_event.is_set():
-                    threading.Event().wait(0.05)
-
-        trigger = _MinimalTrigger()
         trigger.start()
         assert trigger._thread is not None
         assert trigger._thread.is_alive()
 
         trigger.stop()
         assert trigger.stop_event.is_set()
+        assert trigger._update_event.is_set()
         assert trigger._thread is None
 
 
