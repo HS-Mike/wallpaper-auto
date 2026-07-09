@@ -23,7 +23,6 @@ from .system_tray import WallpaperSwitchSystemTray
 from .task import Mode, ModeSwitchTask, PlotCanvasTask, QuitTask, TargetSetTask, Task, TaskType
 from .trigger.display_trigger import DisplayTrigger
 from .trigger_manager import TriggerManager
-from .util.display_utils import DisplayInfo, get_display_info
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +77,7 @@ class WallpaperController:
                 self._mode = task.target_mode
 
             elif task.type == TaskType.TARGET_SET:
-                self.update_display()
+                self._display_manager.update_display()
                 resources = self._resource_manager.evaluate_target(task.target)
                 for p, r in resources.items():
                     self._display_manager.update_resource(p, r)
@@ -95,7 +94,7 @@ class WallpaperController:
                     logger.debug("Skipping canvas plot; a newer update task is already queued.")
 
             elif task.type == TaskType.PLOT_CANVAS:
-                self.update_display()
+                self._display_manager.update_display()
                 self._display_manager.plot_canvas()
 
             self.update_system_tray()
@@ -143,19 +142,7 @@ class WallpaperController:
         t = PlotCanvasTask()
         priority = 10 if priority is None else priority
         self._task_queue.put((priority, next(self._task_counter), t))
-
-    def update_display(self) -> list[DisplayInfo]:
-        curr_display_info = get_display_info()
-        curr_monitor_device_path = {i.monitor_device_path for i in curr_display_info}
-        active_monitor_device_path = self._display_manager.active_monitor_device_path
-        plugged_display = curr_monitor_device_path - active_monitor_device_path
-        unplugged_display = active_monitor_device_path - curr_monitor_device_path
-        for i in plugged_display:
-            self._display_manager.add_display(i)
-        for i in unplugged_display:
-            self._display_manager.remove_display(i)
-        return curr_display_info
-
+        
     def at_display_change(self):
         logger.info("Detect display change.")
         self.add_plot_canvas_task()

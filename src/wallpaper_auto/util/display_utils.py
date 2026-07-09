@@ -10,9 +10,12 @@ import win32api
 logger = logging.getLogger(__name__)
 
 
-
 class DisplayTopologyTransientError(OSError):
     """Raised when the system is in a display topology transition period (e.g., RDP switching, sleep/wake)."""
+    pass
+
+class RemoteSessionEnvironmentError(OSError):
+    """Raised when an operation fails because it is running within an RDP/Virtual Desktop session instead of a physical console."""
     pass
 
 
@@ -27,8 +30,11 @@ class DisplayInfo:
 
 
 ERROR_SUCCESS = 0
-ERROR_INSUFFICIENT_BUFFER = 122
+ERROR_ACCESS_DENIED = 5
 ERROR_NOT_SUPPORTED = 50
+ERROR_INVALID_PARAMETER = 87
+ERROR_INSUFFICIENT_BUFFER = 122
+
 QDC_DATABASE_CURRENT = 0x00000004
 DISPLAYCONFIG_PATH_MODE_IDX_INVALID = 0xFFFFFFFF
 DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE = 1
@@ -197,10 +203,16 @@ def get_display_info() -> list[DisplayInfo]:
         )
         if res == ERROR_SUCCESS:
             break
+        if res == ERROR_ACCESS_DENIED:
+            return []
         elif res == ERROR_INSUFFICIENT_BUFFER:
             time.sleep(0.5)
             continue
+        elif res == ERROR_NOT_SUPPORTED:
+            raise DisplayTopologyTransientError
         else:
+            if res == ERROR_INVALID_PARAMETER and is_remote_session():
+                raise RemoteSessionEnvironmentError("QueryDisplayConfig is unavailable under remote sessions.")
             raise OSError(f"QueryDisplayConfig error return: {res}")
     else:
         raise OSError(f"QueryDisplayConfig error return: {ERROR_INSUFFICIENT_BUFFER} - retry time exceed")
@@ -279,6 +291,11 @@ def get_display_info() -> list[DisplayInfo]:
         )
 
     return res_display_info
+
+
+def is_remote_session() -> bool:
+    """Check if the current process is running under an RDP or virtual remote session."""
+    return win32api.GetSystemMetrics(4096) != 0
 
 
 MDT_EFFECTIVE_DPI = 0

@@ -32,8 +32,9 @@ class DisplayManager:
     """Per-display wallpaper lifecycle — mount/demount per monitor and composite canvas."""
 
     def __init__(self) -> None:
-        self._restore_wallpaper: dict[str, BaseResource] = {}
+        self._restore_wallpaper: dict[str, tuple[WallpaperStyle, Path]] = {}
         self._display_resource_map: dict[str, BaseResource]  = {}
+        self._display_resource_is_patch: dict[str, bool] = {}
         self._canvas_buffer: dict[str, tuple[WallpaperStyle, Path | Image.Image]] = {}
 
     def start(self) -> None:
@@ -44,9 +45,23 @@ class DisplayManager:
 
     def stop(self) -> None:
         # restore original wallpaper status
-        curr_display_info: list[DisplayInfo] = get_display_info()
-        for i in curr_display_info:
-            self.remove_display(i.monitor_device_path)
+        for i in self._display_resource_map:
+            self.remove_display(i)
+        for device_path, (style, image_path) in self._restore_wallpaper.items():
+            set_wallpaper_style(style)
+            set_wallpaper(device_path, image_path)
+    
+    def update_display(self) -> list[DisplayInfo]:
+        curr_display_info = get_display_info()
+        curr_monitor_device_path = {i.monitor_device_path for i in curr_display_info}
+        active_monitor_device_path = self.active_monitor_device_path
+        plugged_display = curr_monitor_device_path - active_monitor_device_path
+        unplugged_display = active_monitor_device_path - curr_monitor_device_path
+        for i in plugged_display:
+            self.add_display(i)
+        for i in unplugged_display:
+            self.remove_display(i)
+        return curr_display_info
 
     @property
     def active_monitor_device_path(self) -> set[str]:
@@ -60,22 +75,30 @@ class DisplayManager:
         restore_res = StaticWallpaper(style, image_path)
         restore_res._bind_monitor_device_path(monitor_device_path)
         restore_res._bind_plot_canvas(self.update_canvas_buffer)
-        self._restore_wallpaper[monitor_device_path] = restore_res
+        self._restore_wallpaper[monitor_device_path] = (style, image_path)
         self._display_resource_map[monitor_device_path] = restore_res
+        self._display_resource_is_patch[monitor_device_path] = True
 
     def remove_display(self, monitor_device_path: str) -> None:
-        res = self._display_resource_map.pop(monitor_device_path)
+        is_patch = self._display_resource_is_patch[monitor_device_path]
+        if is_patch is True:
+            raise ValueError(f"Display (monitor_device_path: {monitor_device_path}) do not have a resource")
+        res = self._display_resource_map[monitor_device_path]
         res.demount()
         res._unbind_plot_canvas()
-        original_res = self._restore_wallpaper.pop(monitor_device_path)
-        original_res._bind_plot_canvas(self.update_canvas_buffer)
-        original_res.mount()
+        orig_patch_res = StaticWallpaper(*self._restore_wallpaper[monitor_device_path])
+        self._display_resource_map[monitor_device_path] = orig_patch_res
+        self._display_resource_is_patch[monitor_device_path] = True
+        orig_patch_res._bind_plot_canvas(self.update_canvas_buffer)
+        orig_patch_res.mount()
 
     def update_resource(self, monitor_device_path: str, resource: BaseResource) -> None:
-        prev_resource = self._display_resource_map.pop(monitor_device_path)
-        prev_resource.demount()
-        prev_resource._unbind_plot_canvas()
+        prev_resource = self._display_resource_map[monitor_device_path]
+        if prev_resource is not None:
+            prev_resource.demount()
+            prev_resource._unbind_plot_canvas()
         self._display_resource_map[monitor_device_path] = resource
+        self._display_resource_is_patch[monitor_device_path] = False
         resource._bind_plot_canvas(self.update_canvas_buffer)
         resource.mount()
 

@@ -1,12 +1,13 @@
 import contextvars
 import ctypes
 import functools
+import dataclasses
 import logging
 import contextlib
 from ctypes import wintypes
 from enum import IntEnum
 from pathlib import Path
-from typing import Optional, Dict, Any, Callable, TypeVar, ParamSpec, Tuple
+from typing import Optional, Any, Callable, TypeVar, ParamSpec, Tuple
 
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,13 @@ class WallpaperStyle(IntEnum):
     FIT = DWPOS_FIT
     FILL = DWPOS_FILL
     SPAN = DWPOS_SPAN
+
+@dataclasses.dataclass
+class Rect:
+    left: int
+    top: int
+    right: int
+    bottom: int
 
 
 class RECT(ctypes.Structure):
@@ -228,18 +236,18 @@ def get_wallpaper(monitor_id: Optional[str]) -> Path:
 
 
 @com_managed
-def get_monitor_bounds(monitor_id: str) -> Dict[str, int]:
+def get_monitor_bounds(monitor_id: str) -> Rect:
     """Return the bounding rect of a monitor"""
     bounds: RECT = RECT()
     hr_call: int = _call_com_vtable(7, PROTO_GET_MONITOR_BOUNDS, monitor_id, ctypes.byref(bounds))
     if hr_call < 0:
         raise OSError(f"get_monitor_bounds failed: 0x{hr_call & 0xFFFFFFFF:08X}")
-    return {
-        "left": int(bounds.left),
-        "top": int(bounds.top),
-        "right": int(bounds.right),
-        "bottom": int(bounds.bottom)
-    }
+    return Rect(
+        left=int(bounds.left),
+        top=int(bounds.top),
+        right=int(bounds.right),
+        bottom=int(bounds.bottom)
+    )
 
 
 @com_managed
