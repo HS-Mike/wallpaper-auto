@@ -23,6 +23,7 @@ from .system_tray import WallpaperSwitchSystemTray
 from .task import Mode, ModeSwitchTask, PlotCanvasTask, QuitTask, TargetSetTask, Task, TaskType
 from .trigger.display_trigger import DisplayTrigger
 from .trigger_manager import TriggerManager
+from .trigger.base_trigger import BaseTrigger
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,7 @@ class WallpaperController:
         priority = 10 if priority is None else priority
         self._task_queue.put((priority, next(self._task_counter), t))
         
-    def at_display_change(self):
+    def at_display_change(self, _trigger: BaseTrigger) -> None:
         logger.info("Detect display change.")
         self.add_plot_canvas_task()
 
