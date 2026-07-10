@@ -13,7 +13,7 @@ import threading
 
 from PIL import Image
 
-from . import atshutdown
+from . import at_system_shutdown
 from .config_store import ConfigStore
 from .display_manager import DisplayManager
 from .models import Rule
@@ -189,7 +189,7 @@ class WallpaperController:
         self._worker_loop_thread.start()
         self.evaluate()
         self._trigger_manager.activate()
-        atshutdown.register(self.at_shutdown)
+        at_system_shutdown.register(self.at_shutdown)
 
     def stop(self) -> None:
         logger.info("wallpaper controller stop")
@@ -201,7 +201,7 @@ class WallpaperController:
         self._worker_loop_thread = None
         self._trigger_manager.deactivate()
         self._display_manager.stop()
-        atshutdown.unregister(self.at_shutdown)
+        at_system_shutdown.unregister(self.at_shutdown)
         if self._tray is not None:
             app = self._tray._app
             self._tray.hide()

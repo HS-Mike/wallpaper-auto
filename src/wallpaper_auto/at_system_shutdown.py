@@ -18,10 +18,12 @@ from typing import Any
 import win32con
 import win32gui
 
+from wallpaper_auto.util.singleton_meta import SingletonMeta
+
 logger = logging.getLogger(__name__)
 
 
-class ShutdownHandler:
+class ShutdownHandler(metaclass=SingletonMeta):
     """Hidden window + message pump that catches ``WM_QUERYENDSESSION``."""
 
     def __init__(self) -> None:

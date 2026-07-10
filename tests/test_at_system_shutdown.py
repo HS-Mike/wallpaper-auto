@@ -1,10 +1,10 @@
-"""Tests for atshutdown.py — shutdown detection and callback management."""
+"""Tests for at_system_shutdown.py — shutdown detection and callback management."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wallpaper_auto.atshutdown import ShutdownHandler
+from wallpaper_auto.at_system_shutdown import ShutdownHandler
 
 # ── fixtures ──────────────────────────────────────────────────────────────
 
@@ -12,13 +12,14 @@ from wallpaper_auto.atshutdown import ShutdownHandler
 @pytest.fixture
 def handler() -> ShutdownHandler:
     """Return a fresh ShutdownHandler (no listener started)."""
+    ShutdownHandler.clear_instance()
     return ShutdownHandler()
 
 
 @pytest.fixture
 def mock_gui():
-    """Patch win32gui in the atshutdown module."""
-    with patch("wallpaper_auto.atshutdown.win32gui") as gui:
+    """Patch win32gui in the at_system_shutdown module."""
+    with patch("wallpaper_auto.at_system_shutdown.win32gui") as gui:
         yield gui
 
 
@@ -261,7 +262,7 @@ class TestShutdownHandlerModuleAPI:
     """Module-level register/unregister convenience functions."""
 
     def test_module_register_and_unregister_are_bound(self):
-        from wallpaper_auto.atshutdown import register, unregister
+        from wallpaper_auto.at_system_shutdown import register, unregister
 
         assert callable(register)
         assert callable(unregister)

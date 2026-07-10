@@ -543,7 +543,7 @@ class TestWallpaperControllerStop:
         """stop() should unregister the at-shutdown callback to prevent restart leaks."""
         _start_controller(controller)
         with (
-            patch("wallpaper_auto.wallpaper_controller.atshutdown") as mock_atsd,
+            patch("wallpaper_auto.wallpaper_controller.at_system_shutdown") as mock_atsd,
             patch.object(controller._display_manager, "stop"),
         ):
             controller.stop()
