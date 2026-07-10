@@ -11,24 +11,26 @@ import subprocess
 
 def get_current_ssid() -> str | None:
     """Return the current WiFi SSID, or None if not connected / on error."""
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = 0  # SW_HIDE
+    try:
+        raw = subprocess.check_output(
+            ["netsh", "wlan", "show", "interfaces"],
+            stderr=subprocess.STDOUT,
+            startupinfo=startupinfo,
+        )
+    except subprocess.CalledProcessError:
+        return None
+
     encodings = ["utf-8", "mbcs", "gbk", "cp936"]
-    result = None
+    result: str | None = None
     for enc in encodings:
         try:
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0  # SW_HIDE
-            result = subprocess.check_output(
-                ["netsh", "wlan", "show", "interfaces"],
-                encoding=enc,
-                stderr=subprocess.STDOUT,
-                startupinfo=startupinfo,
-            )
+            result = raw.decode(enc)
             break
         except UnicodeDecodeError:
             continue
-        except subprocess.CalledProcessError:
-            return None
     if result is None:
         return None
 

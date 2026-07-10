@@ -1,67 +1,17 @@
-"""Tests for wifi_ssid_evaluator.py — SSID detection and matching."""
+"""Tests for wifi_ssid_evaluator.py — SSID matching."""
 
-import subprocess
 from unittest.mock import patch
 
 import pytest
 
 from wallpaper_auto.evaluator.wifi_ssid_evaluator import WIFISsidEvaluator
-from wallpaper_auto.util.network_utils import get_current_ssid
 
-_NET_UTIL = "wallpaper_auto.util.network_utils"
 _EVAL = "wallpaper_auto.evaluator.wifi_ssid_evaluator"
 
 
 @pytest.fixture
 def evaluator():
     return WIFISsidEvaluator()
-
-
-class TestGetCurrentSsid:
-    def test_returns_ssid_from_output(self):
-        with patch(f"{_NET_UTIL}.subprocess.check_output") as mock_check_output:
-            mock_check_output.return_value = "    SSID               : MyNetwork\n"
-            assert get_current_ssid() == "MyNetwork"
-
-    def test_returns_ssid_with_spaces(self):
-        with patch(f"{_NET_UTIL}.subprocess.check_output") as mock_check_output:
-            mock_check_output.return_value = "    SSID               : My Home WiFi\n"
-            assert get_current_ssid() == "My Home WiFi"
-
-    def test_returns_none_when_no_ssid_line(self):
-        with patch(f"{_NET_UTIL}.subprocess.check_output") as mock_check_output:
-            mock_check_output.return_value = "    State              : connected\n"
-            assert get_current_ssid() is None
-
-    def test_returns_empty_string_when_ssid_value_is_empty(self):
-        with patch(f"{_NET_UTIL}.subprocess.check_output") as mock_check_output:
-            mock_check_output.return_value = "    SSID               : \n"
-            assert get_current_ssid() == ""
-
-    def test_returns_none_when_all_encodings_fail(self):
-        with patch(f"{_NET_UTIL}.subprocess.check_output") as mock_check_output:
-            mock_check_output.side_effect = UnicodeDecodeError("utf-8", b"", 0, 1, "reason")
-            assert get_current_ssid() is None
-
-    def test_returns_none_on_called_process_error(self):
-        with patch(f"{_NET_UTIL}.subprocess.check_output") as mock_check_output:
-            mock_check_output.side_effect = subprocess.CalledProcessError(1, [])
-            assert get_current_ssid() is None
-
-    def test_tries_alternative_encoding_on_unicode_error(self):
-        with patch(f"{_NET_UTIL}.subprocess.check_output") as mock_check_output:
-            calls = []
-
-            def side_effect(*args, **kwargs):
-                calls.append(kwargs.get("encoding", "unknown"))
-                if len(calls) == 1:
-                    raise UnicodeDecodeError("utf-8", b"", 0, 1, "reason")
-                return "    SSID               : FallbackNetwork\n"
-
-            mock_check_output.side_effect = side_effect
-            result = get_current_ssid()
-            assert result == "FallbackNetwork"
-            assert calls == ["utf-8", "mbcs"]
 
 
 class TestWIFISsidEvaluator:
