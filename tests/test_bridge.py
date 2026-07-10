@@ -186,9 +186,7 @@ class TestBridgeUpdateUiSignal:
             pytest.param(
                 ["r1", "r2"],
                 Mode.AUTO,
-                Rule(name="test",
-                     condition=ConditionNode.model_validate({"wifi_ssid_is": "OfficeWiFi"}),
-                     target="tgt"),
+                "test",
                 "r1",
                 id="all_args",
             ),
@@ -197,7 +195,7 @@ class TestBridgeUpdateUiSignal:
     )
     def test_emit_signal(  # type: ignore[no-untyped-def]
         self, bridge: SystemTrayBridge, qtbot,
-        targets: list[object], mode: object, rule: object, active: object,
+        targets: list[str], mode: Mode, rule: str | None, active: str | None,
     ) -> None:
         with qtbot.waitSignal(bridge.update_ui_signal, timeout=200) as blocker:
             bridge.update_ui(targets, mode, rule, active)
@@ -227,8 +225,11 @@ class TestBridgeEdgeCases:
     """Edge cases for the bridge interface."""
 
     def test_handler_raises_exception(self, bridge: SystemTrayBridge) -> None:
-        bridge.register_set_mode_handler(lambda m: 1 / 0)
-        with pytest.raises(ZeroDivisionError):
+        def error_cb(_) -> None:
+            raise RuntimeError("custom error raise")
+            return None
+        bridge.register_set_mode_handler(error_cb)
+        with pytest.raises(RuntimeError):
             bridge.request_set_mode(Mode.AUTO)
 
     @pytest.mark.parametrize("hid,arg", _ALL_HANDLERS)
