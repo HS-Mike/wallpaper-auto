@@ -47,6 +47,15 @@ class TestNetworkTriggerLifecycle:
         assert trigger._thread is None
         assert trigger._exit_event is None
 
+    def test_double_start_raises_error(self) -> None:
+        """start raises RuntimeError if called twice without stop in between"""
+        trigger = NetworkTrigger()
+        trigger.start()
+        with pytest.raises(RuntimeError):
+            trigger.start()
+        # clean up
+        trigger.stop()
+
 
 # ===========================================================================
 # TestNetworkTriggerRun

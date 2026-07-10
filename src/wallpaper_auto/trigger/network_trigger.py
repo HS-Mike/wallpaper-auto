@@ -106,7 +106,7 @@ class NetworkTrigger(BaseThreadTrigger):
 
     def start(self) -> None:
         if self._exit_event:
-            KERNEL32.CloseHandle(self._exit_event)
+            raise RuntimeError(f"{type(self).__name__} is already started")
         self._exit_event = KERNEL32.CreateEventW(None, False, False, None)
         super().start()
         logger.debug(f"{self.__class__.__name__} start")
