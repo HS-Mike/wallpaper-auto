@@ -10,10 +10,14 @@ from wallpaper_auto.util import display_utils
 from wallpaper_auto.util.display_utils import (
     DISPLAYCONFIG_PATH_MODE_IDX_INVALID,
     DisplayTopologyTransientError,
+    ERROR_ACCESS_DENIED,
     ERROR_INSUFFICIENT_BUFFER,
+    ERROR_INVALID_PARAMETER,
     ERROR_NOT_SUPPORTED,
     ERROR_SUCCESS,
+    RemoteSessionEnvironmentError,
     get_display_info,
+    is_remote_session,
     get_all_monitors_dpi_snapshot,
 )
 
@@ -133,6 +137,31 @@ class TestGetDisplayInfoQueryConfigError:
         monkeypatch.setattr(display_utils.time, "sleep", lambda *_a, **_kw: None)
         # Returns [] because num_paths.value was never set (stays 0).
         assert get_display_info() == []
+
+    def test_query_config_access_denied_returns_empty(self, monkeypatch):
+        """ERROR_ACCESS_DENIED from QueryDisplayConfig returns []"""
+        _install_user32(monkeypatch, query_result=ERROR_ACCESS_DENIED)
+        assert get_display_info() == []
+
+    def test_query_config_not_supported_raises_transient(self, monkeypatch):
+        """ERROR_NOT_SUPPORTED from QueryDisplayConfig raises DisplayTopologyTransientError"""
+        _install_user32(monkeypatch, query_result=ERROR_NOT_SUPPORTED)
+        with pytest.raises(DisplayTopologyTransientError):
+            get_display_info()
+
+    def test_query_config_invalid_param_remote_session(self, monkeypatch):
+        """ERROR_INVALID_PARAMETER in remote session raises RemoteSessionEnvironmentError"""
+        _install_user32(monkeypatch, query_result=ERROR_INVALID_PARAMETER)
+        monkeypatch.setattr(display_utils, "is_remote_session", lambda: True)
+        with pytest.raises(RemoteSessionEnvironmentError, match="QueryDisplayConfig is unavailable"):
+            get_display_info()
+
+    def test_query_config_invalid_param_non_remote_raises(self, monkeypatch):
+        """ERROR_INVALID_PARAMETER outside remote session raises plain OSError"""
+        _install_user32(monkeypatch, query_result=ERROR_INVALID_PARAMETER)
+        monkeypatch.setattr(display_utils, "is_remote_session", lambda: False)
+        with pytest.raises(OSError, match="QueryDisplayConfig error return"):
+            get_display_info()
 
 
 class TestGetDisplayInfoPathValidation:
@@ -296,7 +325,25 @@ class TestGetAllMonitorsDpiSnapshot:
         # Use caplog to capture log output
         with caplog.at_level(logging.ERROR):
             result = get_all_monitors_dpi_snapshot()
-        
+
         # Assert result is an empty set with expected error message in the log
         assert result == frozenset()
         assert "Failed to query all monitors DPI" in caplog.text
+
+
+class TestIsRemoteSession:
+    """Tests for is_remote_session()"""
+
+    def test_returns_false_for_local_session(self, monkeypatch):
+        """Local session: GetSystemMetrics(4096) returns 0"""
+        mock_win32api = MagicMock()
+        mock_win32api.GetSystemMetrics.return_value = 0
+        monkeypatch.setattr(display_utils, "win32api", mock_win32api)
+        assert is_remote_session() is False
+
+    def test_returns_true_for_remote_session(self, monkeypatch):
+        """Remote session: GetSystemMetrics(4096) returns non-zero"""
+        mock_win32api = MagicMock()
+        mock_win32api.GetSystemMetrics.return_value = 1
+        monkeypatch.setattr(display_utils, "win32api", mock_win32api)
+        assert is_remote_session() is True
