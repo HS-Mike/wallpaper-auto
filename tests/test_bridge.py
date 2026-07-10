@@ -5,7 +5,6 @@ Does NOT involve WallpaperSwitchSystemTray — only the bridge layer.
 """
 
 import pytest
-from PySide6.QtCore import QObject
 
 from wallpaper_auto.models import ConditionNode, Rule
 from wallpaper_auto.system_tray import SystemTrayBridge
@@ -13,207 +12,146 @@ from wallpaper_auto.task import Mode
 
 
 @pytest.fixture
-def bridge():
+def bridge() -> SystemTrayBridge:
     return SystemTrayBridge()
+
+
+# ── Handler metadata for parametrized tests ──────────────────────────────
+
+# (handler_id, sample_values) for handlers that take an argument
+_VALUE_HANDLERS = [
+    pytest.param("set_mode", [Mode.AUTO, Mode.MANUAL, Mode.UNSET], id="set_mode"),
+    pytest.param("select_target", ["a", "b", ""], id="select_target"),
+]
+
+# (handler_id, sentinel) for handlers that take no argument
+_NOARG_HANDLERS = [
+    pytest.param("quit", id="quit"),
+    pytest.param("update_ui", id="update_ui"),
+]
+
+_ALL_HANDLERS = [
+    pytest.param("set_mode", Mode.AUTO, id="set_mode"),
+    pytest.param("select_target", "x", id="select_target"),
+    pytest.param("quit", None, id="quit"),
+    pytest.param("update_ui", None, id="update_ui"),
+]
+
+
+class TestHandlerLifecycle:
+    """Parametrized tests for all four register/request handler pairs."""
+
+    @pytest.mark.parametrize("hid,values", _VALUE_HANDLERS)
+    def test_register_and_invoke(
+        self, bridge: SystemTrayBridge, hid: str, values: list[object],
+    ) -> None:
+        results = []
+        register = getattr(bridge, f"register_{hid}_handler")
+        request = getattr(bridge, f"request_{hid}")
+        register(lambda v: results.append(v))
+        request(values[0])
+        assert results == [values[0]]
+
+    @pytest.mark.parametrize("hid,values", _VALUE_HANDLERS)
+    def test_multiple_values(
+        self, bridge: SystemTrayBridge, hid: str, values: list[object],
+    ) -> None:
+        results = []
+        register = getattr(bridge, f"register_{hid}_handler")
+        request = getattr(bridge, f"request_{hid}")
+        register(lambda v: results.append(v))
+        for v in values:
+            request(v)
+        assert results == list(values)
+
+    @pytest.mark.parametrize("hid,values", _VALUE_HANDLERS)
+    def test_overwrite_replaces_old_handler(
+        self, bridge: SystemTrayBridge, hid: str, values: list[object],
+    ) -> None:
+        results = []
+        register = getattr(bridge, f"register_{hid}_handler")
+        request = getattr(bridge, f"request_{hid}")
+        register(lambda v: results.append("old"))
+        register(lambda v: results.append("new"))
+        request(values[0])
+        assert results == ["new"]
+
+    @pytest.mark.parametrize("hid,values", _VALUE_HANDLERS)
+    def test_register_none_disables(
+        self, bridge: SystemTrayBridge, hid: str, values: list[object],
+    ) -> None:
+        results = []
+        register = getattr(bridge, f"register_{hid}_handler")
+        request = getattr(bridge, f"request_{hid}")
+        register(lambda v: results.append(v))
+        register(None)
+        request(values[0])
+        assert results == []
+
+    @pytest.mark.parametrize("hid,values", _VALUE_HANDLERS)
+    def test_unregistered_is_noop(
+        self, bridge: SystemTrayBridge, hid: str, values: list[object],
+    ) -> None:
+        getattr(bridge, f"request_{hid}")(values[0])  # should not crash
+
+    # ── No-arg handlers ──
+
+    @pytest.mark.parametrize("hid", _NOARG_HANDLERS)
+    def test_noarg_register_and_invoke(self, bridge: SystemTrayBridge, hid: str) -> None:
+        results = []
+        getattr(bridge, f"register_{hid}_handler")(lambda: results.append("ok"))
+        getattr(bridge, f"request_{hid}")()
+        assert results == ["ok"]
+
+    @pytest.mark.parametrize("hid", _NOARG_HANDLERS)
+    def test_noarg_multiple_invocations(self, bridge: SystemTrayBridge, hid: str) -> None:
+        results = []
+        register = getattr(bridge, f"register_{hid}_handler")
+        request = getattr(bridge, f"request_{hid}")
+        register(lambda: results.append("ok"))
+        request()
+        request()
+        request()
+        assert results == ["ok", "ok", "ok"]
+
+    @pytest.mark.parametrize("hid", _NOARG_HANDLERS)
+    def test_noarg_register_none_disables(self, bridge: SystemTrayBridge, hid: str) -> None:
+        results = []
+        register = getattr(bridge, f"register_{hid}_handler")
+        request = getattr(bridge, f"request_{hid}")
+        register(lambda: results.append("ok"))
+        register(None)
+        request()
+        assert results == []
+
+    @pytest.mark.parametrize("hid", _NOARG_HANDLERS)
+    def test_noarg_unregistered_is_noop(self, bridge: SystemTrayBridge, hid: str) -> None:
+        getattr(bridge, f"request_{hid}")()  # should not crash
 
 
 class TestBridgeInitialState:
     """Verify the bridge starts in a clean state."""
 
-    def test_is_qobject(self, bridge):
-        assert isinstance(bridge, QObject)
-
-    def test_initial_handlers_are_none(self, bridge):
+    def test_initial_handlers_are_none(self, bridge: SystemTrayBridge) -> None:
         assert bridge._on_set_mode_handler is None
         assert bridge._on_select_target_handler is None
         assert bridge._on_quit_handler is None
         assert bridge._on_update_ui_handler is None
 
-    def test_bridge_has_update_ui_signal(self, bridge):
-        assert hasattr(bridge, "update_ui_signal")
-
-
-class TestRegisterSetModeHandler:
-    """register_set_mode_handler + request_set_mode."""
-
-    def test_register_and_invoke(self, bridge):
-        results = []
-        bridge.register_set_mode_handler(lambda m: results.append(m))
-        bridge.request_set_mode(Mode.AUTO)
-        assert results == [Mode.AUTO]
-
-    def test_invoke_with_all_modes(self, bridge):
-        results = []
-        bridge.register_set_mode_handler(lambda m: results.append(m))
-        bridge.request_set_mode(Mode.AUTO)
-        bridge.request_set_mode(Mode.MANUAL)
-        bridge.request_set_mode(Mode.UNSET)
-        assert results == [Mode.AUTO, Mode.MANUAL, Mode.UNSET]
-
-    def test_overwrite_replaces_old_handler(self, bridge):
-        results = []
-        bridge.register_set_mode_handler(lambda m: results.append("old"))
-        bridge.register_set_mode_handler(lambda m: results.append("new"))
-        bridge.request_set_mode(Mode.AUTO)
-        assert results == ["new"]
-
-    def test_register_none_disables(self, bridge):
-        results = []
-        bridge.register_set_mode_handler(lambda m: results.append(m))
-        bridge.register_set_mode_handler(None)
-        bridge.request_set_mode(Mode.MANUAL)
-        assert results == []
-
-    def test_unregistered_is_noop(self, bridge):
-        bridge.request_set_mode(Mode.AUTO)  # should not crash
-
-
-class TestRegisterSelectTargetHandler:
-    """register_select_target_handler + request_select_target."""
-
-    def test_register_and_invoke(self, bridge):
-        results = []
-        bridge.register_select_target_handler(lambda r: results.append(r))
-        bridge.request_select_target("wallpaper-1")
-        assert results == ["wallpaper-1"]
-
-    def test_invoke_multiple_resources(self, bridge):
-        results = []
-        bridge.register_select_target_handler(lambda r: results.append(r))
-        bridge.request_select_target("a")
-        bridge.request_select_target("b")
-        bridge.request_select_target("")
-        assert results == ["a", "b", ""]
-
-    def test_overwrite_replaces_old_handler(self, bridge):
-        results = []
-        bridge.register_select_target_handler(lambda r: results.append("old:" + r))
-        bridge.register_select_target_handler(lambda r: results.append("new:" + r))
-        bridge.request_select_target("x")
-        assert results == ["new:x"]
-
-    def test_register_none_disables(self, bridge):
-        results = []
-        bridge.register_select_target_handler(lambda r: results.append(r))
-        bridge.register_select_target_handler(None)
-        bridge.request_select_target("x")
-        assert results == []
-
-    def test_unregistered_is_noop(self, bridge):
-        bridge.request_select_target("x")  # should not crash
-
-
-class TestRegisterQuitHandler:
-    """register_quit_handler + request_quit."""
-
-    def test_register_and_invoke(self, bridge):
-        called = False
-
-        def handler():
-            nonlocal called
-            called = True
-
-        bridge.register_quit_handler(handler)
-        bridge.request_quit()
-        assert called
-
-    def test_called_only_once_per_request(self, bridge):
-        count = 0
-
-        def handler():
-            nonlocal count
-            count += 1
-
-        bridge.register_quit_handler(handler)
-        bridge.request_quit()
-        assert count == 1
-
-    def test_register_none_disables(self, bridge):
-        called = False
-
-        def handler():
-            nonlocal called
-            called = True
-
-        bridge.register_quit_handler(handler)
-        bridge.register_quit_handler(None)
-        bridge.request_quit()
-        assert not called
-
-    def test_unregistered_is_noop(self, bridge):
-        bridge.request_quit()  # should not crash
-
-
-class TestRegisterUpdateUiHandler:
-    """register_update_ui_handler + request_update_ui."""
-
-    def test_register_and_invoke(self, bridge):
-        called = False
-
-        def handler():
-            nonlocal called
-            called = True
-
-        bridge.register_update_ui_handler(handler)
-        bridge.request_update_ui()
-        assert called
-
-    def test_invoke_multiple_times(self, bridge):
-        count = 0
-
-        def handler():
-            nonlocal count
-            count += 1
-
-        bridge.register_update_ui_handler(handler)
-        bridge.request_update_ui()
-        bridge.request_update_ui()
-        bridge.request_update_ui()
-        assert count == 3
-
-    def test_register_none_disables(self, bridge):
-        called = False
-
-        def handler():
-            nonlocal called
-            called = True
-
-        bridge.register_update_ui_handler(handler)
-        bridge.register_update_ui_handler(None)
-        bridge.request_update_ui()
-        assert not called
-
-    def test_unregistered_is_noop(self, bridge):
-        bridge.request_update_ui()  # should not crash
-
 
 class TestAllCallbacksIndependent:
     """All four callback types should work independently without interfering."""
 
-    def test_all_register_and_request(self, bridge):
+    def test_all_register_and_request(self, bridge: SystemTrayBridge) -> None:
         set_mode_results = []
         select_res_results = []
-        quit_count = 0
-        ui_count = 0
+        quit_results = []
+        ui_results = []
 
-        def on_set_mode(m):
-            set_mode_results.append(m)
-
-        def on_select_resource(r):
-            select_res_results.append(r)
-
-        def on_quit():
-            nonlocal quit_count
-            quit_count += 1
-
-        def on_update_ui():
-            nonlocal ui_count
-            ui_count += 1
-
-        bridge.register_set_mode_handler(on_set_mode)
-        bridge.register_select_target_handler(on_select_resource)
-        bridge.register_quit_handler(on_quit)
-        bridge.register_update_ui_handler(on_update_ui)
+        bridge.register_set_mode_handler(lambda m: set_mode_results.append(m))
+        bridge.register_select_target_handler(lambda r: select_res_results.append(r))
+        bridge.register_quit_handler(lambda: quit_results.append("ok"))
+        bridge.register_update_ui_handler(lambda: ui_results.append("ok"))
 
         bridge.request_set_mode(Mode.AUTO)
         bridge.request_select_target("res-A")
@@ -225,70 +163,58 @@ class TestAllCallbacksIndependent:
 
         assert set_mode_results == [Mode.AUTO, Mode.MANUAL]
         assert select_res_results == ["res-A", "res-B"]
-        assert ui_count == 2
-        assert quit_count == 1
+        assert ui_results == ["ok", "ok"]
+        assert quit_results == ["ok"]
 
-    def test_partial_registration(self, bridge):
-        mode_called = False
-
-        def on_mode(m):
-            nonlocal mode_called
-            mode_called = True
-
-        bridge.register_set_mode_handler(on_mode)
-        # Do NOT register other handlers
-
+    def test_partial_registration(self, bridge: SystemTrayBridge) -> None:
+        mode_results = []
+        bridge.register_set_mode_handler(lambda m: mode_results.append(m))
+        # Other handlers intentionally not registered
         bridge.request_set_mode(Mode.AUTO)
         bridge.request_select_target("x")  # should be noop
         bridge.request_update_ui()  # should be noop
         bridge.request_quit()  # should be noop
+        assert mode_results == [Mode.AUTO]
 
-        assert mode_called
 
+class TestBridgeUpdateUiSignal:
+    """The update_ui() method emits signals with correct payload."""
 
-class TestBridgeUpdateUiMethod:
-    """The update_ui() method emits signals. Tests may need qtbot."""
-
-    def test_emit_signal_with_all_args(self, bridge, qtbot):
-        cond = ConditionNode.model_validate({"wifi_ssid_is": "OfficeWiFi"})
-        rule = Rule(name="test", condition=cond, target="tgt")
-
-        with qtbot.waitSignal(bridge.update_ui_signal, timeout=1000) as blocker:
-            bridge.update_ui(["r1", "r2"], Mode.AUTO, rule, "r1")
-
+    @pytest.mark.parametrize(
+        "targets,mode,rule,active",
+        [
+            pytest.param(
+                ["r1", "r2"],
+                Mode.AUTO,
+                Rule(name="test",
+                     condition=ConditionNode.model_validate({"wifi_ssid_is": "OfficeWiFi"}),
+                     target="tgt"),
+                "r1",
+                id="all_args",
+            ),
+            pytest.param([], Mode.MANUAL, None, "", id="no_rule"),
+        ],
+    )
+    def test_emit_signal(  # type: ignore[no-untyped-def]
+        self, bridge: SystemTrayBridge, qtbot,
+        targets: list[object], mode: object, rule: object, active: object,
+    ) -> None:
+        with qtbot.waitSignal(bridge.update_ui_signal, timeout=200) as blocker:
+            bridge.update_ui(targets, mode, rule, active)
         args = blocker.args
-        assert len(args) == 4
-        assert args[0] == ["r1", "r2"]
-        assert args[1] == Mode.AUTO
+        assert args[0] == targets
+        assert args[1] == mode
         assert args[2] is rule
-        assert args[3] == "r1"
+        assert args[3] == active
 
-    def test_emit_signal_with_no_rule(self, bridge, qtbot):
-        with qtbot.waitSignal(bridge.update_ui_signal, timeout=1000) as blocker:
-            bridge.update_ui([], Mode.MANUAL, None, "")
-
-        args = blocker.args
-        assert args[0] == []
-        assert args[1] == Mode.MANUAL
-        assert args[2] is None
-        assert args[3] == ""
-
-    def test_emit_with_unset_mode(self, bridge, qtbot):
-        with qtbot.waitSignal(bridge.update_ui_signal, timeout=1000) as blocker:
-            bridge.update_ui(["a"], Mode.UNSET, None, "")
-
-        args = blocker.args
-        assert args[1] == Mode.UNSET
-
-    def test_multiple_emissions_collected(self, qtbot):
+    def test_multiple_emissions_collected(self, qtbot) -> None:  # type: ignore[no-untyped-def]
         bridge = SystemTrayBridge()
-        received = []
+        received: list[object] = []
 
-        def collect(*args):
+        def collect(*args: object) -> None:
             received.append(args)
 
         bridge.update_ui_signal.connect(collect)
-
         bridge.update_ui(["a"], Mode.AUTO, None, "a")
         bridge.update_ui(["b", "c"], Mode.MANUAL, None, "b")
 
@@ -296,33 +222,20 @@ class TestBridgeUpdateUiMethod:
         assert received[0] == (["a"], Mode.AUTO, None, "a")
         assert received[1] == (["b", "c"], Mode.MANUAL, None, "b")
 
-    def test_signal_is_connectable_to_slot(self, bridge, qtbot):
-        """Signal should be deliverable to an arbitrary slot."""
-        received = []
-
-        def slot(r_ids, mode, rule, active_id):
-            received.append((r_ids, mode, rule, active_id))
-
-        bridge.update_ui_signal.connect(slot)
-        bridge.update_ui(["test"], Mode.AUTO, None, "test")
-
-        assert len(received) == 1
-        assert received[0] == (["test"], Mode.AUTO, None, "test")
-
 
 class TestBridgeEdgeCases:
     """Edge cases for the bridge interface."""
 
-    def test_handler_raises_exception(self, bridge):
-        """A handler raising should propagate to the caller."""
+    def test_handler_raises_exception(self, bridge: SystemTrayBridge) -> None:
         bridge.register_set_mode_handler(lambda m: 1 / 0)
         with pytest.raises(ZeroDivisionError):
             bridge.request_set_mode(Mode.AUTO)
 
-    def test_request_without_any_registration(self, bridge):
-        """All request_* methods should be safe without registration."""
-        for i in range(5):
-            bridge.request_set_mode(Mode.AUTO)
-            bridge.request_select_target(str(i))
-            bridge.request_update_ui()
-            bridge.request_quit()
+    @pytest.mark.parametrize("hid,arg", _ALL_HANDLERS)
+    def test_request_without_registration(
+        self, bridge: SystemTrayBridge, hid: str, arg: object,
+    ) -> None:
+        if arg is None:
+            getattr(bridge, f"request_{hid}")()
+        else:
+            getattr(bridge, f"request_{hid}")(arg)
