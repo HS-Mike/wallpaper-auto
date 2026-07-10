@@ -94,10 +94,25 @@ class TestDisplayManagerStartStop:
             dm.start()
             assert dm._display_resource_map
 
-        with patch("wallpaper_auto.display_manager.get_display_info", return_value=displays):
+        # Convert to non-patch so remove_display can process it.
+        custom = MagicMock(spec=BaseResource)
+        custom._bind_plot_canvas = MagicMock()
+        custom.mount = MagicMock()
+        dm.update_resource(_DEVICE_A, custom)
+
+        with (
+            patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
+            patch("wallpaper_auto.display_manager.set_wallpaper"),
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+            patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
+        ):
+            mock_static.return_value = MagicMock(spec=StaticWallpaper)
             dm.stop()
 
-        assert dm._display_resource_map == {}
+        # remove_display replaces the entry with a StaticWallpaper patch.
+        assert dm._display_resource_is_patch[_DEVICE_A] is True
+        assert isinstance(dm._display_resource_map[_DEVICE_A], MagicMock)
+        assert dm._restore_wallpaper[_DEVICE_A] == (WallpaperStyle.FILL, Path("C:/orig.jpg"))
 
 
 class TestDisplayManagerActiveMonitorDevicePath:
@@ -141,14 +156,13 @@ class TestDisplayManagerAddDisplay:
         ):
             dm.add_display(_DEVICE_A)
 
-        assert isinstance(dm._restore_wallpaper[_DEVICE_A], StaticWallpaper)
+        assert dm._restore_wallpaper[_DEVICE_A] == (WallpaperStyle.STRETCH, Path("C:/orig.jpg"))
         assert isinstance(dm._display_resource_map[_DEVICE_A], StaticWallpaper)
-        # The current "active" resource is the same as the captured restore one
-        # (it will be replaced via update_resource once a rule fires).
-        assert dm._restore_wallpaper[_DEVICE_A] is dm._display_resource_map[_DEVICE_A]
-        # Both bindings are populated.
-        assert dm._restore_wallpaper[_DEVICE_A].monitor_device_path == _DEVICE_A
-        assert dm._restore_wallpaper[_DEVICE_A]._plot_canvas is not None
+        # The active resource is a separate StaticWallpaper from the raw restore tuple.
+        assert dm._restore_wallpaper[_DEVICE_A] is not dm._display_resource_map[_DEVICE_A]
+        # The active resource is bound to the display.
+        assert dm._display_resource_map[_DEVICE_A].monitor_device_path == _DEVICE_A
+        assert dm._display_resource_map[_DEVICE_A]._plot_canvas is not None
 
     def test_add_is_idempotent(self):
         dm = DisplayManager()
@@ -189,19 +203,24 @@ class TestDisplayManagerRemoveDisplay:
             ),
         ):
             dm.add_display(_DEVICE_A)
-        # add_display stores the same instance in both slots; spy on its methods.
-        restore = dm._restore_wallpaper[_DEVICE_A]
+        # Set up a custom (non-patch) resource first.
+        custom = MagicMock(spec=BaseResource)
+        custom._bind_plot_canvas = MagicMock()
+        custom.mount = MagicMock()
+        custom.demount = MagicMock()
+        dm.update_resource(_DEVICE_A, custom)
+
         with (
-            patch.object(restore, "demount") as mock_demount,
-            patch.object(restore, "mount") as mock_mount,
+            patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
         ):
+            mock_static.return_value = MagicMock(spec=StaticWallpaper)
             dm.remove_display(_DEVICE_A)
 
-        mock_demount.assert_called_once()
-        mock_mount.assert_called_once()
-        # The two slots are now empty (the restore resource was popped and re-mounted).
-        assert _DEVICE_A not in dm._display_resource_map
-        assert _DEVICE_A not in dm._restore_wallpaper
+        custom.demount.assert_called_once()
+        # remove_display replaced the entry with a new StaticWallpaper patch.
+        mock_static.assert_called_once()
+        assert dm._display_resource_is_patch[_DEVICE_A] is True
+        assert isinstance(dm._display_resource_map[_DEVICE_A], MagicMock)
 
 
 class TestDisplayManagerUpdateResource:

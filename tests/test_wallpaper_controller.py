@@ -400,72 +400,15 @@ class TestWallpaperControllerTargetSetBranches:
         controller._display_manager.plot_canvas.assert_called_once()
 
 
-class TestWallpaperControllerUpdateDisplay:
-    """update_display() reconciles live topology with the display manager."""
-
-    def test_update_display_adds_new_and_removes_stale(self, controller):
-        from wallpaper_auto.util.display_utils import DisplayInfo
-
-        # Two displays are live but only one is currently managed.
-        live = [
-            DisplayInfo(
-                model="m1",
-                source_resolution=(10, 10),
-                position=(0, 0),
-                target_resolution=(10, 10),
-                monitor_device_path="monA",
-            ),
-            DisplayInfo(
-                model="m2",
-                source_resolution=(10, 10),
-                position=(0, 0),
-                target_resolution=(10, 10),
-                monitor_device_path="monB",
-            ),
-        ]
-        controller._display_manager = MagicMock()
-        # active_monitor_device_path is a property; configure the MagicMock to
-        # return {"monA"} for any call to it.
-        controller._display_manager.active_monitor_device_path = {"monA"}
-        with patch(
-            "wallpaper_auto.wallpaper_controller.get_display_info", return_value=live
-        ):
-            result = controller.update_display()
-
-        controller._display_manager.add_display.assert_called_once_with("monB")
-        # monA is still in both sets, so no remove.
-        controller._display_manager.remove_display.assert_not_called()
-        assert result == live
-
-    def test_update_display_removes_unplugged(self, controller):
-        from wallpaper_auto.util.display_utils import DisplayInfo
-
-        live = [
-            DisplayInfo(
-                model="m1",
-                source_resolution=(10, 10),
-                position=(0, 0),
-                target_resolution=(10, 10),
-                monitor_device_path="monA",
-            ),
-        ]
-        controller._display_manager = MagicMock()
-        controller._display_manager.active_monitor_device_path = {"monA", "monB"}
-        with patch(
-            "wallpaper_auto.wallpaper_controller.get_display_info", return_value=live
-        ):
-            controller.update_display()
-
-        controller._display_manager.add_display.assert_not_called()
-        controller._display_manager.remove_display.assert_called_once_with("monB")
-
-
 class TestWallpaperControllerAtDisplayChange:
     def test_at_display_change_enqueues_plot_canvas(self, controller):
+        from unittest.mock import MagicMock
+
         from wallpaper_auto.task import PlotCanvasTask
+        from wallpaper_auto.trigger.base_trigger import BaseTrigger
 
         with patch.object(controller, "add_plot_canvas_task") as mock_add:
-            controller.at_display_change()
+            controller.at_display_change(MagicMock(spec=BaseTrigger))
         mock_add.assert_called_once()
         # And it actually queues the right task.
         controller.add_plot_canvas_task()

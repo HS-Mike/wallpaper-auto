@@ -414,7 +414,10 @@ class TestGetMonitorBounds:
 
         with patch.object(wu, "_call_com_vtable", side_effect=_vtable):
             result = wu.get_monitor_bounds("MON")
-        assert result == {"left": 0, "top": 0, "right": 1920, "bottom": 1080}
+        assert result.left == 0
+        assert result.top == 0
+        assert result.right == 1920
+        assert result.bottom == 1080
 
     def test_negative_hr_raises(self, _fresh_context_var):
         wu._current_p_wallpaper.set(ctypes.c_void_p(0))
