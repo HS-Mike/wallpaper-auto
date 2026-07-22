@@ -44,3 +44,43 @@ class TestBaseTaskHash:
         assert hash(switch) == switch.id
         assert hash(target) == target.id
         assert hash(plot) == plot.id
+
+
+class TestBaseTaskCompletion:
+    """mark_finish() and wait() delegate to the underlying Event."""
+
+    def test_wait_returns_false_when_not_finished(self):
+        task = QuitTask()
+        assert task.wait(timeout=0) is False
+
+    def test_mark_finish_triggers_wait(self):
+        task = QuitTask()
+        task.mark_finish()
+        assert task.wait(timeout=0) is True
+
+    def test_mark_finish_idempotent(self):
+        task = QuitTask()
+        task.mark_finish()
+        task.mark_finish()
+        assert task.wait(timeout=0) is True
+
+    def test_mark_finish_sets_completed_event(self):
+        task = TargetSetTask(target="r1", matched_rule=None)
+        assert task.completed_event.is_set() is False
+        task.mark_finish()
+        assert task.completed_event.is_set() is True
+
+    def test_wait_on_separate_thread(self):
+        """wait blocks until mark_finish is called from another thread."""
+        import threading
+        task = QuitTask()
+        results = []
+
+        def waiter():
+            results.append(task.wait(timeout=2))
+
+        t = threading.Thread(target=waiter)
+        t.start()
+        task.mark_finish()
+        t.join()
+        assert results == [True]
