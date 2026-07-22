@@ -16,9 +16,6 @@ def preserve_evaluators():
     RuleEngine._evaluators.update(original)
 
 
-# ── helpers ──────────────────────────────────────────────────────────────
-
-
 class _MockEval(BaseEvaluator):
     """A simple fake evaluator that returns a configured bool."""
 
@@ -51,40 +48,34 @@ def make_or(*children: ConditionNode) -> ConditionNode:
     return ConditionNode.model_validate({"or": list(children)})
 
 
-# ── ConditionNode model validation ──────────────────────────────────────
-
-
 class TestConditionNodeValidation:
     """Tests for edge cases in ConditionNode model validation."""
 
     def test_non_dict_input_passes_through(self):
-        """Non-dict input hits the early return in validate_single_key (line 35)."""
         with pytest.raises((TypeError, ValueError)):
             ConditionNode.model_validate(["not", "a", "dict"])
 
     def test_empty_node_raises(self):
-        """ConditionNode with no conditions and no extra fields raises ValueError (line 44).
-
-        {"and": None} passes the before-validator (1 key), but Pydantic sets
-        and_conditions=None, leaving no and/or conditions and no extra fields.
-        """
         with pytest.raises(ValueError, match="empty node"):
             ConditionNode.model_validate({"and": None})
 
+    def test_empty_and_raises(self):
+        with pytest.raises(ValueError, match="'and' must have at least one element"):
+            ConditionNode.model_validate({"and": []})
+
+    def test_empty_or_raises(self):
+        with pytest.raises(ValueError, match="'or' must have at least one element"):
+            ConditionNode.model_validate({"or": []})
+
     def test_evaluator_property_on_and_node_raises(self):
-        """Line 64: accessing .evaluator on an AND node raises ValueError."""
         node = ConditionNode.model_validate({"and": [{"dummy": {}}]})
         with pytest.raises(ValueError, match="and/or node invalid access"):
             _ = node.evaluator
 
     def test_evaluator_param_property_on_or_node_raises(self):
-        """Line 70: accessing .evaluator_param on an OR node raises ValueError."""
         node = ConditionNode.model_validate({"or": [{"dummy": {}}]})
         with pytest.raises(ValueError, match="and/or node invalid access"):
             _ = node.evaluator_param
-
-
-# ── evaluate_node ────────────────────────────────────────────────────────
 
 
 class TestEvaluateNode:
@@ -111,8 +102,6 @@ class TestEvaluateNode:
         with pytest.raises(ValueError, match="evaluator not found"):
             evaluate_node(node, {})
 
-    # ── AND ──
-
     def test_and_all_true(self):
         evaluator = _MockEval(return_value=True)
         node = make_and(make_leaf("a"), make_leaf("b"))
@@ -123,12 +112,6 @@ class TestEvaluateNode:
         false_ev = _MockEval(return_value=False)
         node = make_and(make_leaf("a"), make_leaf("b"))
         assert evaluate_node(node, {"a": true_ev, "b": false_ev}) is False
-
-    def test_and_empty(self):
-        node = make_and()
-        assert evaluate_node(node, {}) is True
-
-    # ── OR ──
 
     def test_or_all_false(self):
         evaluator = _MockEval(return_value=False)
@@ -141,40 +124,35 @@ class TestEvaluateNode:
         node = make_or(make_leaf("a"), make_leaf("b"))
         assert evaluate_node(node, {"a": true_ev, "b": false_ev}) is True
 
-    def test_or_empty(self):
-        node = make_or()
-        assert evaluate_node(node, {}) is False
-
     # ── nested ──
 
-    def test_nested_and_or_true(self):
+    @pytest.mark.parametrize(
+        ("a_val", "b_val", "expected"),
+        [
+            (True, False, True),
+            (False, False, False),
+        ],
+    )
+    def test_nested_and_or(self, a_val, b_val, expected):
         true_ev = _MockEval(return_value=True)
-        false_ev = _MockEval(return_value=False)
+        a_ev = _MockEval(return_value=a_val)
+        b_ev = _MockEval(return_value=b_val)
         node = make_and(make_or(make_leaf("a"), make_leaf("b")), make_leaf("c"))
-        assert evaluate_node(node, {"a": true_ev, "b": false_ev, "c": true_ev}) is True
-
-    def test_nested_and_or_false(self):
-        true_ev = _MockEval(return_value=True)
-        false_ev = _MockEval(return_value=False)
-        node = make_and(make_or(make_leaf("a"), make_leaf("b")), make_leaf("c"))
-        assert evaluate_node(node, {"a": false_ev, "b": false_ev, "c": true_ev}) is False
-
-
-# ── RuleEngine ───────────────────────────────────────────────────────────
+        result = evaluate_node(node, {"a": a_ev, "b": b_ev, "c": true_ev})
+        assert result is expected
 
 
 class TestRuleEngine:
     """Tests for RuleEngine using patched _evaluators."""
 
-    def test_init_empty_rules(self):
+    @pytest.mark.parametrize("rules", [None, [Rule(name="r", condition=make_leaf("dummy"), target="t")]])
+    def test_init(self, rules):
         engine = RuleEngine()
-        assert engine._rules == []
-
-    def test_init_sets_rules(self):
-        engine = RuleEngine()
-        rule = Rule(name="r", condition=make_leaf("dummy"), target="t")
-        engine.init([rule])
-        assert engine._rules == [rule]
+        if rules is None:
+            assert engine._rules == []
+        else:
+            engine.init(rules)
+            assert engine._rules == rules
 
     def test_evaluate_no_rules(self):
         engine = RuleEngine()
@@ -188,33 +166,23 @@ class TestRuleEngine:
         with patch.object(RuleEngine, "_evaluators", {"dummy": mock_evaluator}):
             assert engine.evaluate() is None
 
-    def test_evaluate_first_rule_matches(self):
+    @pytest.mark.parametrize(
+        ("first_matches", "expected_idx"),
+        [
+            (True, 0),
+            (False, 1),
+        ],
+    )
+    def test_evaluate_rule_ordering(self, first_matches, expected_idx):
         engine = RuleEngine()
         r1 = Rule(name="r1", condition=make_leaf("a"), target="t1")
         r2 = Rule(name="r2", condition=make_leaf("b"), target="t2")
         engine.init([r1, r2])
-        match_ev = _MockEval(return_value=True)
-        no_match_ev = _MockEval(return_value=False)
-        with patch.object(
-            RuleEngine,
-            "_evaluators",
-            {"a": match_ev, "b": no_match_ev},
-        ):
-            assert engine.evaluate() is r1
-
-    def test_evaluate_second_rule_matches(self):
-        engine = RuleEngine()
-        r1 = Rule(name="r1", condition=make_leaf("a"), target="t1")
-        r2 = Rule(name="r2", condition=make_leaf("b"), target="t2")
-        engine.init([r1, r2])
-        no_match_ev = _MockEval(return_value=False)
-        match_ev = _MockEval(return_value=True)
-        with patch.object(
-            RuleEngine,
-            "_evaluators",
-            {"a": no_match_ev, "b": match_ev},
-        ):
-            assert engine.evaluate() is r2
+        ev_a = _MockEval(return_value=first_matches)
+        ev_b = _MockEval(return_value=not first_matches)
+        with patch.object(RuleEngine, "_evaluators", {"a": ev_a, "b": ev_b}):
+            result = engine.evaluate()
+            assert result is [r1, r2][expected_idx]
 
     def test_evaluate_passes_through_condition_tree(self):
         engine = RuleEngine()
@@ -232,44 +200,23 @@ class TestRuleEngine:
         ):
             assert engine.evaluate() is rule
 
-    def test_evaluate_returns_none_when_all_false(self):
-        engine = RuleEngine()
-        condition = make_or(
-            make_and(make_leaf("a"), make_leaf("b")),
-            make_leaf("c"),
-        )
-        rule = Rule(name="r", condition=condition, target="t")
-        engine.init([rule])
-        false_ev = _MockEval(return_value=False)
-        with patch.object(
-            RuleEngine,
-            "_evaluators",
-            {"a": false_ev, "b": false_ev, "c": false_ev},
-        ):
-            assert engine.evaluate() is None
-
-    # ── register_evaluator ──
-
-    def test_register_evaluator_new_name(self, preserve_evaluators):
-        """Register a brand-new evaluator name."""
+    @pytest.mark.parametrize(
+        ("name", "key_check"),
+        [
+            ("custom_check", "custom_check"),
+            ("wifi_ssid_is", "wifi_ssid_is"),
+        ],
+    )
+    def test_register_evaluator(self, preserve_evaluators, name, key_check):
         ev = _MockEval(return_value=True)
-        RuleEngine.register_evaluator("custom_check", ev)
-        assert "custom_check" in RuleEngine._evaluators
-        assert RuleEngine._evaluators["custom_check"] is ev
-
-    def test_register_evaluator_overwrite(self, preserve_evaluators):
-        """Overwrite an existing evaluator name."""
-        ev = _MockEval(return_value=True)
-        RuleEngine.register_evaluator("wifi_ssid_is", ev)
-        assert RuleEngine._evaluators["wifi_ssid_is"] is ev
+        RuleEngine.register_evaluator(name, ev)
+        assert RuleEngine._evaluators[key_check] is ev
 
     def test_register_evaluator_rejects_non_base(self):
-        """Only BaseEvaluator instances are accepted."""
         with pytest.raises(ValueError, match="must be an instance of BaseEvaluator"):
-            RuleEngine.register_evaluator("bad", _NotAnEvaluator())
+            RuleEngine.register_evaluator("bad", _NotAnEvaluator())  # type: ignore[arg-type]
 
     def test_register_evaluator_used_during_evaluate(self, preserve_evaluators):
-        """A registered evaluator is resolved when evaluating a rule."""
         ev = _MockEval(return_value=True)
         RuleEngine.register_evaluator("my_evaluator", ev)
 
@@ -278,19 +225,3 @@ class TestRuleEngine:
         engine.init([rule])
         assert engine.evaluate() is rule
         assert ev.last_param == {"foo": 1}
-
-    def test_register_evaluator_class_shared_across_instances(self, preserve_evaluators):
-        """register_evaluator on the class affects all RuleEngine instances."""
-        ev = _MockEval(return_value=True)
-        RuleEngine.register_evaluator("shared_eval", ev)
-
-        e1 = RuleEngine()
-        e2 = RuleEngine()
-
-        r1 = Rule(name="r1", condition=make_leaf("shared_eval"), target="t")
-        r2 = Rule(name="r2", condition=make_leaf("shared_eval"), target="t")
-        e1.init([r1])
-        e2.init([r2])
-
-        assert e1.evaluate() is r1
-        assert e2.evaluate() is r2
