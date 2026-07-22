@@ -37,11 +37,10 @@ class ProcessMutex:
         self.lock_path: str = os.path.join(base_dir, f"{name}.lock")
         self.handle: IO[Any] | None = None
 
-    def lock(self) -> bool:
+    def lock(self) -> None:
         """
         Acquire the lock.
 
-        Returns True if the lock was acquired.
         Raises RuntimeError if the lock is already held by this instance
         or by another process.
         """
@@ -53,7 +52,6 @@ class ProcessMutex:
         try:
             # Atomic Windows kernel lock on the first byte
             msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)
-            return True
         except OSError:
             self.handle.close()
             self.handle = None
