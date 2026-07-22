@@ -88,6 +88,7 @@ class DisplayManager:
         res.demount()
         res._unbind_plot_canvas()
         orig_patch_res = StaticWallpaper(*self._restore_wallpaper[monitor_device_path])
+        orig_patch_res._bind_monitor_device_path(monitor_device_path)
         self._display_resource_map[monitor_device_path] = orig_patch_res
         self._display_resource_is_patch[monitor_device_path] = True
         orig_patch_res._bind_plot_canvas(self.update_canvas_buffer)
