@@ -52,9 +52,14 @@ class ConditionNode(BaseModel):
 
     @model_validator(mode="after")
     def check_extra_structure(self) -> "ConditionNode":
-        if not self.is_and and not self.is_or:
-            if not self.model_extra:
-                raise ValueError("empty node")
+        if self.is_and:
+            if not self.and_conditions:
+                raise ValueError("'and' must have at least one element")
+        elif self.is_or:
+            if not self.or_conditions:
+                raise ValueError("'or' must have at least one element")
+        elif not self.model_extra:
+            raise ValueError("empty node")
         return self
 
     @property
