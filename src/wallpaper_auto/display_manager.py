@@ -29,7 +29,17 @@ logging.getLogger("PIL").setLevel(logging.WARNING)
 
 
 class DisplayManager:
-    """Per-display wallpaper lifecycle — mount/demount per monitor and composite canvas."""
+    """Per-display wallpaper lifecycle — mount/demount per monitor and composite canvas.
+
+    Since ``IDesktopWallpaper`` has a single global ``WallpaperStyle``,
+    per-monitor styles are achieved by compositing each monitor's image
+    into a spanned wallpaper canvas and applying it with ``SPAN`` style.
+
+    The "patch" mechanism tracks whether a display is showing its original
+    (pre-app) wallpaper (``is_patch == True``) or a resource the app set.
+    This ensures original wallpapers are restored when the app stops or
+    a display is removed.
+    """
 
     def __init__(self) -> None:
         self._restore_wallpaper: dict[str, tuple[WallpaperStyle, Path]] = {}
@@ -38,12 +48,18 @@ class DisplayManager:
         self._canvas_buffer: dict[str, tuple[WallpaperStyle, Path | Image.Image]] = {}
 
     def start(self) -> None:
-        # record original wallpaper status
+        """Record original wallpaper for all connected displays and register as patches."""
         curr_display_info: list[DisplayInfo] = get_display_info()
         for i in curr_display_info:
             self.add_display(i.monitor_device_path)
 
     def stop(self, restore: bool) -> None:
+        """Revert all displays to original wallpapers and optionally restore global style.
+
+        Args:
+            restore: If True, also restore the original ``WallpaperStyle``
+                and per-monitor images via the COM API.
+        """
         # restore original wallpaper status
         for i in self._display_resource_map:
             self.remove_display(i)
@@ -53,6 +69,11 @@ class DisplayManager:
                 set_wallpaper(device_path, image_path)
     
     def update_display(self) -> list[DisplayInfo]:
+        """Detect monitor hotplug events and add/remove displays accordingly.
+
+        Returns:
+            Current display info list for all connected monitors.
+        """
         curr_display_info = get_display_info()
         curr_monitor_device_path = {i.monitor_device_path for i in curr_display_info}
         active_monitor_device_path = self.active_monitor_device_path
@@ -66,9 +87,18 @@ class DisplayManager:
 
     @property
     def active_monitor_device_path(self) -> set[str]:
+        """Return the set of monitor device paths currently tracked by the manager."""
         return set(self._display_resource_map.keys())
 
     def add_display(self, monitor_device_path: str) -> None:
+        """Register a newly connected display and save its original wallpaper.
+
+        Creates a patch ``StaticWallpaper`` with the current wallpaper and
+        style, binds it to the display, and stores it for later restoration.
+
+        Args:
+            monitor_device_path: Unique device path of the monitor.
+        """
         if monitor_device_path in self._display_resource_map:
             return
         style = get_wallpaper_style()
@@ -81,6 +111,18 @@ class DisplayManager:
         self._display_resource_is_patch[monitor_device_path] = True
 
     def remove_display(self, monitor_device_path: str) -> None:
+        """Revert a display back to its original wallpaper.
+
+        Demounts the active resource, replaces it with a patch
+        ``StaticWallpaper`` of the original wallpaper, and re-applies it.
+
+        Args:
+            monitor_device_path: Unique device path of the monitor.
+
+        Raises:
+            ValueError: If the display is already a patch (no active
+                resource to remove).
+        """
         is_patch = self._display_resource_is_patch[monitor_device_path]
         if is_patch is True:
             raise ValueError(f"Display (monitor_device_path: {monitor_device_path}) do not have a resource")
@@ -95,6 +137,14 @@ class DisplayManager:
         orig_patch_res.mount()
 
     def update_resource(self, monitor_device_path: str, resource: BaseResource) -> None:
+        """Replace the active resource on a display with a new one.
+
+        Demounts the previous resource, binds the new one, and mounts it.
+
+        Args:
+            monitor_device_path: Unique device path of the monitor.
+            resource: The new resource to activate.
+        """
         prev_resource = self._display_resource_map[monitor_device_path]
         if prev_resource is not None:
             prev_resource.demount()
@@ -111,6 +161,14 @@ class DisplayManager:
         image: Path | Image.Image,
         immediate_update: bool = False,
     ) -> None:
+        """Buffer a per-monitor wallpaper entry for the next composite.
+
+        Args:
+            monitor_device_path: Unique device path of the monitor.
+            style: Wallpaper fit/style for this monitor.
+            image: Image path or PIL Image to display.
+            immediate_update: If True, trigger ``plot_canvas()`` immediately.
+        """
         self._canvas_buffer[monitor_device_path] = (style, image)
         if immediate_update is True:
             self.plot_canvas()
