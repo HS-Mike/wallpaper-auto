@@ -43,13 +43,14 @@ class DisplayManager:
         for i in curr_display_info:
             self.add_display(i.monitor_device_path)
 
-    def stop(self) -> None:
+    def stop(self, restore: bool) -> None:
         # restore original wallpaper status
         for i in self._display_resource_map:
             self.remove_display(i)
-        for device_path, (style, image_path) in self._restore_wallpaper.items():
-            set_wallpaper_style(style)
-            set_wallpaper(device_path, image_path)
+        if restore is True:
+            for device_path, (style, image_path) in self._restore_wallpaper.items():
+                set_wallpaper_style(style)
+                set_wallpaper(device_path, image_path)
     
     def update_display(self) -> list[DisplayInfo]:
         curr_display_info = get_display_info()

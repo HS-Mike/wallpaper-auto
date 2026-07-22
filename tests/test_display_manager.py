@@ -107,7 +107,7 @@ class TestDisplayManagerStartStop:
             patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
         ):
             mock_static.return_value = MagicMock(spec=StaticWallpaper)
-            dm.stop()
+            dm.stop(restore=False)
 
         # remove_display replaces the entry with a StaticWallpaper patch.
         assert dm._display_resource_is_patch[_DEVICE_A] is True

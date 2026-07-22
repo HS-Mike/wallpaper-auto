@@ -20,10 +20,10 @@ from .models import Rule
 from .resource_manager import ResourceManager
 from .rule_engine import RuleEngine
 from .system_tray import WallpaperSwitchSystemTray
-from .task import Mode, ModeSwitchTask, PlotCanvasTask, QuitTask, TargetSetTask, Task, TaskType
+from .task import Mode, ModeSwitchTask, PlotCanvasTask, QuitTask, TargetSetTask, Task
+from .trigger.base_trigger import BaseTrigger
 from .trigger.display_trigger import DisplayTrigger
 from .trigger_manager import TriggerManager
-from .trigger.base_trigger import BaseTrigger
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +62,12 @@ class WallpaperController:
         while True:
             _priority, _count, task = self._task_queue.get()
 
-            if task.type == TaskType.QUIT:
+            if isinstance(task, QuitTask):
                 logger.debug("worker loop thread receive QUIT signal.")
+                task.mark_finish()
                 break
 
-            elif task.type == TaskType.MODE_SWITCH:
+            elif isinstance(task, ModeSwitchTask):
                 if task.target_mode == Mode.AUTO:
                     self._trigger_manager.resume()
                     self.evaluate()
@@ -77,7 +78,7 @@ class WallpaperController:
                 logger.info(f"mode: {task.target_mode.name}")
                 self._mode = task.target_mode
 
-            elif task.type == TaskType.TARGET_SET:
+            elif isinstance(task, TargetSetTask):
                 self._display_manager.update_display()
                 resources = self._resource_manager.evaluate_target(task.target)
                 for p, r in resources.items():
@@ -86,7 +87,7 @@ class WallpaperController:
                 self.active_rule = task.matched_rule
                 with self._task_queue.mutex:
                     has_newer_update = any(
-                        t.type == TaskType.PLOT_CANVAS
+                        isinstance(t, PlotCanvasTask)
                         for _p, _c, t in self._task_queue.queue
                     )
                 if not has_newer_update:
@@ -94,10 +95,11 @@ class WallpaperController:
                 else:
                     logger.debug("Skipping canvas plot; a newer update task is already queued.")
 
-            elif task.type == TaskType.PLOT_CANVAS:
+            elif isinstance(task, PlotCanvasTask):
                 self._display_manager.update_display()
                 self._display_manager.plot_canvas()
 
+            task.mark_finish()
             self.update_system_tray()
             self._task_queue.task_done()
 
@@ -122,28 +124,38 @@ class WallpaperController:
                 self.active_target,
             )
 
-    def add_quit_task(self, priority: int | None = None) -> None:
+    def add_quit_task(self, priority: int | None = None) -> QuitTask:
         t = QuitTask()
         priority = 0 if priority is None else priority
         self._task_queue.put((priority, next(self._task_counter), t))
+        return t
 
-    def add_set_mode_task(self, mode: Mode, priority: int | None = None) -> None:
+    def add_set_mode_task(self, mode: Mode, priority: int | None = None) -> ModeSwitchTask:
         t = ModeSwitchTask(target_mode=mode)
         priority = 5 if priority is None else priority
         self._task_queue.put((priority, next(self._task_counter), t))
+        return t
 
     def add_set_target_task(
-        self, target: str, matched_rule: Rule | None = None, priority: int | None = None
-    ) -> None:
-        t = TargetSetTask(target=target, matched_rule=matched_rule)
+        self,
+        target: str,
+        matched_rule: Rule | None = None,
+        priority: int | None = None,
+    ) -> TargetSetTask:
+        t = TargetSetTask(
+            target=target,
+            matched_rule=matched_rule,
+        )
         priority = 5 if priority is None else priority
         self._task_queue.put((priority, next(self._task_counter), t))
+        return t
 
-    def add_plot_canvas_task(self, priority: int | None = None) -> None:
+    def add_plot_canvas_task(self, priority: int | None = None) -> PlotCanvasTask:
         t = PlotCanvasTask()
         priority = 10 if priority is None else priority
         self._task_queue.put((priority, next(self._task_counter), t))
-        
+        return t
+
     def at_display_change(self, _trigger: BaseTrigger) -> None:
         logger.info("Detect display change.")
         self.add_plot_canvas_task()
@@ -172,7 +184,11 @@ class WallpaperController:
         self._tray.bridge.register_update_ui_handler(self.update_system_tray)
 
     def at_shutdown(self) -> None:
-        self._display_manager.stop()
+        target = self._config_store.at_shutdown_resource_id
+        if target is None:
+            return
+        task = self.add_set_target_task(target=target, matched_rule=None, priority=0)
+        task.wait(timeout=5)
 
     def start(self) -> None:
         logger.info("wallpaper controller start")
@@ -200,7 +216,7 @@ class WallpaperController:
         self._worker_loop_thread.join()
         self._worker_loop_thread = None
         self._trigger_manager.deactivate()
-        self._display_manager.stop()
+        self._display_manager.stop(restore=True)
         at_system_shutdown.unregister(self.at_shutdown)
         if self._tray is not None:
             app = self._tray._app

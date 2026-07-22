@@ -9,7 +9,7 @@ from wallpaper_auto.config_store import ConfigStore
 from wallpaper_auto.models import Rule
 from wallpaper_auto.resource_manager import ResourceManager
 from wallpaper_auto.rule_engine import RuleEngine
-from wallpaper_auto.task import Mode, ModeSwitchTask, QuitTask, TargetSetTask, TaskType
+from wallpaper_auto.task import Mode, ModeSwitchTask, PlotCanvasTask, QuitTask, TargetSetTask
 from wallpaper_auto.trigger_manager import TriggerManager
 from wallpaper_auto.wallpaper_controller import WallpaperController
 
@@ -319,16 +319,12 @@ class TestWallpaperControllerTaskHelpers:
         assert task.target == "my_res"
 
     def test_add_plot_canvas_task_uses_default_priority(self, controller):
-        from wallpaper_auto.task import PlotCanvasTask
-
         controller.add_plot_canvas_task()
         prio, _cnt, task = controller._task_queue.get_nowait()
         assert isinstance(task, PlotCanvasTask)
         assert prio == 10  # default priority
 
     def test_add_plot_canvas_task_respects_explicit_priority(self, controller):
-        from wallpaper_auto.task import PlotCanvasTask
-
         controller.add_plot_canvas_task(priority=3)
         prio, _cnt, task = controller._task_queue.get_nowait()
         assert isinstance(task, PlotCanvasTask)
@@ -363,8 +359,6 @@ class TestWallpaperControllerTargetSetBranches:
 
     def test_target_set_skips_plot_when_newer_canvas_queued(self, controller):
         """If a PLOT_CANVAS is already pending, the controller skips its own plot call."""
-        from wallpaper_auto.task import PlotCanvasTask
-
         self._setup(controller, {"monA": MagicMock()})
 
         # Lower numbers = higher priority. PLOT_CANVAS at prio 3 sits ahead of
@@ -373,7 +367,9 @@ class TestWallpaperControllerTargetSetBranches:
         # it queued AFTER TARGET_SET.  PriorityQueue serves lower numbers first,
         # so to put a task behind another we use a higher priority number.
         # TARGET_SET at prio 5, PLOT_CANVAS at prio 8, QUIT at prio 100.
-        controller._task_queue.put(_make_task(TargetSetTask(target="r1", matched_rule=None), priority=5))
+        controller._task_queue.put(
+            _make_task(TargetSetTask(target="r1", matched_rule=None), priority=5),
+        )
         controller._task_queue.put(_make_task(PlotCanvasTask(), priority=8))
         controller._task_queue.put(_make_task(QuitTask(), priority=100))
 
@@ -390,8 +386,6 @@ class TestWallpaperControllerTargetSetBranches:
         )
 
     def test_plot_canvas_task_calls_display_manager(self, controller):
-        from wallpaper_auto.task import PlotCanvasTask
-
         controller._display_manager = MagicMock()
         controller._task_queue.put(_make_task(PlotCanvasTask(), priority=5))
         controller._task_queue.put(_make_task(QuitTask(), priority=100))
@@ -404,7 +398,6 @@ class TestWallpaperControllerAtDisplayChange:
     def test_at_display_change_enqueues_plot_canvas(self, controller):
         from unittest.mock import MagicMock
 
-        from wallpaper_auto.task import PlotCanvasTask
         from wallpaper_auto.trigger.base_trigger import BaseTrigger
 
         with patch.object(controller, "add_plot_canvas_task") as mock_add:
@@ -557,8 +550,26 @@ class TestWallpaperControllerStop:
 class TestWallpaperControllerAtShutdown:
     """at_shutdown() – shutdown handling."""
 
-    def test_stops_display_manager(self, controller):
-        """at_shutdown() should stop the display manager."""
-        with patch.object(controller._display_manager, "stop") as mock_stop:
+    def _mock_shutdown_config(self, controller, target):
+        """Replace _config_store with a mock that returns *target*."""
+        mock_cs = MagicMock()
+        mock_cs.at_shutdown_resource_id = target
+        controller._config_store = mock_cs
+
+    def test_skips_when_no_target_configured(self, controller):
+        """at_shutdown() does nothing when no shutdown resource is configured."""
+        self._mock_shutdown_config(controller, None)
+        controller.at_shutdown()
+        # No crash = success
+
+    def test_queues_target_task_on_shutdown(self, controller):
+        """at_shutdown() queues a TargetSetTask at priority 0."""
+        self._mock_shutdown_config(controller, "shutdown_res")
+        with (
+            patch.object(controller, "add_set_target_task") as mock_add,
+            patch("threading.Event.wait"),
+        ):
             controller.at_shutdown()
-        mock_stop.assert_called_once()
+        mock_add.assert_called_once_with(
+            target="shutdown_res", matched_rule=None, priority=0,
+        )

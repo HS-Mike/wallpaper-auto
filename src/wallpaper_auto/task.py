@@ -1,11 +1,11 @@
 """
 Task classes transmit across components.
 """
-import secrets
-from enum import Enum
-from typing import Annotated, Literal
+from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+import secrets
+import threading
+from enum import Enum
 
 from .models import Rule
 
@@ -16,38 +16,47 @@ class Mode(Enum):
     UNSET = "unset"
 
 
-class TaskType(Enum):
-    QUIT = 0
-    MODE_SWITCH = 1
-    TARGET_SET = 2
-    PLOT_CANVAS = 3
+class BaseTask:
+    """Base class for all tasks with a unique id and completion signaling."""
 
+    def __init__(self, completed_event: threading.Event | None = None) -> None:
+        self.id = secrets.randbits(63)
+        self.completed_event = completed_event or threading.Event()
 
-class BaseTask(BaseModel):
-    id: int = Field(default_factory=lambda: secrets.randbits(63))
-    model_config = ConfigDict(extra="allow", frozen=True)
+    def mark_finish(self) -> None:
+        self.completed_event.set()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        return self.completed_event.wait(timeout=timeout)
 
     def __hash__(self) -> int:
         return self.id
 
 
 class QuitTask(BaseTask):
-    type: Literal[TaskType.QUIT] = TaskType.QUIT
+    pass
 
 
 class ModeSwitchTask(BaseTask):
-    type: Literal[TaskType.MODE_SWITCH] = TaskType.MODE_SWITCH
-    target_mode: Mode
+    def __init__(self, target_mode: Mode) -> None:
+        super().__init__()
+        self.target_mode = target_mode
 
 
 class TargetSetTask(BaseTask):
-    type: Literal[TaskType.TARGET_SET] = TaskType.TARGET_SET
-    target: str
-    matched_rule: Rule | None
+    def __init__(
+        self,
+        target: str,
+        matched_rule: Rule | None,
+        completed_event: threading.Event | None = None,
+    ) -> None:
+        super().__init__(completed_event=completed_event)
+        self.target = target
+        self.matched_rule = matched_rule
 
 
 class PlotCanvasTask(BaseTask):
-    type: Literal[TaskType.PLOT_CANVAS] = TaskType.PLOT_CANVAS
+    pass
 
 
-Task = Annotated[QuitTask | ModeSwitchTask | TargetSetTask | PlotCanvasTask, Field(discriminator="type")]
+Task = QuitTask | ModeSwitchTask | TargetSetTask | PlotCanvasTask

@@ -1,6 +1,5 @@
-"""Tests for task.py — BaseTask __hash__ and task type coverage."""
+"""Tests for task.py — task __hash__ and task type coverage."""
 from wallpaper_auto.task import (
-    BaseTask,
     Mode,
     ModeSwitchTask,
     PlotCanvasTask,
@@ -36,9 +35,9 @@ class TestBaseTaskHash:
         directly, verify that hash() doesn't silently mangle the value.
         """
         task = QuitTask()
-        assert hash(task) == BaseTask.__hash__(task)
+        assert hash(task) == task.__hash__()
 
-    def test_hash_inherits_to_subclasses(self):
+    def test_hash_consistent_across_types(self):
         switch = ModeSwitchTask(target_mode=Mode.AUTO)
         target = TargetSetTask(target="r1", matched_rule=None)
         plot = PlotCanvasTask()
