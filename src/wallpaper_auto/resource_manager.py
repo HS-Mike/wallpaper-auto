@@ -3,8 +3,6 @@ Resource manager.
 
 Initializes and resolves wallpaper resources from config.
 Handles registration of built-in and custom resource types.
-No longer manages mount/demount lifecycle — resources are
-bound to displays and mounted by the wallpaper controller.
 """
 
 import logging
