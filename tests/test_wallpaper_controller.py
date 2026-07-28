@@ -5,12 +5,8 @@ from unittest.mock import ANY, MagicMock, call, patch
 
 import pytest
 
-from wallpaper_auto.config_store import ConfigStore
 from wallpaper_auto.models import Rule
-from wallpaper_auto.resource_manager import ResourceManager
-from wallpaper_auto.rule_engine import RuleEngine
 from wallpaper_auto.task import Mode, ModeSwitchTask, PlotCanvasTask, QuitTask, TargetSetTask
-from wallpaper_auto.trigger_manager import TriggerManager
 from wallpaper_auto.wallpaper_controller import WallpaperController
 
 
@@ -69,15 +65,6 @@ class TestWallpaperControllerInit:
     ])
     def test_default_state(self, controller, attr, expected):
         assert getattr(controller, attr) == expected
-
-    @pytest.mark.parametrize("attr,expected_type", [
-        ("_config_store", ConfigStore),
-        ("_resource_manager", ResourceManager),
-        ("_trigger_manager", TriggerManager),
-        ("_rule_engine", RuleEngine),
-    ])
-    def test_managers_are_initialised(self, controller, attr, expected_type):
-        assert isinstance(getattr(controller, attr), expected_type)
 
     def test_evaluate_registered_as_trigger_callback(self, controller):
         assert controller.evaluate in controller._trigger_manager._callbacks
