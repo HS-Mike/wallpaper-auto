@@ -3,12 +3,14 @@ Tests for resource_cycle.py — ResourceCycle.
 """
 
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource.resource_cycle import ResourceCycle
+from wallpaper_auto.util.wallpaper_util import WallpaperStyle
 
 _DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
 
@@ -42,7 +44,7 @@ class TestResourceCycleInit:
     def test_invalid_resource_type_raises(self):
         """Non-BaseResource, non-dict entries raise TypeError."""
         with pytest.raises(TypeError, match="Expected BaseResource or dict"):
-            ResourceCycle(resources=["invalid_string"])
+            ResourceCycle(resources=["invalid_string"])  # type: ignore[arg-type]
 
     def test_dict_resource_resolved(self):
         """Dict entries are resolved via _build_sub_resource against the registry."""
@@ -244,9 +246,9 @@ class TestGetPlotCanvasWrapper:
         cycle._bind_monitor_device_path(_DEVICE_PATH)
         wrapper = cycle.get_plot_canvas_wrapper()
 
-        wrapper(_DEVICE_PATH, "style_dummy", "img_dummy", immediate_update=False)
+        wrapper(_DEVICE_PATH, WallpaperStyle.FILL, Path("img"), immediate_update=False)
 
-        canvas_mock.assert_called_once_with(_DEVICE_PATH, "style_dummy", "img_dummy", True)
+        canvas_mock.assert_called_once_with(_DEVICE_PATH, WallpaperStyle.FILL, Path("img"), True)
 
     def test_wrapper_asserts_plot_canvas_bound(self, mock_sub_resources):
         cycle = ResourceCycle(resources=mock_sub_resources)
@@ -256,7 +258,7 @@ class TestGetPlotCanvasWrapper:
         # Simulate the canvas being unbound after the wrapper is captured.
         cycle._plot_canvas = None
         with pytest.raises(AssertionError, match="plot_canvas not bound"):
-            wrapper(_DEVICE_PATH, "style", "img")
+            wrapper(_DEVICE_PATH, WallpaperStyle.FILL, Path("img"))
 
     def test_wrapper_asserts_monitor_path_bound(self, mock_sub_resources):
         cycle = ResourceCycle(resources=mock_sub_resources)
@@ -266,4 +268,4 @@ class TestGetPlotCanvasWrapper:
         wrapper = cycle.get_plot_canvas_wrapper()
         cycle.monitor_device_path = None
         with pytest.raises(AssertionError, match="monitor_device_path not bound"):
-            wrapper(_DEVICE_PATH, "style", "img")
+            wrapper(_DEVICE_PATH, WallpaperStyle.FILL, Path("img"))
