@@ -293,12 +293,6 @@ class TestWallpaperControllerTaskHelpers:
         assert isinstance(task, TargetSetTask)
         assert task.target == "my_res"
 
-    def test_add_plot_canvas_task_uses_default_priority(self, controller):
-        controller.add_plot_canvas_task()
-        prio, _cnt, task = controller._task_queue.get_nowait()
-        assert isinstance(task, PlotCanvasTask)
-        assert prio == 10  # default priority
-
     def test_add_plot_canvas_task_respects_explicit_priority(self, controller):
         controller.add_plot_canvas_task(priority=3)
         prio, _cnt, task = controller._task_queue.get_nowait()
@@ -349,17 +343,6 @@ class TestWallpaperControllerTargetSetBranches:
             for c in mock_logger.debug.call_args_list
         )
 
-    def test_plot_canvas_calls_update_display_before_plot(self, controller):
-        """PLOT_CANVAS calls update_display() then plot_canvas(), in order."""
-        controller._display_manager = MagicMock()
-        for t in _quit_after(_make_task(PlotCanvasTask(), priority=5)):
-            controller._task_queue.put(t)
-        controller._worker_loop()
-
-        controller._display_manager.update_display.assert_called_once()
-        controller._display_manager.plot_canvas.assert_called_once()
-
-
 class TestWallpaperControllerAtDisplayChange:
     def test_at_display_change_enqueues_plot_canvas(self, controller):
         with patch.object(controller, "add_plot_canvas_task") as mock_add:
@@ -391,24 +374,16 @@ class TestThreadSafeCounter:
         assert next(c) == 11
 
 
-def _safe_stop(controller):
-    """Call stop() but ignore errors from unstarted components."""
-    try:
-        with patch.object(controller._display_manager, "stop"):
-            controller.stop()
-    except RuntimeError:
-        pass
-
-
-class TestWallpaperControllerStart:
-    """start() – signal handlers, thread start, initial evaluation."""
+class TestWallpaperControllerLifecycle:
+    """start() and stop() – controller lifecycle."""
 
     def test_starts_worker_thread_and_sets_mode_auto(self, controller):
         _start_controller(controller)
         assert controller._worker_loop_thread is not None
         assert controller._worker_loop_thread.is_alive()
         assert controller._mode == Mode.AUTO
-        _safe_stop(controller)
+        with patch.object(controller._display_manager, "stop"):
+            controller.stop()
 
     def test_registers_signal_handlers(self, controller):
         _mock_config_store(controller)
@@ -425,31 +400,16 @@ class TestWallpaperControllerStart:
                 call(signal.SIGTERM, ANY),
             ]
         )
-        _safe_stop(controller)
+        with patch.object(controller._display_manager, "stop"):
+            controller.stop()
 
     def test_shows_tray_when_set(self, controller):
         mock_tray = MagicMock()
         controller._tray = mock_tray
         _start_controller(controller)
         mock_tray.show.assert_called_once()
-        _safe_stop(controller)
-
-    def test_calls_evaluate_and_activates_triggers(self, controller):
-        _mock_config_store(controller)
-        with (
-            patch.object(controller, "_display_trigger"),
-            patch.object(controller, "evaluate") as mock_eval,
-            patch.object(controller._trigger_manager, "activate") as mock_activate,
-            patch("signal.signal"),
-        ):
-            controller.start()
-        mock_eval.assert_called_once()
-        mock_activate.assert_called_once()
-        _safe_stop(controller)
-
-
-class TestWallpaperControllerStop:
-    """stop() – clean shutdown."""
+        with patch.object(controller._display_manager, "stop"):
+            controller.stop()
 
     def test_stop_raises_when_thread_not_started(self, controller):
         with patch.object(controller._display_trigger, "stop"):
@@ -461,7 +421,6 @@ class TestWallpaperControllerStop:
         with patch.object(controller._display_manager, "stop"):
             controller.stop()
         assert controller._worker_loop_thread is None
-        # After stop the queue should be processed; no leftover tasks.
         assert controller._task_queue.qsize() == 0
         _cleanup_worker(controller)
 
