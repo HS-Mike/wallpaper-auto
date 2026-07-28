@@ -8,9 +8,6 @@ from wallpaper_auto.system_tray import SystemTrayBridge, WallpaperSwitchSystemTr
 from wallpaper_auto.task import Mode
 
 
-# ── Shared fixtures ──────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def bridge() -> SystemTrayBridge:
     return SystemTrayBridge()
@@ -46,8 +43,6 @@ def tray_app():
     tray.hide()
 
 
-# ── Handler metadata for parametrized tests ──────────────────────────────
-
 # (handler_id, sample_values) for handlers that take an argument
 _VALUE_HANDLERS = [
     pytest.param("set_mode", [Mode.AUTO, Mode.MANUAL, Mode.UNSET], id="set_mode"),
@@ -66,9 +61,6 @@ _ALL_HANDLERS = [
     pytest.param("quit", None, id="quit"),
     pytest.param("update_ui", None, id="update_ui"),
 ]
-
-
-# ── Bridge handler lifecycle tests ───────────────────────────────────────
 
 
 class TestHandlerLifecycle:
@@ -160,9 +152,6 @@ class TestHandlerLifecycle:
     @pytest.mark.parametrize("hid", _NOARG_HANDLERS)
     def test_noarg_unregistered_is_noop(self, bridge: SystemTrayBridge, hid: str) -> None:
         getattr(bridge, f"request_{hid}")()  # should not crash
-
-
-# ── Bridge state tests ───────────────────────────────────────────────────
 
 
 class TestBridgeInitialState:
@@ -289,9 +278,6 @@ class TestBridgeEdgeCases:
             getattr(bridge, f"request_{hid}")()
         else:
             getattr(bridge, f"request_{hid}")(arg)
-
-
-# ── Tray menu rendering tests ────────────────────────────────────────────
 
 
 class TestMenuRendering:
