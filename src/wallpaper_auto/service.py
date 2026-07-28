@@ -134,7 +134,6 @@ def run_service(
         Optional mapping of evaluator names to evaluator instances to
         register before loading the configuration.
     """
-    # ── CLI mode ──────────────────────────────────────────────────────
     if config_path is None:
         from .init_config import generate_template  # noqa: PLC0415
         from .process_mutex import ProcessMutex  # noqa: PLC0415
@@ -170,7 +169,6 @@ def run_service(
             sys.exit(1)
         return
 
-    # ── Programmatic mode ─────────────────────────────────────────────
     _run_service_impl(
         config_path,
         custom_triggers,
