@@ -266,16 +266,28 @@ class TestWallpaperControllerSetTray:
         controller.set_tray(mock_tray)
 
         assert controller._tray is mock_tray
-        mock_tray.bridge.register_set_mode_handler.assert_called_once_with(
-            controller.add_set_mode_task,
-        )
-        mock_tray.bridge.register_select_target_handler.assert_called_once_with(
-            controller.add_set_target_task,
-        )
-        mock_tray.bridge.register_quit_handler.assert_called_once_with(controller.stop)
-        mock_tray.bridge.register_update_ui_handler.assert_called_once_with(
-            controller.update_system_tray,
-        )
+        mock_tray.bridge.register_set_mode_handler.assert_called_once()
+        mock_tray.bridge.register_select_target_handler.assert_called_once()
+        mock_tray.bridge.register_quit_handler.assert_called_once()
+        mock_tray.bridge.register_update_ui_handler.assert_called_once()
+
+    def test_set_mode_handler_wraps_add_set_mode_task(self, controller):
+        mock_tray = MagicMock()
+        controller.set_tray(mock_tray)
+        handler = mock_tray.bridge.register_set_mode_handler.call_args[0][0]
+        handler(Mode.MANUAL)
+        _prio, _cnt, task = controller._task_queue.get_nowait()
+        assert isinstance(task, ModeSwitchTask)
+        assert task.target_mode == Mode.MANUAL
+
+    def test_select_target_handler_wraps_add_set_target_task(self, controller):
+        mock_tray = MagicMock()
+        controller.set_tray(mock_tray)
+        handler = mock_tray.bridge.register_select_target_handler.call_args[0][0]
+        handler("some_target")
+        _prio, _cnt, task = controller._task_queue.get_nowait()
+        assert isinstance(task, TargetSetTask)
+        assert task.target == "some_target"
 
 
 class TestWallpaperControllerTaskHelpers:

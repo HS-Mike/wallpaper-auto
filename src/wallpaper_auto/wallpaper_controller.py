@@ -178,8 +178,15 @@ class WallpaperController:
         bind system try to controller
         """
         self._tray = tray
-        self._tray.bridge.register_set_mode_handler(self.add_set_mode_task)
-        self._tray.bridge.register_select_target_handler(self.add_set_target_task)
+
+        def _set_mode(mode: Mode) -> None:
+            self.add_set_mode_task(mode)
+
+        def _set_target(target: str) -> None:
+            self.add_set_target_task(target=target)
+
+        self._tray.bridge.register_set_mode_handler(_set_mode)
+        self._tray.bridge.register_select_target_handler(_set_target)
         self._tray.bridge.register_quit_handler(self.stop)
         self._tray.bridge.register_update_ui_handler(self.update_system_tray)
 
