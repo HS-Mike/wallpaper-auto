@@ -7,8 +7,6 @@ from wallpaper_auto.config_store import ConfigStore
 from wallpaper_auto.init_config import generate_template
 from wallpaper_auto.models import ConfigModel
 
-# ── helpers ──────────────────────────────────────────────────────────────
-
 
 def _collect_evaluator_keys(conditions: list) -> set[str]:
     """Recursively collect all leaf evaluator keys from a list of condition
@@ -31,16 +29,13 @@ def _collect_evaluator_keys(conditions: list) -> set[str]:
     return keys
 
 
-def _root_children(rule: dict) -> list:
+def _root_children(rule: dict) -> list | None:
     """Return the child list of a rule's top-level ``and``/``or`` condition,
     or ``None`` if the root condition is a leaf evaluator."""
     branch = rule["condition"]
     key = next(iter(branch))
     val = branch[key]
     return val if key in ("and", "or") and isinstance(val, list) else None
-
-
-# ── file creation ────────────────────────────────────────────────────────
 
 
 class TestFileCreation:
@@ -79,9 +74,6 @@ class TestFileCreation:
             content = f.read()
         assert content != "original"
         assert "wifi_ssid_is" in content
-
-
-# ── config validity ──────────────────────────────────────────────────────
 
 
 class TestConfigValidity:
