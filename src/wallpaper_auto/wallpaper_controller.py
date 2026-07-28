@@ -184,7 +184,7 @@ class WallpaperController:
         self._tray.bridge.register_update_ui_handler(self.update_system_tray)
 
     def at_shutdown(self) -> None:
-        target = self._config_store.at_shutdown_resource_id
+        target = self._config_store.at_shutdown_target
         if target is None:
             return
         task = self.add_set_target_task(target=target, matched_rule=None, priority=0)

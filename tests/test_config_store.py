@@ -367,20 +367,20 @@ class TestProperties:
         with pytest.raises(AssertionError):
             _ = store.trigger
         with pytest.raises(AssertionError):
-            _ = store.at_shutdown_resource_id
+            _ = store.at_shutdown_target
 
-    def test_at_shutdown_resource_id_none_by_default(self, store: ConfigStore, valid_yaml: str):
-        """at_shutdown_resource_id should be None when not in YAML."""
+    def test_at_shutdown_target_none_by_default(self, store: ConfigStore, valid_yaml: str):
+        """at_shutdown_target should be None when not in YAML."""
         store.load(valid_yaml)
-        assert store.at_shutdown_resource_id is None
+        assert store.at_shutdown_target is None
 
-    def test_at_shutdown_resource_id_from_yaml(self, store: ConfigStore, tmp_path):
-        """at_shutdown_resource_id should return the configured resource."""
+    def test_at_shutdown_target_from_yaml(self, store: ConfigStore, tmp_path):
+        """at_shutdown_target should return the configured target."""
         yaml_str = _make_valid_yaml(at_shutdown="office_view")
         path = tmp_path / "with_atsd.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
-        assert store.at_shutdown_resource_id == "office_view"
+        assert store.at_shutdown_target == "office_view"
 
     def test_cache_path_default_when_cache_is_none(self, store: ConfigStore, valid_yaml: str):
         """cache_path returns the default cache dir when cache is not set."""

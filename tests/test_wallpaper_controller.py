@@ -18,7 +18,7 @@ def _mock_config_store(controller, **overrides):
     """Replace ``_config_store`` with a MagicMock with sensible defaults."""
     mock_cs = MagicMock()
     mock_cs.fallback_target = "fallback"
-    mock_cs.at_shutdown_resource_id = None
+    mock_cs.at_shutdown_target = None
     for k, v in overrides.items():
         setattr(mock_cs, k, v)
     controller._config_store = mock_cs
@@ -529,13 +529,13 @@ class TestWallpaperControllerAtShutdown:
 
     def test_skips_when_no_target_configured(self, controller):
         """at_shutdown() does nothing when no shutdown resource is configured."""
-        _mock_config_store(controller, at_shutdown_resource_id=None)
+        _mock_config_store(controller, at_shutdown_target=None)
         controller.at_shutdown()
         # No crash = success
 
     def test_queues_target_task_on_shutdown(self, controller):
         """at_shutdown() queues a TargetSetTask at priority 0."""
-        _mock_config_store(controller, at_shutdown_resource_id="shutdown_res")
+        _mock_config_store(controller, at_shutdown_target="shutdown_res")
         with (
             patch.object(controller, "add_set_target_task") as mock_add,
             patch("threading.Event.wait"),

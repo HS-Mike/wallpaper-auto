@@ -31,7 +31,7 @@ class ConfigStore(metaclass=SingletonMeta):
         return self.config.fallback_target
 
     @property
-    def at_shutdown_resource_id(self) -> str | None:
+    def at_shutdown_target(self) -> str | None:
         assert self.config is not None
         return self.config.at_shutdown
 
