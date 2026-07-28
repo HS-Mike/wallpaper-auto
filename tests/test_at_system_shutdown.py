@@ -6,8 +6,6 @@ import pytest
 
 from wallpaper_auto.at_system_shutdown import ShutdownHandler
 
-# ── fixtures ──────────────────────────────────────────────────────────────
-
 
 @pytest.fixture
 def handler() -> ShutdownHandler:
@@ -21,9 +19,6 @@ def mock_gui():
     """Patch win32gui in the at_system_shutdown module."""
     with patch("wallpaper_auto.at_system_shutdown.win32gui") as gui:
         yield gui
-
-
-# ── register / unregister ─────────────────────────────────────────────────
 
 
 class TestShutdownHandlerRegister:
@@ -120,9 +115,6 @@ class TestShutdownHandlerUnregister:
         assert len(handler._callbacks) == 0
 
 
-# ── _run_callbacks ────────────────────────────────────────────────────────
-
-
 class TestShutdownHandlerRunCallbacks:
     """ShutdownHandler._run_callbacks() — callback invocation."""
 
@@ -156,9 +148,6 @@ class TestShutdownHandlerRunCallbacks:
     def test_empty_list_does_nothing(self, handler):
         """_run_callbacks should not error when no callbacks registered."""
         handler._run_callbacks()  # should not raise
-
-
-# ── _window_proc ──────────────────────────────────────────────────────────
 
 
 class TestShutdownHandlerWindowProc:
@@ -196,9 +185,6 @@ class TestShutdownHandlerWindowProc:
         assert result == 42
 
 
-# ── close ─────────────────────────────────────────────────────────────────
-
-
 class TestShutdownHandlerClose:
     """ShutdownHandler.close() — cleanup."""
 
@@ -221,9 +207,6 @@ class TestShutdownHandlerClose:
         handler.close()
 
         mock_thread.join.assert_called_once_with(timeout=3)
-
-
-# ── _start_listener ───────────────────────────────────────────────────────
 
 
 class TestShutdownHandlerStartListener:
@@ -255,9 +238,6 @@ class TestShutdownHandlerStartListener:
         assert handler._hwnd == 999
 
 
-# ── Module-level convenience API ──────────────────────────────────────────
-
-
 class TestShutdownHandlerModuleAPI:
     """Module-level register/unregister convenience functions."""
 
@@ -268,9 +248,6 @@ class TestShutdownHandlerModuleAPI:
         assert callable(unregister)
         # They should be bound methods of the module-level handler
         assert register.__self__ is unregister.__self__  # type: ignore[union-attr]
-
-
-# ── Integration: callback fires through window proc ───────────────────────
 
 
 class TestShutdownHandlerIntegration:
