@@ -7,7 +7,7 @@ import contextlib
 from ctypes import wintypes
 from enum import IntEnum
 from pathlib import Path
-from typing import Optional, Any, Callable, TypeVar, ParamSpec, Tuple
+from typing import Generator, Optional, Any, Callable, TypeVar, ParamSpec, Tuple
 
 
 logger = logging.getLogger(__name__)
@@ -146,7 +146,7 @@ def com_managed(func: Callable[P, R]) -> Callable[P, R]:
 
 
 @contextlib.contextmanager
-def com_session():
+def com_session() -> Generator[None, None, None]:
     """
     Batch-session context manager.
     Every function decorated with @com_managed called inside the ``with`` block

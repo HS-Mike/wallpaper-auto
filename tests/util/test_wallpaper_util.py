@@ -2,16 +2,12 @@
 
 import contextvars
 import ctypes
+from ctypes import wintypes
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 import wallpaper_auto.util.wallpaper_util as wu
-
-
-# ---------------------------------------------------------------------------
-# Fixtures and helpers
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(autouse=True)
@@ -43,11 +39,6 @@ def _mock_ole32(monkeypatch, *, co_init_return: int = 0,
 def _write_to_byref(byref_arg, ctype, value):
     ptr = ctypes.cast(byref_arg, ctypes.POINTER(ctype))
     ptr[0] = value
-
-
-# ---------------------------------------------------------------------------
-# Constants, enums, types
-# ---------------------------------------------------------------------------
 
 
 class TestConstants:
@@ -85,11 +76,6 @@ class TestWallpaperStyle:
         assert int(member) == expected
 
 
-# ---------------------------------------------------------------------------
-# make_guid
-# ---------------------------------------------------------------------------
-
-
 class TestMakeGuid:
     def test_returns_16_byte_buffer(self):
         g = wu.make_guid("{C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD}")
@@ -105,11 +91,6 @@ class TestMakeGuid:
         assert [b & 0xFF for b in g[4:6]] == [0x0E, 0x46]
         # Third group 4fc1 -> C1 4F.
         assert [b & 0xFF for b in g[6:8]] == [0xC1, 0x4F]
-
-
-# ---------------------------------------------------------------------------
-# _call_com_vtable
-# ---------------------------------------------------------------------------
 
 
 class TestCallComVtable:
@@ -146,11 +127,6 @@ class TestCallComVtable:
         # The COM pointer passed to the vtable func is the raw address stored
         # in the ContextVar (``addressof(buffer)``), not the vtable itself.
         assert called_with == [(ctypes.addressof(buffer), 1, 2)]
-
-
-# ---------------------------------------------------------------------------
-# com_managed decorator
-# ---------------------------------------------------------------------------
 
 
 class TestComManaged:
@@ -235,11 +211,6 @@ class TestComManaged:
             inner(1)
 
 
-# ---------------------------------------------------------------------------
-# com_session
-# ---------------------------------------------------------------------------
-
-
 class TestComSession:
     def test_session_yields_and_releases(self, _fresh_context_var):
         """``com_session`` does a real ``CoInitialize`` / ``CoCreateInstance``
@@ -274,11 +245,6 @@ class TestComSession:
         fake.CoUninitialize.assert_called_once()
 
 
-# ---------------------------------------------------------------------------
-# Public functions: monitor / wallpaper / style / color / slideshow
-# ---------------------------------------------------------------------------
-
-
 class TestGetMonitorDevicePathCount:
     def test_returns_count(self, _fresh_context_var):
         wu._current_p_wallpaper.set(ctypes.c_void_p(0))
@@ -302,10 +268,12 @@ class TestGetMonitorDevicePathAt:
     def test_returns_path(self, _fresh_context_var):
         wu._current_p_wallpaper.set(ctypes.c_void_p(0))
 
+        _keepalive: list[object] = []
+
         def _vtable(*args):
             # args = (5, PROTO_GET_MONITOR_PATH_AT, UINT, byref(monitor_id))
             value = ctypes.c_wchar_p("MONITOR\\ABC")
-            _vtable.keepalive = value  # keep the c_wchar_p alive
+            _keepalive.append(value)
             ptr = ctypes.cast(args[3], ctypes.POINTER(ctypes.c_wchar_p))
             ptr[0] = value
             return 0
@@ -364,10 +332,12 @@ class TestGetWallpaper:
     def test_returns_path(self, _fresh_context_var):
         wu._current_p_wallpaper.set(ctypes.c_void_p(0))
 
+        _keepalive: list[object] = []
+
         def _vtable(*args):
             # args = (4, PROTO_GET_WALLPAPER, monitor_id, byref(path))
             value = ctypes.c_wchar_p("C:\\wp.jpg")
-            _vtable.keepalive = value
+            _keepalive.append(value)
             ptr = ctypes.cast(args[3], ctypes.POINTER(ctypes.c_wchar_p))
             ptr[0] = value
             return 0
@@ -453,8 +423,6 @@ class TestSetBackgroundColor:
 class TestGetBackgroundColor:
     def test_returns_rgb(self, _fresh_context_var):
         wu._current_p_wallpaper.set(ctypes.c_void_p(0))
-        wintypes = ctypes.wintypes
-
         def _vtable(*args):
             # args = (9, PROTO_GET_BACKGROUND_COLOR, byref(COLORREF))
             ptr = ctypes.cast(args[2], ctypes.POINTER(wintypes.COLORREF))
