@@ -41,6 +41,7 @@ cover/
 # IDE / editor
 .idea/
 .vscode/
+.VSCodeCounter/
 .history/
 *.swp
 *.swo
