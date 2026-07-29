@@ -121,11 +121,23 @@ rule:
         - in_time_range: ["23:00", "06:00"]
         - day_of_week_is: [0, 1, 2, 3, 4] # Monday to Friday
     target: "dark_wallpaper"
-# 4. Fallback wallpaper (used when no rule matches)
+# 4. Scene bindings (optional) — per-display wallpaper for multi-monitor setups
+#    Maps scene IDs to a list of {display_model, resource} pairs
+# scene:
+#   work_layout:
+#     - display_model: "U2719D"
+#       resource: "work_wallpaper"
+#     - display_model: "DELL P2419H"
+#       resource: "secondary_wallpaper"
+
+# 5. Fallback wallpaper (used when no rule matches)
 fallback_target: "default_wallpaper"
 
-# 5. (Optional) At-shutdown wallpaper — applied when Windows shuts down
+# 6. (Optional) At-shutdown wallpaper — applied when Windows shuts down
 # at_shutdown: "work_wallpaper"
+
+# 7. (Optional) Custom cache directory (default: %LOCALAPPDATA%/wallpaper-auto/cache)
+# cache: "D:/wallpaper-cache"
 ```
 
 ## Running
@@ -154,6 +166,10 @@ run_service("config.yaml")
 ## Auto Start
 
 To launch automatically at logon, create a **Task Scheduler** task with an **At log on** trigger. Use `pythonw.exe` to hide the console window:
+
+```bash
+pythonw.exe -m wallpaper_auto -c config.yaml
+```
 
 ## How Config Parameters Flow to Components
 
@@ -399,6 +415,7 @@ run_service("config.yaml")
 - Pydantic >=2.0 — config validation & data models
 - PySide6 — system tray UI
 - pywin32 — Windows wallpaper API (SystemParametersInfo) & session monitoring
+- wmi — WMI queries for display information
 - Pillow — image resize/compress for wallpaper caching
 
 ## License
