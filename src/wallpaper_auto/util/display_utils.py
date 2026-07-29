@@ -1,21 +1,23 @@
+import ctypes
 import logging
 import time
-import ctypes
 from ctypes import wintypes
 from dataclasses import dataclass
 
 import win32api
 
-
 logger = logging.getLogger(__name__)
 
 
 class DisplayTopologyTransientError(OSError):
-    """Raised when the system is in a display topology transition period (e.g., RDP switching, sleep/wake)."""
+    """Raised when system is in a display topology transition period (RDP switching, sleep/wake)."""
+
     pass
 
+
 class RemoteSessionEnvironmentError(OSError):
-    """Raised when an operation fails because it is running within an RDP/Virtual Desktop session instead of a physical console."""
+    """Raised when an operation fails in an RDP or virtual desktop session."""
+
     pass
 
 
@@ -47,7 +49,7 @@ class LUID(ctypes.Structure):
     _fields_ = [("LowPart", wintypes.DWORD), ("HighPart", wintypes.LONG)]
 
 
-class DISPLAYCONFIG_DEVICE_INFO_HEADER(ctypes.Structure):
+class DISPLAYCONFIG_DEVICE_INFO_HEADER(ctypes.Structure):  # noqa: N801
     _fields_ = [
         ("type", wintypes.UINT),
         ("size", wintypes.UINT),
@@ -56,7 +58,7 @@ class DISPLAYCONFIG_DEVICE_INFO_HEADER(ctypes.Structure):
     ]
 
 
-class DISPLAYCONFIG_TARGET_DEVICE_NAME(ctypes.Structure):
+class DISPLAYCONFIG_TARGET_DEVICE_NAME(ctypes.Structure):  # noqa: N801
     _fields_ = [
         ("header", DISPLAYCONFIG_DEVICE_INFO_HEADER),
         ("flags", wintypes.UINT),
@@ -79,7 +81,7 @@ class POINTL(ctypes.Structure):
     _fields_ = [("x", wintypes.LONG), ("y", wintypes.LONG)]
 
 
-class DISPLAYCONFIG_SOURCE_MODE(ctypes.Structure):
+class DISPLAYCONFIG_SOURCE_MODE(ctypes.Structure):  # noqa: N801
     _fields_ = [
         ("width", wintypes.UINT),
         ("height", wintypes.UINT),
@@ -87,15 +89,16 @@ class DISPLAYCONFIG_SOURCE_MODE(ctypes.Structure):
         ("position", POINTL),
     ]
 
-class DISPLAYCONFIG_RATIONAL(ctypes.Structure):
+
+class DISPLAYCONFIG_RATIONAL(ctypes.Structure):  # noqa: N801
     _fields_ = [("Numerator", wintypes.UINT), ("Denominator", wintypes.UINT)]
 
 
-class DISPLAYCONFIG_2DREGION(ctypes.Structure):
+class DISPLAYCONFIG_2DREGION(ctypes.Structure):  # noqa: N801
     _fields_ = [("cx", wintypes.UINT), ("cy", wintypes.UINT)]
 
 
-class DISPLAYCONFIG_VIDEO_SIGNAL_INFO(ctypes.Structure):
+class DISPLAYCONFIG_VIDEO_SIGNAL_INFO(ctypes.Structure):  # noqa: N801
     _fields_ = [
         ("pixelRate", wintypes.ULARGE_INTEGER),
         ("hSyncFreq", DISPLAYCONFIG_RATIONAL),
@@ -106,17 +109,19 @@ class DISPLAYCONFIG_VIDEO_SIGNAL_INFO(ctypes.Structure):
         ("scanLineOrdering", wintypes.UINT),
     ]
 
-class DISPLAYCONFIG_TARGET_MODE(ctypes.Structure):
+
+class DISPLAYCONFIG_TARGET_MODE(ctypes.Structure):  # noqa: N801
     _fields_ = [("videoSignalInfo", DISPLAYCONFIG_VIDEO_SIGNAL_INFO)]
 
-class _MODE_INFO_UNION(ctypes.Union):
+
+class _MODE_INFO_UNION(ctypes.Union):  # noqa: N801
     _fields_ = [
         ("sourceMode", DISPLAYCONFIG_SOURCE_MODE),
         ("targetMode", DISPLAYCONFIG_TARGET_MODE),
     ]
 
 
-class DISPLAYCONFIG_MODE_INFO(ctypes.Structure):
+class DISPLAYCONFIG_MODE_INFO(ctypes.Structure):  # noqa: N801
     _fields_ = [
         ("infoType", wintypes.UINT),
         ("id", wintypes.UINT),
@@ -125,7 +130,7 @@ class DISPLAYCONFIG_MODE_INFO(ctypes.Structure):
     ]
 
 
-class DISPLAYCONFIG_PATH_SOURCE_INFO(ctypes.Structure):
+class DISPLAYCONFIG_PATH_SOURCE_INFO(ctypes.Structure):  # noqa: N801
     _fields_ = [
         ("adapterId", LUID),
         ("id", wintypes.UINT),
@@ -134,7 +139,7 @@ class DISPLAYCONFIG_PATH_SOURCE_INFO(ctypes.Structure):
     ]
 
 
-class DISPLAYCONFIG_PATH_TARGET_INFO(ctypes.Structure):
+class DISPLAYCONFIG_PATH_TARGET_INFO(ctypes.Structure):  # noqa: N801
     _fields_ = [
         ("adapterId", LUID),
         ("id", wintypes.UINT),
@@ -149,7 +154,7 @@ class DISPLAYCONFIG_PATH_TARGET_INFO(ctypes.Structure):
     ]
 
 
-class DISPLAYCONFIG_PATH_INFO(ctypes.Structure):
+class DISPLAYCONFIG_PATH_INFO(ctypes.Structure):  # noqa: N801
     _fields_ = [
         ("sourceInfo", DISPLAYCONFIG_PATH_SOURCE_INFO),
         ("targetInfo", DISPLAYCONFIG_PATH_TARGET_INFO),
@@ -160,17 +165,17 @@ class DISPLAYCONFIG_PATH_INFO(ctypes.Structure):
 user32 = ctypes.windll.user32
 shcore = ctypes.windll.shcore
 
-user32.DisplayConfigGetDeviceInfo.argtypes = [
-    ctypes.POINTER(DISPLAYCONFIG_DEVICE_INFO_HEADER)
-]
+user32.DisplayConfigGetDeviceInfo.argtypes = [ctypes.POINTER(DISPLAYCONFIG_DEVICE_INFO_HEADER)]
 user32.DisplayConfigGetDeviceInfo.restype = wintypes.LONG
 
 user32.MonitorFromPoint.argtypes = [POINTL, wintypes.DWORD]
 user32.MonitorFromPoint.restype = wintypes.HANDLE
 
 shcore.GetDpiForMonitor.argtypes = [
-    wintypes.HANDLE, ctypes.c_int,
-    ctypes.POINTER(wintypes.UINT), ctypes.POINTER(wintypes.UINT),
+    wintypes.HANDLE,
+    ctypes.c_int,
+    ctypes.POINTER(wintypes.UINT),
+    ctypes.POINTER(wintypes.UINT),
 ]
 shcore.GetDpiForMonitor.restype = wintypes.LONG
 
@@ -183,7 +188,7 @@ def get_display_info() -> list[DisplayInfo]:
 
     for i in range(5):
         res = user32.GetDisplayConfigBufferSizes(
-        QDC_DATABASE_CURRENT, ctypes.byref(num_paths), ctypes.byref(num_modes)
+            QDC_DATABASE_CURRENT, ctypes.byref(num_paths), ctypes.byref(num_modes)
         )
 
         if res != ERROR_SUCCESS:
@@ -192,7 +197,7 @@ def get_display_info() -> list[DisplayInfo]:
         paths = (DISPLAYCONFIG_PATH_INFO * num_paths.value)()
         modes = (DISPLAYCONFIG_MODE_INFO * num_modes.value)()
         topo_id = wintypes.UINT(0)
-        
+
         res = user32.QueryDisplayConfig(
             QDC_DATABASE_CURRENT,
             ctypes.byref(num_paths),
@@ -212,10 +217,14 @@ def get_display_info() -> list[DisplayInfo]:
             raise DisplayTopologyTransientError
         else:
             if res == ERROR_INVALID_PARAMETER and is_remote_session():
-                raise RemoteSessionEnvironmentError("QueryDisplayConfig is unavailable under remote sessions.")
+                raise RemoteSessionEnvironmentError(
+                    "QueryDisplayConfig is unavailable under remote sessions."
+                )
             raise OSError(f"QueryDisplayConfig error return: {res}")
     else:
-        raise OSError(f"QueryDisplayConfig error return: {ERROR_INSUFFICIENT_BUFFER} - retry time exceed")
+        raise OSError(
+            f"QueryDisplayConfig error return: {ERROR_INSUFFICIENT_BUFFER} - retry time exceed"
+        )
 
     for i in range(num_paths.value):
         p = paths[i]
@@ -225,7 +234,7 @@ def get_display_info() -> list[DisplayInfo]:
         source_resolution = None
         position = None
         if source_mode_idx == DISPLAYCONFIG_PATH_MODE_IDX_INVALID:
-            raise OSError(f"DISPLAYCONFIG_PATH_INFO.sourceInfo.modeInfoIdx not available")
+            raise OSError("DISPLAYCONFIG_PATH_INFO.sourceInfo.modeInfoIdx not available")
         mode = modes[source_mode_idx]
         assert mode.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE
         w: int = mode.mode.sourceMode.width
@@ -239,7 +248,7 @@ def get_display_info() -> list[DisplayInfo]:
         target_mode_idx = p.targetInfo.modeInfoIdx
         target_resolution = None
         if target_mode_idx == DISPLAYCONFIG_PATH_MODE_IDX_INVALID:
-            raise OSError(f"DISPLAYCONFIG_PATH_INFO.targetInfo.modeInfoIdx not available")
+            raise OSError("DISPLAYCONFIG_PATH_INFO.targetInfo.modeInfoIdx not available")
         mode = modes[target_mode_idx]
         assert mode.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_TARGET
         w: int = mode.mode.targetMode.videoSignalInfo.activeSize.cx
@@ -249,15 +258,11 @@ def get_display_info() -> list[DisplayInfo]:
         # 3. use adapterId and targetId extract monitor name and monitor device path
         device_name_info = DISPLAYCONFIG_TARGET_DEVICE_NAME()
         device_name_info.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME
-        device_name_info.header.size = ctypes.sizeof(
-            DISPLAYCONFIG_TARGET_DEVICE_NAME
-        )
+        device_name_info.header.size = ctypes.sizeof(DISPLAYCONFIG_TARGET_DEVICE_NAME)
         device_name_info.header.adapterId = p.targetInfo.adapterId
         device_name_info.header.id = p.targetInfo.id
 
-        res = user32.DisplayConfigGetDeviceInfo(
-            ctypes.byref(device_name_info.header)
-        )
+        res = user32.DisplayConfigGetDeviceInfo(ctypes.byref(device_name_info.header))
 
         if res == ERROR_SUCCESS:
             friendly_name = device_name_info.monitorFriendlyDeviceName
@@ -265,10 +270,12 @@ def get_display_info() -> list[DisplayInfo]:
                 friendly_name = None
             monitor_device_path = device_name_info.monitorDevicePath
         elif res == ERROR_NOT_SUPPORTED:
-            raise DisplayTopologyTransientError("Windows QueryDisplayConfig returned 50: Not Supported.")
+            raise DisplayTopologyTransientError(
+                "Windows QueryDisplayConfig returned 50: Not Supported."
+            )
         else:
             raise OSError(f"DisplayConfigGetDeviceInfo error return: {res}")
-        
+
         # 4. compute per-monitor DPI scale factor via position-based HMONITOR lookup
         pt = POINTL(pos_x, pos_y)
         h_monitor = user32.MonitorFromPoint(pt, 2)  # MONITOR_DEFAULTTONEAREST
@@ -286,7 +293,7 @@ def get_display_info() -> list[DisplayInfo]:
                 position=position,
                 target_resolution=target_resolution,
                 scale=scale,
-                monitor_device_path=monitor_device_path
+                monitor_device_path=monitor_device_path,
             )
         )
 
@@ -323,4 +330,3 @@ def get_all_monitors_dpi_snapshot() -> frozenset[tuple[tuple[int, int, int, int]
     except Exception as e:
         logger.error(f"Failed to query all monitors DPI: {e}")
     return frozenset(dpi_snapshot)
-        

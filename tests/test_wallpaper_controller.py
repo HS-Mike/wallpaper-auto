@@ -57,12 +57,15 @@ def controller():
 class TestWallpaperControllerInit:
     """WallpaperController.__init__ and default state."""
 
-    @pytest.mark.parametrize("attr,expected", [
-        ("_mode", Mode.UNSET),
-        ("active_rule", None),
-        ("_worker_loop_thread", None),
-        ("_tray", None),
-    ])
+    @pytest.mark.parametrize(
+        "attr,expected",
+        [
+            ("_mode", Mode.UNSET),
+            ("active_rule", None),
+            ("_worker_loop_thread", None),
+            ("_tray", None),
+        ],
+    )
     def test_default_state(self, controller, attr, expected):
         assert getattr(controller, attr) == expected
 
@@ -86,7 +89,9 @@ class TestWallpaperControllerLoadConfig:
 
         controller._config_store.load.assert_called_once_with("some/path.yaml")
 
-    def test_load_config_inits_trigger_manager_and_rule_engine(self, controller, _mock_cs_with_triggers):
+    def test_load_config_inits_trigger_manager_and_rule_engine(
+        self, controller, _mock_cs_with_triggers
+    ):
         with (
             patch.object(controller._trigger_manager, "init") as tm_init,
             patch.object(controller._rule_engine, "init") as re_init,
@@ -317,9 +322,7 @@ class TestWallpaperControllerTargetSetBranches:
 
     def _setup(self, controller, resources_per_monitor=None):
         controller._resource_manager = MagicMock()
-        controller._resource_manager.evaluate_target.return_value = (
-            resources_per_monitor or {}
-        )
+        controller._resource_manager.evaluate_target.return_value = resources_per_monitor or {}
         controller._display_manager = MagicMock()
         return controller
 
@@ -350,10 +353,8 @@ class TestWallpaperControllerTargetSetBranches:
             controller._worker_loop()
 
         assert controller._display_manager.plot_canvas.call_count == 1
-        assert any(
-            "Skipping canvas plot" in str(c)
-            for c in mock_logger.debug.call_args_list
-        )
+        assert any("Skipping canvas plot" in str(c) for c in mock_logger.debug.call_args_list)
+
 
 class TestWallpaperControllerAtDisplayChange:
     def test_at_display_change_enqueues_plot_canvas(self, controller):
@@ -500,5 +501,7 @@ class TestWallpaperControllerAtShutdown:
         ):
             controller.at_shutdown()
         mock_add.assert_called_once_with(
-            target="shutdown_res", matched_rule=None, priority=0,
+            target="shutdown_res",
+            matched_rule=None,
+            priority=0,
         )

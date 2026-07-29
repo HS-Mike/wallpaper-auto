@@ -7,14 +7,13 @@ Handles registration of built-in and custom resource types.
 
 import logging
 import re
-import threading
 
+from .config_store import ConfigStore
 from .models import ResourceConfig, SceneBinding
 from .resource.base_resource import BaseResource
-from .config_store import ConfigStore
 from .resource.resource_cycle import ResourceCycle
 from .resource.static_wallpaper import StaticWallpaper
-from .util.display_utils import get_display_info, DisplayInfo
+from .util.display_utils import DisplayInfo, get_display_info
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ class ResourceManager:
     """Resource initializer — resolves config targets into per-display resource instances."""
 
     _support_resources = _BUILTIN_RESOURCES.copy()
-    
+
     @classmethod
     def register_resource(cls, resource_name: str, resource: type[BaseResource]) -> None:
         """
@@ -63,7 +62,9 @@ class ResourceManager:
             resource_cfg: ResourceConfig = ConfigStore.instance.resource[target]
             res = {}
             for i in display_info:
-                resource_obj = ResourceManager._support_resources[resource_cfg.name](**resource_cfg.config)
+                resource_obj = ResourceManager._support_resources[resource_cfg.name](
+                    **resource_cfg.config
+                )
                 resource_obj._bind_monitor_device_path(i.monitor_device_path)
                 res[i.monitor_device_path] = resource_obj
             return res
@@ -73,7 +74,9 @@ class ResourceManager:
             res = {}
             for monitor_device_path, resource_id in scene_map.items():
                 resource_cfg: ResourceConfig = ConfigStore.instance.resource[resource_id]
-                resource_obj = ResourceManager._support_resources[resource_cfg.name](**resource_cfg.config)
+                resource_obj = ResourceManager._support_resources[resource_cfg.name](
+                    **resource_cfg.config
+                )
                 resource_obj._bind_monitor_device_path(monitor_device_path)
                 res[monitor_device_path] = resource_obj
             return res
@@ -81,7 +84,9 @@ class ResourceManager:
             raise ValueError(f"target {target} not found in resource or scene config")
 
     @staticmethod
-    def evaluate_scene(scene: list[SceneBinding], display_info: list[DisplayInfo]) -> dict[str, str]:
+    def evaluate_scene(
+        scene: list[SceneBinding], display_info: list[DisplayInfo]
+    ) -> dict[str, str]:
         """
         Evaluate a scene and return a mapping of monitor device path to resource ID.
 

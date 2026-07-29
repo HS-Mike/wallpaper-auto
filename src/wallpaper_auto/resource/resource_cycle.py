@@ -19,7 +19,6 @@ from PIL import Image
 from ..util.wallpaper_util import WallpaperStyle
 from .base_resource import BaseResource, PlotCanvasProtocol
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -108,15 +107,17 @@ class ResourceCycle(BaseResource):
     def get_plot_canvas_wrapper(self) -> PlotCanvasProtocol:
         assert self._plot_canvas is not None, "plot_canvas not bound"
         assert self.monitor_device_path is not None, "monitor_device_path not bound"
+
         def plot_canvas_wrapper(
-                monitor_device_path: str,
-                style: WallpaperStyle,
-                image: Path | Image.Image,
-                immediate_update: bool = False
-            ) -> None:
+            monitor_device_path: str,
+            style: WallpaperStyle,
+            image: Path | Image.Image,
+            immediate_update: bool = False,
+        ) -> None:
             assert self._plot_canvas is not None, "plot_canvas not bound"
             assert self.monitor_device_path is not None, "monitor_device_path not bound"
             return self._plot_canvas(monitor_device_path, style, image, True)
+
         return plot_canvas_wrapper
 
     def _cycling_loop(self) -> None:

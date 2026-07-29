@@ -1,12 +1,13 @@
 """Tests for static_wallpaper.py — StaticWallpaper mount/demount."""
 
-from unittest.mock import MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 from PIL import Image
 
-from wallpaper_auto.resource.static_wallpaper import StaticWallpaper, WallpaperStyle as SWWallpaperStyle
+from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
+from wallpaper_auto.resource.static_wallpaper import WallpaperStyle as SWWallpaperStyle
 
 _DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
 

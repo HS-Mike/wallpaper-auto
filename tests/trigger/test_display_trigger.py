@@ -7,12 +7,12 @@ from unittest.mock import patch
 import pytest
 import win32con
 
+from wallpaper_auto.trigger.display_trigger import DisplayTrigger
 from wallpaper_auto.util.display_utils import (
     DisplayInfo,
     DisplayTopologyTransientError,
     get_all_monitors_dpi_snapshot,
 )
-from wallpaper_auto.trigger.display_trigger import DisplayTrigger
 
 # Capture the real, unpatched implementation for tests that need to exercise
 # the real function's exception-handling branch.
@@ -46,9 +46,7 @@ def mock_display_deps():
         patch("wallpaper_auto.trigger.display_trigger.win32gui.PostMessage") as postmsg,
         patch("wallpaper_auto.trigger.display_trigger.win32gui.PostQuitMessage") as pqm,
         patch("wallpaper_auto.trigger.display_trigger.win32gui.DefWindowProc") as dwp,
-        patch(
-            "wallpaper_auto.trigger.display_trigger.get_display_info"
-        ) as get_display_info_fn,
+        patch("wallpaper_auto.trigger.display_trigger.get_display_info") as get_display_info_fn,
         patch("wallpaper_auto.trigger.display_trigger.pythoncom") as pythoncom,
         patch(
             "wallpaper_auto.trigger.display_trigger.get_all_monitors_dpi_snapshot",
@@ -92,17 +90,22 @@ _DEVICE_A = r"\\?\DISPLAY#DELA#{...}"
 _SNAPSHOT_A = frozenset([(_DEVICE_A, "U2719D")])
 
 _DISPLAY_INFO_A = DisplayInfo(
-    model="U2719D", source_resolution=(1920, 1080),
-    position=(0, 0), target_resolution=(1920, 1080),
-    scale=1.0, monitor_device_path=_DEVICE_A,
+    model="U2719D",
+    source_resolution=(1920, 1080),
+    position=(0, 0),
+    target_resolution=(1920, 1080),
+    scale=1.0,
+    monitor_device_path=_DEVICE_A,
 )
 
 _MONITOR_96 = frozenset({((0, 0, 1920, 1080), 96)})
 _MONITOR_144 = frozenset({((0, 0, 1920, 1080), 144)})
-_MONITOR_DUAL = frozenset({
-    ((0, 0, 1920, 1080), 96),
-    ((1920, 0, 3840, 1080), 96),
-})
+_MONITOR_DUAL = frozenset(
+    {
+        ((0, 0, 1920, 1080), 96),
+        ((1920, 0, 3840, 1080), 96),
+    }
+)
 
 
 class TestDisplayTriggerMsgProc:
@@ -236,7 +239,8 @@ class TestDisplayTriggerRun:
                 id="pump messages fail",
             ),
             pytest.param(
-                None, "_setup_window",
+                None,
+                "_setup_window",
                 id="setup window fail",
             ),
         ],
@@ -309,11 +313,13 @@ class TestDisplayTriggerDpi:
         ("prev_dpis", "curr_dpis"),
         [
             pytest.param(
-                _MONITOR_96, _MONITOR_96,
+                _MONITOR_96,
+                _MONITOR_96,
                 id="same dpi value",
             ),
             pytest.param(
-                frozenset(), frozenset(),
+                frozenset(),
+                frozenset(),
                 id="empty snapshot",
             ),
         ],
@@ -355,10 +361,12 @@ class TestDisplayTriggerDpi:
         trigger._prev_monitor_dpis = _MONITOR_DUAL
 
         # Secondary monitor's DPI changed from 96 to 144
-        changed_dual = frozenset({
-            ((0, 0, 1920, 1080), 96),
-            ((1920, 0, 3840, 1080), 144),
-        })
+        changed_dual = frozenset(
+            {
+                ((0, 0, 1920, 1080), 96),
+                ((1920, 0, 3840, 1080), 144),
+            }
+        )
         mock_display_deps["get_dpi_snapshot_fn"].return_value = changed_dual
 
         callback_called = []
@@ -378,9 +386,7 @@ class TestDisplayTriggerDpi:
 class TestDisplayTriggerErrorPaths:
     """Error paths in _display_snapshot, get_all_monitors_dpi_snapshot, _msg_proc, run."""
 
-    def test_display_snapshot_returns_none_on_transient_error(
-        self, mock_display_deps
-    ) -> None:
+    def test_display_snapshot_returns_none_on_transient_error(self, mock_display_deps) -> None:
         """DisplayTopologyTransientError → _display_snapshot returns None."""
         trigger = DisplayTrigger()
         mock_display_deps["get_display_info"].side_effect = DisplayTopologyTransientError(
@@ -388,9 +394,7 @@ class TestDisplayTriggerErrorPaths:
         )
         assert trigger._display_snapshot() is None
 
-    def test_setup_window_preserves_empty_on_transient_error(
-        self, mock_display_deps
-    ) -> None:
+    def test_setup_window_preserves_empty_on_transient_error(self, mock_display_deps) -> None:
         """_setup_window leaves _prev_displays as empty frozenset when snapshot fails."""
         trigger = DisplayTrigger()
         mock_display_deps["get_display_info"].side_effect = DisplayTopologyTransientError(
@@ -402,9 +406,7 @@ class TestDisplayTriggerErrorPaths:
         # Snapshot returned None → _prev_displays stays at the init default
         assert trigger._prev_displays == frozenset()
 
-    def test_get_all_monitors_dpi_snapshot_logs_on_exception(
-        self, caplog
-    ) -> None:
+    def test_get_all_monitors_dpi_snapshot_logs_on_exception(self, caplog) -> None:
         """An exception during DPI enumeration is logged and returns empty frozenset.
 
         Restores the real function (which the fixture has replaced) so the
@@ -418,17 +420,13 @@ class TestDisplayTriggerErrorPaths:
                 "wallpaper_auto.util.display_utils.win32api.EnumDisplayMonitors",
                 side_effect=OSError("enum failed"),
             ):
-                with caplog.at_level(
-                    logging.ERROR, logger="wallpaper_auto.util.display_utils"
-                ):
+                with caplog.at_level(logging.ERROR, logger="wallpaper_auto.util.display_utils"):
                     result = get_all_monitors_dpi_snapshot()
 
         assert result == frozenset()
         assert "Failed to query all monitors DPI" in caplog.text
 
-    def test_msg_proc_discards_when_curr_display_none(
-        self, mock_display_deps
-    ) -> None:
+    def test_msg_proc_discards_when_curr_display_none(self, mock_display_deps) -> None:
         """If _display_snapshot returns None (transient error), no trigger fires."""
         trigger = DisplayTrigger()
         mock_display_deps["get_display_info"].side_effect = DisplayTopologyTransientError(
@@ -439,18 +437,12 @@ class TestDisplayTriggerErrorPaths:
         mock_trigger.assert_not_called()
         assert result == 0
 
-    def test_run_logs_setthreaddpi_failure(
-        self, mock_display_deps, caplog
-    ) -> None:
+    def test_run_logs_setthreaddpi_failure(self, mock_display_deps, caplog) -> None:
         """If SetThreadDpiAwarenessContext raises, run logs and continues."""
         trigger = DisplayTrigger()
-        with patch(
-            "wallpaper_auto.trigger.display_trigger.user32"
-        ) as fake_user32:
+        with patch("wallpaper_auto.trigger.display_trigger.user32") as fake_user32:
             fake_user32.SetThreadDpiAwarenessContext.side_effect = OSError("dpi failed")
-            with caplog.at_level(
-                logging.ERROR, logger="wallpaper_auto.trigger.display_trigger"
-            ):
+            with caplog.at_level(logging.ERROR, logger="wallpaper_auto.trigger.display_trigger"):
                 trigger.run()
 
         assert "Failed to set thread DPI awareness" in caplog.text
@@ -460,10 +452,9 @@ class TestDisplayTriggerErrorPaths:
     def test_module_level_attribute_error_handled(self) -> None:
         """The try/except at module load is exercised by re-importing with the
         SetThreadDpiAwarenessContext attribute absent."""
+        import ctypes
         import importlib
         import sys
-
-        import ctypes
 
         # Remove the attribute so the module-level argtypes assignment raises.
         # We patch the windll user32 attribute lookup via a thin wrapper.
@@ -471,7 +462,7 @@ class TestDisplayTriggerErrorPaths:
 
         class _NoDpiUser32:
             @property
-            def DisplayConfigGetDeviceInfo(self):
+            def DisplayConfigGetDeviceInfo(self):  # noqa: N802
                 return original.DisplayConfigGetDeviceInfo
 
             def __getattr__(self, name):

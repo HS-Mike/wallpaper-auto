@@ -34,6 +34,7 @@ try:
 except AttributeError:
     pass
 
+
 class DisplayTrigger(BaseThreadTrigger):
     """Display change trigger.
 
@@ -55,10 +56,7 @@ class DisplayTrigger(BaseThreadTrigger):
             display_info = get_display_info()
         except (DisplayTopologyTransientError, RemoteSessionEnvironmentError):
             return None
-        return frozenset(
-            (d.monitor_device_path, d.model or "")
-            for d in display_info
-        )
+        return frozenset((d.monitor_device_path, d.model or "") for d in display_info)
 
     @override
     def start(self) -> None:
@@ -76,27 +74,27 @@ class DisplayTrigger(BaseThreadTrigger):
 
     def _setup_window(self) -> None:
         """Create a hidden watch window in the current thread."""
-        className = f"DisplayMonitorClass_{id(self)}"
-        hInstance = win32gui.GetModuleHandle(None)
+        class_name = f"DisplayMonitorClass_{id(self)}"
+        h_instance = win32gui.GetModuleHandle(None)
 
         wc = win32gui.WNDCLASS()
-        wc.lpfnWndProc = self._msg_proc     # type: ignore
-        wc.lpszClassName = className        # type: ignore
-        wc.hInstance = hInstance            # type: ignore
+        wc.lpfnWndProc = self._msg_proc  # type: ignore
+        wc.lpszClassName = class_name  # type: ignore
+        wc.hInstance = h_instance  # type: ignore
         class_atom = win32gui.RegisterClass(wc)
 
         self.hwnd = win32gui.CreateWindow(
-            class_atom,                             # lpszClassName
-            f"DisplayMonitor_{id(self)}",           # lpszWindowName
-            0,                                      # dwStyle
-            0,                                      # x
-            0,                                      # y
-            0,                                      # nWidth
-            0,                                      # nHeight
-            0,                                      # hWndParent
-            0,                                      # hMenu
-            hInstance,                              # hInstance
-            None                                    # lpParam
+            class_atom,  # lpszClassName
+            f"DisplayMonitor_{id(self)}",  # lpszWindowName
+            0,  # dwStyle
+            0,  # x
+            0,  # y
+            0,  # nWidth
+            0,  # nHeight
+            0,  # hWndParent
+            0,  # hMenu
+            h_instance,  # hInstance
+            None,  # lpParam
         )
         # Capture initial state after window creation — by now any transient
         # topology transition from startup is likely resolved, so the snapshot
@@ -106,7 +104,9 @@ class DisplayTrigger(BaseThreadTrigger):
             self._prev_displays = _prev_displays
         self._prev_monitor_dpis = get_all_monitors_dpi_snapshot()
 
-        logger.debug(f"Window created in thread {threading.get_ident()} and monitoring display/DPI changes")
+        logger.debug(
+            f"Window created in thread {threading.get_ident()} and monitoring display/DPI changes"
+        )
 
     def _msg_proc(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
         """Internal window procedure to handle Windows messages."""
@@ -169,16 +169,15 @@ class DisplayTrigger(BaseThreadTrigger):
         except Exception as e:
             logger.error(f"Failed to set thread DPI awareness: {e}")
 
-        className = f"DisplayMonitorClass_{id(self)}"
+        class_name = f"DisplayMonitorClass_{id(self)}"
         try:
             self._setup_window()
             win32gui.PumpMessages()
         finally:
             self.hwnd = None
             try:
-                win32gui.UnregisterClass(className, win32gui.GetModuleHandle(None))     # type: ignore
+                win32gui.UnregisterClass(class_name, win32gui.GetModuleHandle(None))  # type: ignore
             except Exception as e:
                 logger.error(f"UnregisterClass failed: {e}")
             pythoncom.CoUninitialize()
             logger.debug("DisplayTrigger thread exited safely")
-            

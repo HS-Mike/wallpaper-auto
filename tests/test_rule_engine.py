@@ -145,7 +145,9 @@ class TestEvaluateNode:
 class TestRuleEngine:
     """Tests for RuleEngine using patched _evaluators."""
 
-    @pytest.mark.parametrize("rules", [None, [Rule(name="r", condition=make_leaf("dummy"), target="t")]])
+    @pytest.mark.parametrize(
+        "rules", [None, [Rule(name="r", condition=make_leaf("dummy"), target="t")]]
+    )
     def test_init(self, rules):
         engine = RuleEngine()
         if rules is None:

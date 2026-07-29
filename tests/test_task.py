@@ -1,4 +1,5 @@
 """Tests for task.py — task __hash__ and task type coverage."""
+
 from wallpaper_auto.task import (
     Mode,
     ModeSwitchTask,
@@ -73,6 +74,7 @@ class TestBaseTaskCompletion:
     def test_wait_on_separate_thread(self):
         """wait blocks until mark_finish is called from another thread."""
         import threading
+
         task = QuitTask()
         results = []
 

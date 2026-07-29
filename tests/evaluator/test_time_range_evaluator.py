@@ -84,9 +84,9 @@ class TestTimeRangeEvaluator:
     @pytest.mark.parametrize(
         "now_time,expected",
         [
-            (real_dt.time(0, 0), True),    # at start (inclusive)
-            (real_dt.time(6, 0), True),    # within
-            (real_dt.time(12, 0), True),   # at end (inclusive)
+            (real_dt.time(0, 0), True),  # at start (inclusive)
+            (real_dt.time(6, 0), True),  # within
+            (real_dt.time(12, 0), True),  # at end (inclusive)
             (real_dt.time(12, 1), False),  # just after
             (real_dt.time(23, 0), False),  # way after
         ],
@@ -105,13 +105,13 @@ class TestTimeRangeEvaluator:
     @pytest.mark.parametrize(
         "now_time,expected",
         [
-            (real_dt.time(0, 0), True),    # at end (inclusive)
-            (real_dt.time(0, 1), False),   # after end
-            (real_dt.time(6, 0), False),   # in the gap
-            (real_dt.time(11, 59), False), # just before start
-            (real_dt.time(12, 0), True),   # at start (inclusive)
-            (real_dt.time(15, 0), True),   # within
-            (real_dt.time(23, 0), True),   # within
+            (real_dt.time(0, 0), True),  # at end (inclusive)
+            (real_dt.time(0, 1), False),  # after end
+            (real_dt.time(6, 0), False),  # in the gap
+            (real_dt.time(11, 59), False),  # just before start
+            (real_dt.time(12, 0), True),  # at start (inclusive)
+            (real_dt.time(15, 0), True),  # within
+            (real_dt.time(23, 0), True),  # within
         ],
     )
     def test_overnight_to_midnight(self, evaluator, now_time, expected):

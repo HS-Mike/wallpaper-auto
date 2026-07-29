@@ -1,14 +1,14 @@
+import contextlib
 import contextvars
 import ctypes
-import functools
 import dataclasses
+import functools
 import logging
-import contextlib
+from collections.abc import Callable, Generator
 from ctypes import wintypes
 from enum import IntEnum
 from pathlib import Path
-from typing import Generator, Optional, Any, Callable, TypeVar, ParamSpec, Tuple
-
+from typing import Any, ParamSpec, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,7 @@ class WallpaperStyle(IntEnum):
     FILL = DWPOS_FILL
     SPAN = DWPOS_SPAN
 
+
 @dataclasses.dataclass
 class Rect:
     left: int
@@ -48,6 +49,7 @@ class RECT(ctypes.Structure):
         ("bottom", ctypes.c_long),
     ]
 
+
 DSD_FORWARD: int = 0
 DSD_BACKWARD: int = 1
 
@@ -58,31 +60,56 @@ SDB_PAUSED: int = 0x02
 ole32: ctypes.WinDLL = ctypes.windll.ole32
 ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
 
+
 def make_guid(s: str) -> ctypes.Array[ctypes.c_byte]:
     g: ctypes.Array[ctypes.c_byte] = (ctypes.c_byte * 16)()
     ole32.CLSIDFromString(s, ctypes.byref(g))
     return g
 
+
 # --- COM interface vtable prototypes ---
 PROTO_RELEASE: Any = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)
-PROTO_SET_WALLPAPER: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p)
-PROTO_GET_WALLPAPER: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_wchar_p))
-PROTO_GET_MONITOR_PATH_AT: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.UINT, ctypes.POINTER(ctypes.c_wchar_p))
-PROTO_GET_MONITOR_COUNT: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(wintypes.UINT))
-PROTO_GET_MONITOR_BOUNDS: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.POINTER(RECT))
+PROTO_SET_WALLPAPER: Any = ctypes.WINFUNCTYPE(
+    ctypes.c_long, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p
+)
+PROTO_GET_WALLPAPER: Any = ctypes.WINFUNCTYPE(
+    ctypes.c_long, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_wchar_p)
+)
+PROTO_GET_MONITOR_PATH_AT: Any = ctypes.WINFUNCTYPE(
+    ctypes.c_long, ctypes.c_void_p, wintypes.UINT, ctypes.POINTER(ctypes.c_wchar_p)
+)
+PROTO_GET_MONITOR_COUNT: Any = ctypes.WINFUNCTYPE(
+    ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(wintypes.UINT)
+)
+PROTO_GET_MONITOR_BOUNDS: Any = ctypes.WINFUNCTYPE(
+    ctypes.c_long, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.POINTER(RECT)
+)
 PROTO_SET_WALLPAPER_POS: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_int)
-PROTO_GET_WALLPAPER_POS: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int))
-PROTO_ADVANCE_SLIDESHOW: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_wchar_p, wintypes.DWORD)
-PROTO_GET_STATUS: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD))
+PROTO_GET_WALLPAPER_POS: Any = ctypes.WINFUNCTYPE(
+    ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)
+)
+PROTO_ADVANCE_SLIDESHOW: Any = ctypes.WINFUNCTYPE(
+    ctypes.c_long, ctypes.c_void_p, ctypes.c_wchar_p, wintypes.DWORD
+)
+PROTO_GET_STATUS: Any = ctypes.WINFUNCTYPE(
+    ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(wintypes.DWORD)
+)
 PROTO_ENABLE: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.BOOL)
-PROTO_SET_BACKGROUND_COLOR: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, wintypes.COLORREF)
-PROTO_GET_BACKGROUND_COLOR: Any = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(wintypes.COLORREF))
+PROTO_SET_BACKGROUND_COLOR: Any = ctypes.WINFUNCTYPE(
+    ctypes.c_long, ctypes.c_void_p, wintypes.COLORREF
+)
+PROTO_GET_BACKGROUND_COLOR: Any = ctypes.WINFUNCTYPE(
+    ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(wintypes.COLORREF)
+)
 
 
 # --- Implicit pointer context management ---
 
 # thread/coroutine-safe context variable to pass the COM pointer implicitly
-_current_p_wallpaper: contextvars.ContextVar[ctypes.c_void_p] = contextvars.ContextVar("_current_p_wallpaper")
+_current_p_wallpaper: contextvars.ContextVar[ctypes.c_void_p] = contextvars.ContextVar(
+    "_current_p_wallpaper"
+)
+
 
 def _call_com_vtable(index: int, prototype: Any, *args: Any) -> Any:
     """Helper: extract COM pointer from the current thread context and call a vtable method"""
@@ -96,11 +123,13 @@ def _call_com_vtable(index: int, prototype: Any, *args: Any) -> Any:
 P = ParamSpec("P")
 R = TypeVar("R")
 
-def com_managed(func: Callable[P, R]) -> Callable[P, R]:
+
+def com_managed[**P, R](func: Callable[P, R]) -> Callable[P, R]:
     """
     Smart decorator: if a com_session context already surrounds the call,
     reuse the existing COM pointer; otherwise initialise, execute, and tear down inline.
     """
+
     @functools.wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         has_context: bool = True
@@ -119,10 +148,10 @@ def com_managed(func: Callable[P, R]) -> Callable[P, R]:
         com_initialized: bool = hr_init in (0, 1)
 
         p_wallpaper: ctypes.c_void_p = ctypes.c_void_p()
-        token: Optional[contextvars.Token[ctypes.c_void_p]] = None
+        token: contextvars.Token[ctypes.c_void_p] | None = None
         try:
-            CLSID: ctypes.Array[ctypes.c_byte] = make_guid("{C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD}")
-            IID: ctypes.Array[ctypes.c_byte] = make_guid("{B92B56A9-8B55-4E14-9A89-0199BBB6F93B}")
+            CLSID: ctypes.Array[ctypes.c_byte] = make_guid("{C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD}")  # noqa: N806
+            IID: ctypes.Array[ctypes.c_byte] = make_guid("{B92B56A9-8B55-4E14-9A89-0199BBB6F93B}")  # noqa: N806
 
             hr: int = ole32.CoCreateInstance(
                 ctypes.byref(CLSID), None, 0x17, ctypes.byref(IID), ctypes.byref(p_wallpaper)
@@ -142,6 +171,7 @@ def com_managed(func: Callable[P, R]) -> Callable[P, R]:
                 release_func(p_wallpaper)
             if com_initialized:
                 ole32.CoUninitialize()
+
     return wrapper
 
 
@@ -154,16 +184,18 @@ def com_session() -> Generator[None, None, None]:
     """
     hr_init: int = ole32.CoInitialize(None)
     com_initialized: bool = hr_init in (0, 1)
-    
+
     p_wallpaper: ctypes.c_void_p = ctypes.c_void_p()
-    token: Optional[contextvars.Token[ctypes.c_void_p]] = None
+    token: contextvars.Token[ctypes.c_void_p] | None = None
     try:
-        CLSID = make_guid("{C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD}")
-        IID = make_guid("{B92B56A9-8B55-4E14-9A89-0199BBB6F93B}")
-        hr = ole32.CoCreateInstance(ctypes.byref(CLSID), None, 0x17, ctypes.byref(IID), ctypes.byref(p_wallpaper))
+        CLSID = make_guid("{C2CF3110-460E-4fc1-B9D0-8A1C0C9CC4BD}")  # noqa: N806
+        IID = make_guid("{B92B56A9-8B55-4E14-9A89-0199BBB6F93B}")  # noqa: N806
+        hr = ole32.CoCreateInstance(
+            ctypes.byref(CLSID), None, 0x17, ctypes.byref(IID), ctypes.byref(p_wallpaper)
+        )
         if hr < 0:
             raise OSError(f"CoCreateInstance failed: 0x{hr & 0xFFFFFFFF:08X}")
-        
+
         token = _current_p_wallpaper.set(p_wallpaper)
         yield
     finally:
@@ -180,6 +212,7 @@ def com_session() -> Generator[None, None, None]:
 
 # --- Public API (clean, no raw pointers) ---
 
+
 @com_managed
 def get_monitor_device_path_count() -> int:
     """Return the number of connected monitors"""
@@ -194,7 +227,9 @@ def get_monitor_device_path_count() -> int:
 def get_monitor_device_path_at(index: int) -> str:
     """Return the unique device path of the monitor at ``index``"""
     monitor_id: ctypes.c_wchar_p = ctypes.c_wchar_p()
-    hr_call: int = _call_com_vtable(5, PROTO_GET_MONITOR_PATH_AT, wintypes.UINT(index), ctypes.byref(monitor_id))
+    hr_call: int = _call_com_vtable(
+        5, PROTO_GET_MONITOR_PATH_AT, wintypes.UINT(index), ctypes.byref(monitor_id)
+    )
     if hr_call < 0:
         raise OSError(f"failed to get monitor path [index {index}]: 0x{hr_call & 0xFFFFFFFF:08X}")
     if monitor_id.value is None:
@@ -213,7 +248,7 @@ def set_wallpaper(monitor_id: str | None, image_path: str | Path) -> None:
 
 
 @com_managed
-def get_wallpaper(monitor_id: Optional[str]) -> Path:
+def get_wallpaper(monitor_id: str | None) -> Path:
     """
     Return the absolute wallpaper path for the given monitor.
 
@@ -246,12 +281,12 @@ def get_monitor_bounds(monitor_id: str) -> Rect:
         left=int(bounds.left),
         top=int(bounds.top),
         right=int(bounds.right),
-        bottom=int(bounds.bottom)
+        bottom=int(bounds.bottom),
     )
 
 
 @com_managed
-def set_background_color(color: int | Tuple[int, int, int]) -> None:
+def set_background_color(color: int | tuple[int, int, int]) -> None:
     """Set the background color used when wallpaper style is Center or Fit.
 
     Accepts a raw COLORREF int (0x00BBGGRR) or an (R, G, B) tuple.
@@ -267,7 +302,7 @@ def set_background_color(color: int | Tuple[int, int, int]) -> None:
 
 
 @com_managed
-def get_background_color() -> Tuple[int, int, int]:
+def get_background_color() -> tuple[int, int, int]:
     """Return the background color as an (R, G, B) tuple."""
     color_ref: wintypes.COLORREF = wintypes.COLORREF()
     hr_call: int = _call_com_vtable(9, PROTO_GET_BACKGROUND_COLOR, ctypes.byref(color_ref))
@@ -302,10 +337,12 @@ def get_wallpaper_style() -> WallpaperStyle:
 
 
 @com_managed
-def advance_slideshow(monitor_id: Optional[str], forward: bool = True) -> None:
+def advance_slideshow(monitor_id: str | None, forward: bool = True) -> None:
     """Advance to the next/previous slideshow image"""
     direction: int = DSD_FORWARD if forward else DSD_BACKWARD
-    hr_call: int = _call_com_vtable(14, PROTO_ADVANCE_SLIDESHOW, monitor_id, wintypes.DWORD(direction))
+    hr_call: int = _call_com_vtable(
+        14, PROTO_ADVANCE_SLIDESHOW, monitor_id, wintypes.DWORD(direction)
+    )
     if hr_call < 0:
         raise OSError(f"advance_slideshow failed: 0x{hr_call & 0xFFFFFFFF:08X}")
 
@@ -326,4 +363,3 @@ def enable(enable_: bool) -> None:
     hr_call: int = _call_com_vtable(16, PROTO_ENABLE, wintypes.BOOL(enable_))
     if hr_call < 0:
         raise OSError(f"enable failed: 0x{hr_call & 0xFFFFFFFF:08X}")
-

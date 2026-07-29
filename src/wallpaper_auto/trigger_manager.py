@@ -9,12 +9,12 @@ import logging
 import threading
 
 from .models import TriggerConfig
-from .util.callback_register import CallbackRegister
 from .trigger.base_trigger import BaseTrigger
+from .trigger.display_trigger import DisplayTrigger
 from .trigger.network_trigger import NetworkTrigger
 from .trigger.time_trigger import TimeTrigger
 from .trigger.windows_session_trigger import WindowsSessionTrigger
-from .trigger.display_trigger import DisplayTrigger
+from .util.callback_register import CallbackRegister
 
 logger = logging.getLogger(__name__)
 

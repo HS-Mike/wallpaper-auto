@@ -66,9 +66,7 @@ class TestNetworkTriggerRun:
     """Tests for the ``run`` loop -- fingerprint change detection,
     idempotency, error exit, and COM lifecycle."""
 
-    def test_run_detects_network_change(
-        self, mock_kernel32, mock_iphlpapi, mock_pythoncom
-    ) -> None:
+    def test_run_detects_network_change(self, mock_kernel32, mock_iphlpapi, mock_pythoncom) -> None:
         """Run method detects network fingerprint change and triggers"""
         mock_kernel32.CreateEventW.return_value = 0xCAFE
         mock_iphlpapi.NotifyAddrChange.return_value = 0
@@ -131,9 +129,7 @@ class TestNetworkTriggerRun:
 
             mock_kernel32.WaitForMultipleObjects.assert_not_called()
 
-    def test_lifecycle_and_com_cleanup(
-        self, mock_kernel32, mock_iphlpapi, mock_pythoncom
-    ) -> None:
+    def test_lifecycle_and_com_cleanup(self, mock_kernel32, mock_iphlpapi, mock_pythoncom) -> None:
         """COM init/uninit is called during run"""
         mock_kernel32.CreateEventW.return_value = 0xCAFE
         mock_iphlpapi.NotifyAddrChange.return_value = 0

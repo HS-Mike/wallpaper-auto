@@ -11,6 +11,7 @@ wallpaper through a :class:`PlotCanvasProtocol` callable passed to
 :meth:`mount`.  Origin wallpaper state can be saved via
 :meth:`record_origin` and restored via :meth:`restore_origin`.
 """
+
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Protocol
@@ -94,7 +95,10 @@ class BaseResource(ABC):
         self._plot_canvas = None
 
     def plot_canvas(
-        self, style: WallpaperStyle, image: Path | Image.Image, immediate_update: bool = False,
+        self,
+        style: WallpaperStyle,
+        image: Path | Image.Image,
+        immediate_update: bool = False,
     ) -> None:
         """
         Render a wallpaper image on the target monitor.

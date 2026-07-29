@@ -123,7 +123,9 @@ class TestResourceCycleLifecycle:
         cycle.mount()
 
         deadline = time.monotonic() + 5.0
-        while all(r.mount.call_count == 0 for r in mock_sub_resources) and time.monotonic() < deadline:
+        while (
+            all(r.mount.call_count == 0 for r in mock_sub_resources) and time.monotonic() < deadline
+        ):
             time.sleep(0.02)
 
         called_count = sum(r.mount.called for r in mock_sub_resources)
@@ -236,9 +238,7 @@ class TestResourceCycleEdgeCases:
 class TestGetPlotCanvasWrapper:
     """The plot_canvas_wrapper returned by get_plot_canvas_wrapper."""
 
-    def test_wrapper_calls_plot_canvas_with_immediate_update(
-        self, mock_sub_resources
-    ):
+    def test_wrapper_calls_plot_canvas_with_immediate_update(self, mock_sub_resources):
         """Wrapper forces immediate_update=True regardless of caller arg."""
         cycle = ResourceCycle(resources=mock_sub_resources)
         canvas_mock = MagicMock()

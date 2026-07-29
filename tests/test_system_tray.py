@@ -68,7 +68,10 @@ class TestHandlerLifecycle:
 
     @pytest.mark.parametrize("hid,values", _VALUE_HANDLERS)
     def test_register_and_invoke(
-        self, bridge: SystemTrayBridge, hid: str, values: list[object],
+        self,
+        bridge: SystemTrayBridge,
+        hid: str,
+        values: list[object],
     ) -> None:
         results = []
         register = getattr(bridge, f"register_{hid}_handler")
@@ -79,7 +82,10 @@ class TestHandlerLifecycle:
 
     @pytest.mark.parametrize("hid,values", _VALUE_HANDLERS)
     def test_multiple_values(
-        self, bridge: SystemTrayBridge, hid: str, values: list[object],
+        self,
+        bridge: SystemTrayBridge,
+        hid: str,
+        values: list[object],
     ) -> None:
         results = []
         register = getattr(bridge, f"register_{hid}_handler")
@@ -91,7 +97,10 @@ class TestHandlerLifecycle:
 
     @pytest.mark.parametrize("hid,values", _VALUE_HANDLERS)
     def test_overwrite_replaces_old_handler(
-        self, bridge: SystemTrayBridge, hid: str, values: list[object],
+        self,
+        bridge: SystemTrayBridge,
+        hid: str,
+        values: list[object],
     ) -> None:
         results = []
         register = getattr(bridge, f"register_{hid}_handler")
@@ -103,7 +112,10 @@ class TestHandlerLifecycle:
 
     @pytest.mark.parametrize("hid,values", _VALUE_HANDLERS)
     def test_register_none_disables(
-        self, bridge: SystemTrayBridge, hid: str, values: list[object],
+        self,
+        bridge: SystemTrayBridge,
+        hid: str,
+        values: list[object],
     ) -> None:
         results = []
         register = getattr(bridge, f"register_{hid}_handler")
@@ -115,7 +127,10 @@ class TestHandlerLifecycle:
 
     @pytest.mark.parametrize("hid,values", _VALUE_HANDLERS)
     def test_unregistered_is_noop(
-        self, bridge: SystemTrayBridge, hid: str, values: list[object],
+        self,
+        bridge: SystemTrayBridge,
+        hid: str,
+        values: list[object],
     ) -> None:
         getattr(bridge, f"request_{hid}")(values[0])  # should not crash
 
@@ -232,8 +247,13 @@ class TestBridgeUpdateUiSignal:
         ],
     )
     def test_emit_signal(  # type: ignore[no-untyped-def]
-        self, bridge: SystemTrayBridge, qtbot,
-        targets: list[str], mode: Mode, rule: str | None, active: str | None,
+        self,
+        bridge: SystemTrayBridge,
+        qtbot,
+        targets: list[str],
+        mode: Mode,
+        rule: str | None,
+        active: str | None,
     ) -> None:
         with qtbot.waitSignal(bridge.update_ui_signal, timeout=200) as blocker:
             bridge.update_ui(targets, mode, rule, active)
@@ -266,13 +286,17 @@ class TestBridgeEdgeCases:
         def error_cb(_) -> None:
             raise RuntimeError("custom error raise")
             return None
+
         bridge.register_set_mode_handler(error_cb)
         with pytest.raises(RuntimeError):
             bridge.request_set_mode(Mode.AUTO)
 
     @pytest.mark.parametrize("hid,arg", _ALL_HANDLERS)
     def test_request_without_registration(
-        self, bridge: SystemTrayBridge, hid: str, arg: object,
+        self,
+        bridge: SystemTrayBridge,
+        hid: str,
+        arg: object,
     ) -> None:
         if arg is None:
             getattr(bridge, f"request_{hid}")()
@@ -332,7 +356,11 @@ class TestCallbacks:
 
     def test_ui_to_logic_callbacks(self, tray_app, qtbot):
         """Test menu item clicks trigger logic-layer callbacks."""
-        mock_called: dict[str, Mode | str | bool | None] = {"mode": None, "target": None, "quit": False}
+        mock_called: dict[str, Mode | str | bool | None] = {
+            "mode": None,
+            "target": None,
+            "quit": False,
+        }
 
         tray_app.bridge.register_set_mode_handler(lambda m: mock_called.update({"mode": m}))
         tray_app.bridge.register_select_target_handler(lambda r: mock_called.update({"target": r}))

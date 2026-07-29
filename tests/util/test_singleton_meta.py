@@ -7,7 +7,6 @@ import pytest
 
 from wallpaper_auto.util.singleton_meta import SingletonMeta
 
-
 # ── helpers ──────────────────────────────────────────────────────────────
 
 

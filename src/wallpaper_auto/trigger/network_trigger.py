@@ -15,7 +15,6 @@ import pythoncom
 import wmi
 
 from ..util.network_utils import get_current_ssid
-
 from .base_trigger import BaseThreadTrigger
 
 logger = logging.getLogger(__name__)
@@ -41,7 +40,7 @@ class NetworkTrigger(BaseThreadTrigger):
         super().__init__()
         self._exit_event = None
         self._last_gateways: set[str] = set()
-        self.current_ssid: str | None = None    # only available in callback
+        self.current_ssid: str | None = None  # only available in callback
 
     @staticmethod
     def _get_network_fingerprint() -> set[str]:

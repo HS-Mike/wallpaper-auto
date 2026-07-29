@@ -35,7 +35,6 @@ Image.MAX_IMAGE_PIXELS = 61440 * 34560
 
 
 class WallpaperController:
-
     def __init__(self) -> None:
         self._worker_loop_thread: threading.Thread | None = None
         self._task_queue: queue.PriorityQueue[tuple[int, int, Task]] = queue.PriorityQueue()
@@ -87,8 +86,7 @@ class WallpaperController:
                 self.active_rule = task.matched_rule
                 with self._task_queue.mutex:
                     has_newer_update = any(
-                        isinstance(t, PlotCanvasTask)
-                        for _p, _c, t in self._task_queue.queue
+                        isinstance(t, PlotCanvasTask) for _p, _c, t in self._task_queue.queue
                     )
                 if not has_newer_update:
                     self._display_manager.plot_canvas()
@@ -243,4 +241,3 @@ class ThreadSafeCounter:
     def __next__(self) -> int:
         with self._lock:
             return next(self._counter)
-

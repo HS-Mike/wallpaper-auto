@@ -61,9 +61,7 @@ class TestResourceManagerEvaluateTarget:
 
     @patch("wallpaper_auto.resource_manager.get_display_info")
     @patch("wallpaper_auto.resource_manager.ConfigStore")
-    def test_resource_creates_per_display_instance(
-        self, mock_cs, mock_get_display, tmp_path
-    ):
+    def test_resource_creates_per_display_instance(self, mock_cs, mock_get_display, tmp_path):
         """A resource target creates one instance per connected display."""
         mock_get_display.return_value = [
             _make_display_info(r"\\?\DISPLAY#A#{path-a}", x=0),
@@ -107,9 +105,7 @@ class TestResourceManagerEvaluateTarget:
                 config={"path": str(tmp_path / "test.png"), "style": "fill"},
             )
         }
-        mock_cs.instance.scene = {
-            "office": [SceneBinding(display_model="Dell.*", resource="wp1")]
-        }
+        mock_cs.instance.scene = {"office": [SceneBinding(display_model="Dell.*", resource="wp1")]}
 
         result = ResourceManager.evaluate_target("office")
 

@@ -42,7 +42,13 @@ class SystemTrayBridge(QObject):
 
     # --- external communication to tray (Thread-Safe) ---
 
-    def update_ui(self, available_targets: list[str], mode: object, active_rule_id: str | None, active_target: str | None) -> None:
+    def update_ui(
+        self,
+        available_targets: list[str],
+        mode: object,
+        active_rule_id: str | None,
+        active_target: str | None,
+    ) -> None:
         self.update_ui_signal.emit(available_targets, mode, active_rule_id, active_target)
 
     def register_set_mode_handler(self, cb: Callable[[Mode], None]) -> None:
@@ -154,7 +160,7 @@ class WallpaperSwitchSystemTray:
             if active_target is not None:
                 active_action = self._action_groups[active_target]
                 active_action.setIcon(create_dot_icon(get_color(ACTIVATE_AUXILIARY_COLOR)))
-        
+
         if mode == Mode.MANUAL:
             if active_target is not None:
                 active_action = self._action_groups[active_target]

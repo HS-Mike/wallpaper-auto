@@ -98,43 +98,73 @@ class TestGetNextWaitTime:
         "now,fixed_times,interval,ref_time,wait_sec,target",
         [
             pytest.param(
-                dt(2024, 1, 1, 10, 0, 0), [time(11, 0)], None, None,
-                3600, dt(2024, 1, 1, 11, 0),
+                dt(2024, 1, 1, 10, 0, 0),
+                [time(11, 0)],
+                None,
+                None,
+                3600,
+                dt(2024, 1, 1, 11, 0),
                 id="fixed_time_future",
             ),
             pytest.param(
-                dt(2024, 1, 1, 10, 0, 0), [time(9, 0)], None, None,
-                82800, dt(2024, 1, 2, 9, 0),
+                dt(2024, 1, 1, 10, 0, 0),
+                [time(9, 0)],
+                None,
+                None,
+                82800,
+                dt(2024, 1, 2, 9, 0),
                 id="fixed_time_past",
             ),
             pytest.param(
-                dt(2024, 1, 1, 10, 0, 0), [time(13, 0), time(10, 30)], None, None,
-                1800, dt(2024, 1, 1, 10, 30),
+                dt(2024, 1, 1, 10, 0, 0),
+                [time(13, 0), time(10, 30)],
+                None,
+                None,
+                1800,
+                dt(2024, 1, 1, 10, 30),
                 id="multiple_fixed_returns_min",
             ),
             pytest.param(
-                dt(2024, 1, 1, 10, 5, 0), [], timedelta(minutes=15), dt(2024, 1, 1, 10, 0, 0),
-                600, dt(2024, 1, 1, 10, 15),
+                dt(2024, 1, 1, 10, 5, 0),
+                [],
+                timedelta(minutes=15),
+                dt(2024, 1, 1, 10, 0, 0),
+                600,
+                dt(2024, 1, 1, 10, 15),
                 id="interval_calculation",
             ),
             pytest.param(
-                dt(2024, 1, 1, 10, 0, 0), [], timedelta(hours=1), None,
-                3600, dt(2024, 1, 1, 11, 0),
+                dt(2024, 1, 1, 10, 0, 0),
+                [],
+                timedelta(hours=1),
+                None,
+                3600,
+                dt(2024, 1, 1, 11, 0),
                 id="interval_without_reference",
             ),
             pytest.param(
-                dt(2024, 1, 1, 9, 50, 0), [], timedelta(minutes=15), dt(2024, 1, 1, 10, 0, 0),
-                600, dt(2024, 1, 1, 10, 0),
+                dt(2024, 1, 1, 9, 50, 0),
+                [],
+                timedelta(minutes=15),
+                dt(2024, 1, 1, 10, 0, 0),
+                600,
+                dt(2024, 1, 1, 10, 0),
                 id="interval_now_before_reference",
             ),
             pytest.param(
-                dt(2024, 1, 1, 10, 0, 0), [time(10, 30)], timedelta(hours=2), dt(2024, 1, 1, 9, 0, 0),
-                1800, dt(2024, 1, 1, 10, 30),
+                dt(2024, 1, 1, 10, 0, 0),
+                [time(10, 30)],
+                timedelta(hours=2),
+                dt(2024, 1, 1, 9, 0, 0),
+                1800,
+                dt(2024, 1, 1, 10, 30),
                 id="both_fixed_and_interval_returns_min",
             ),
         ],
     )
-    def test_get_next_wait_time(self, freeze_now, now, fixed_times, interval, ref_time, wait_sec, target):
+    def test_get_next_wait_time(
+        self, freeze_now, now, fixed_times, interval, ref_time, wait_sec, target
+    ):
         freeze_now.datetime.now.return_value = now
         trigger = TimeTrigger()
         if fixed_times:

@@ -43,7 +43,7 @@ class DisplayManager:
 
     def __init__(self) -> None:
         self._restore_wallpaper: dict[str, tuple[WallpaperStyle, Path]] = {}
-        self._display_resource_map: dict[str, BaseResource]  = {}
+        self._display_resource_map: dict[str, BaseResource] = {}
         self._display_resource_is_patch: dict[str, bool] = {}
         self._canvas_buffer: dict[str, tuple[WallpaperStyle, Path | Image.Image]] = {}
 
@@ -67,7 +67,7 @@ class DisplayManager:
             for device_path, (style, image_path) in self._restore_wallpaper.items():
                 set_wallpaper_style(style)
                 set_wallpaper(device_path, image_path)
-    
+
     def update_display(self) -> list[DisplayInfo]:
         """Detect monitor hotplug events and add/remove displays accordingly.
 
@@ -125,7 +125,9 @@ class DisplayManager:
         """
         is_patch = self._display_resource_is_patch[monitor_device_path]
         if is_patch is True:
-            raise ValueError(f"Display (monitor_device_path: {monitor_device_path}) do not have a resource")
+            raise ValueError(
+                f"Display (monitor_device_path: {monitor_device_path}) do not have a resource"
+            )
         res = self._display_resource_map[monitor_device_path]
         res.demount()
         res._unbind_plot_canvas()
@@ -213,7 +215,10 @@ class DisplayManager:
             if isinstance(img, Path):
                 img = Image.open(img)
             rendered, _, _ = DisplayManager._render_image_for_region(
-                img, WallpaperStyle.FILL, canvas_w, canvas_h,
+                img,
+                WallpaperStyle.FILL,
+                canvas_w,
+                canvas_h,
             )
             canvas.paste(rendered, (0, 0))
         else:
@@ -228,7 +233,10 @@ class DisplayManager:
                 if isinstance(img, Path):
                     img = Image.open(img)
                 rendered, offset_x, offset_y = DisplayManager._render_image_for_region(
-                    img, style, region_w, region_h,
+                    img,
+                    style,
+                    region_w,
+                    region_h,
                 )
                 canvas.paste(rendered, (canvas_x + offset_x, canvas_y + offset_y))
 

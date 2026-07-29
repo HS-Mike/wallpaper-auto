@@ -64,7 +64,7 @@ class TestCallbackRegister:
     def test_add_non_callable_raises(self):
         cb = CallbackRegister()
         with pytest.raises(ValueError):
-            cb.add_callback("not a function")       # type: ignore
+            cb.add_callback("not a function")  # type: ignore
 
     def test_remove_nonexistent_raises(self):
         cb = CallbackRegister()

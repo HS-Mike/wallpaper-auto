@@ -6,7 +6,6 @@ by parsing the output of `netsh wlan show interfaces`.
 """
 
 from ..util.network_utils import get_current_ssid
-
 from .base_evaluator import BaseEvaluator
 
 

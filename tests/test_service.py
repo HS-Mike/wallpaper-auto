@@ -207,6 +207,7 @@ class TestRunServiceCLIMode:
 
         mock_mutex_cls.assert_called_once_with("wallpaper_auto")
 
+
 class TestRunServiceCLIErrors:
     """Error paths in CLI mode."""
 

@@ -16,14 +16,11 @@ def _fresh_context_var(monkeypatch):
     when nothing has been set. (``set(None)`` would not raise — the
     ContextVar would just yield ``None`` instead of being considered
     "unset".)"""
-    monkeypatch.setattr(
-        wu, "_current_p_wallpaper", contextvars.ContextVar("_test_p_wallpaper")
-    )
+    monkeypatch.setattr(wu, "_current_p_wallpaper", contextvars.ContextVar("_test_p_wallpaper"))
     yield
 
 
-def _mock_ole32(monkeypatch, *, co_init_return: int = 0,
-                cocreate_return: int = 0):
+def _mock_ole32(monkeypatch, *, co_init_return: int = 0, cocreate_return: int = 0):
     """Replace ``wu.ole32`` with a MagicMock that does NOT touch the
     byref passed to ``CoCreateInstance``. The mock therefore leaves
     ``p_wallpaper.value`` at 0 and the Release branch is skipped.
@@ -132,6 +129,7 @@ class TestCallComVtable:
 class TestComManaged:
     def test_uses_existing_com_context(self, _fresh_context_var, monkeypatch):
         """When the ContextVar is set, the inner func runs without COM init."""
+
         @wu.com_managed
         def inner(x):
             return x * 2
@@ -145,9 +143,9 @@ class TestComManaged:
         fake.CoInitialize.assert_not_called()
         fake.CoUninitialize.assert_not_called()
 
-    def test_lookup_error_from_inner_propagates(self, _fresh_context_var,
-                                                monkeypatch):
+    def test_lookup_error_from_inner_propagates(self, _fresh_context_var, monkeypatch):
         """LookupError raised inside the wrapped func must not be swallowed."""
+
         @wu.com_managed
         def inner():
             raise LookupError("from inner")
@@ -168,9 +166,9 @@ class TestComManaged:
         assert isinstance(count, int)
         assert count >= 0
 
-    def test_co_initialize_returns_s_false(self, _fresh_context_var,
-                                           monkeypatch):
+    def test_co_initialize_returns_s_false(self, _fresh_context_var, monkeypatch):
         """S_FALSE (1) from CoInitialize is treated as a successful init."""
+
         @wu.com_managed
         def inner(x):
             return x
@@ -182,11 +180,10 @@ class TestComManaged:
         # S_FALSE still means *we* initialised COM -> CoUninitialize runs.
         fake.CoUninitialize.assert_called_once()
 
-    def test_co_initialize_returns_other_value_skips_uninit(
-        self, _fresh_context_var, monkeypatch
-    ):
+    def test_co_initialize_returns_other_value_skips_uninit(self, _fresh_context_var, monkeypatch):
         """A CoInitialize return code other than S_OK / S_FALSE (e.g. E_FAIL)
         means the caller already owns COM lifetime -> no CoUninitialize."""
+
         @wu.com_managed
         def inner(x):
             return x
@@ -229,8 +226,7 @@ class TestComSession:
         # Exit: the with block calls Release on the real COM pointer and
         # then CoUninitialize. If we got here, both completed cleanly.
 
-    def test_session_cocreate_failure_raises(self, _fresh_context_var,
-                                             monkeypatch):
+    def test_session_cocreate_failure_raises(self, _fresh_context_var, monkeypatch):
         fake = MagicMock()
         fake.CoInitialize.return_value = 0
         fake.CoCreateInstance.return_value = -1
@@ -423,6 +419,7 @@ class TestSetBackgroundColor:
 class TestGetBackgroundColor:
     def test_returns_rgb(self, _fresh_context_var):
         wu._current_p_wallpaper.set(ctypes.c_void_p(0))
+
         def _vtable(*args):
             # args = (9, PROTO_GET_BACKGROUND_COLOR, byref(COLORREF))
             ptr = ctypes.cast(args[2], ctypes.POINTER(wintypes.COLORREF))

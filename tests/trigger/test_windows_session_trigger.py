@@ -50,7 +50,12 @@ class TestWindowsSessionTriggerProcessEvent:
         ],
     )
     def test_process_event(
-        self, mock_win32, session_id, event_code, expected_session_id, expected_event,
+        self,
+        mock_win32,
+        session_id,
+        event_code,
+        expected_session_id,
+        expected_event,
     ):
         trigger = WindowsSessionTrigger()
         callback_called = []

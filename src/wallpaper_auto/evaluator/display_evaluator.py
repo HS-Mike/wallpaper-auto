@@ -9,7 +9,6 @@ Uses :func:`get_display_info` from ``util.display_utils`` for its data source.
 import re
 
 from ..util.display_utils import get_display_info
-
 from .base_evaluator import BaseEvaluator
 
 

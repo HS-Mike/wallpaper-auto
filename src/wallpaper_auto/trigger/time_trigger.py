@@ -24,7 +24,9 @@ class TimeTrigger(BaseThreadTrigger):
         super().__init__()
         self._lock = threading.Lock()
         self._update_event = threading.Event()
-        self.trigger_time: datetime.datetime | None = None      # this attribute shall only be avaliable in callback
+        self.trigger_time: datetime.datetime | None = (
+            None  # this attribute shall only be avaliable in callback
+        )
 
         self._fixed_times: list[datetime.time] = []
         self._interval: datetime.timedelta | None = None

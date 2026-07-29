@@ -227,7 +227,9 @@ class TestLoadErrors:
 
     def test_fallback_target_not_found(self, store: ConfigStore, tmp_path):
         path = tmp_path / "bad_fallback.yaml"
-        path.write_text(_make_minimal_yaml(fallback_target="nonexistent_resource"), encoding="utf-8")
+        path.write_text(
+            _make_minimal_yaml(fallback_target="nonexistent_resource"), encoding="utf-8"
+        )
         with pytest.raises(ValueError, match="Fallback target.*not found"):
             store.load(str(path))
 

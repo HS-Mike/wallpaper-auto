@@ -1,6 +1,7 @@
 """
 Task classes transmit across components.
 """
+
 from __future__ import annotations
 
 import secrets

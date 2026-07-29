@@ -85,6 +85,7 @@ class ConditionNode(BaseModel):
 
 class SceneBinding(BaseModel):
     """A single display-scene binding: which display model → which resource."""
+
     display_model: str
     resource: str
 
@@ -122,10 +123,7 @@ class ConfigModel(BaseModel):
         scene_keys = set(self.scene or {})
         for rule in self.rule:
             if rule.target not in self.resource and rule.target not in scene_keys:
-                msg = (
-                    f"Rule '{rule.name}' targets unknown resource or "
-                    f"scene: {rule.target}"
-                )
+                msg = f"Rule '{rule.name}' targets unknown resource or scene: {rule.target}"
                 raise ValueError(msg)
         if self.at_shutdown is not None and self.at_shutdown not in self.resource:
             raise ValueError(f"at_shutdown target '{self.at_shutdown}' not found in resource")

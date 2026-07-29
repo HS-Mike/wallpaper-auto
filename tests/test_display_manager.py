@@ -1,4 +1,4 @@
-"""Tests for DisplayManager — per-monitor wallpaper lifecycle, canvas compositing, and hotplug detection."""
+"""Tests for DisplayManager — per-monitor wallpaper lifecycle, canvas compositing, and hotplug."""
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -98,7 +98,10 @@ class TestDisplayManager:
         ]
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
-            patch("wallpaper_auto.display_manager.get_wallpaper_style", return_value=WallpaperStyle.FILL),
+            patch(
+                "wallpaper_auto.display_manager.get_wallpaper_style",
+                return_value=WallpaperStyle.FILL,
+            ),
             patch("wallpaper_auto.display_manager.get_wallpaper", return_value=Path("C:/orig.jpg")),
         ):
             dm.start()
@@ -290,10 +293,15 @@ class TestDisplayManagerPlotCanvas:
 
     def test_span_entry_replaces_entire_composite(self):
         dm = DisplayManager()
-        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.SPAN, Image.new("RGB", (40, 40), (10, 20, 30)))
+        dm._canvas_buffer[_DEVICE_A] = (
+            WallpaperStyle.SPAN,
+            Image.new("RGB", (40, 40), (10, 20, 30)),
+        )
         with (
-            patch("wallpaper_auto.display_manager.get_display_info",
-                  return_value=[_make_display(_DEVICE_A, 0, 0, 40, 40)]),
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[_make_display(_DEVICE_A, 0, 0, 40, 40)],
+            ),
             patch("wallpaper_auto.display_manager.com_session") as mock_session,
             patch("wallpaper_auto.display_manager.set_wallpaper"),
             patch("wallpaper_auto.display_manager.set_wallpaper_style"),
@@ -309,8 +317,10 @@ class TestDisplayManagerPlotCanvas:
         Image.new("RGB", (40, 40), (10, 20, 30)).save(full_path)
         dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.SPAN, full_path)
         with (
-            patch("wallpaper_auto.display_manager.get_display_info",
-                  return_value=[_make_display(_DEVICE_A, 0, 0, 40, 40)]),
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[_make_display(_DEVICE_A, 0, 0, 40, 40)],
+            ),
             patch("wallpaper_auto.display_manager.com_session") as mock_session,
             patch("wallpaper_auto.display_manager.set_wallpaper"),
             patch("wallpaper_auto.display_manager.set_wallpaper_style"),
@@ -347,8 +357,10 @@ class TestDisplayManagerPlotCanvas:
         dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, Image.new("RGB", (30, 30)))
         dm._canvas_buffer[_DEVICE_B] = (WallpaperStyle.FILL, Image.new("RGB", (30, 30)))
         with (
-            patch("wallpaper_auto.display_manager.get_display_info",
-                  return_value=[_make_display(_DEVICE_A, 0, 0, 30, 30)]),
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[_make_display(_DEVICE_A, 0, 0, 30, 30)],
+            ),
             patch("wallpaper_auto.display_manager.com_session") as mock_session,
             patch("wallpaper_auto.display_manager.set_wallpaper"),
             patch("wallpaper_auto.display_manager.set_wallpaper_style"),
@@ -385,8 +397,10 @@ class TestDisplayManagerPlotCanvas:
         missing = ConfigStore.instance.cache_path / "nonexistent.png"
         dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, missing)
         with (
-            patch("wallpaper_auto.display_manager.get_display_info",
-                  return_value=[_make_display(_DEVICE_A, 0, 0, 40, 40)]),
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[_make_display(_DEVICE_A, 0, 0, 40, 40)],
+            ),
             patch("wallpaper_auto.display_manager.com_session") as mock_session,
         ):
             _mock_com_session(mock_session)
@@ -417,9 +431,7 @@ class TestDisplayManagerRenderImageForRegion:
     def test_rgba_with_non_stretch_styles(self):
         for style in (WallpaperStyle.FILL, WallpaperStyle.FIT, WallpaperStyle.CENTER):
             img = Image.new("RGBA", (10, 10), (255, 0, 0, 128))
-            rendered, _, _ = DisplayManager._render_image_for_region(
-                img, style, 20, 20
-            )
+            rendered, _, _ = DisplayManager._render_image_for_region(img, style, 20, 20)
             assert rendered.mode == "RGB"
             assert rendered.getpixel((0, 0)) == (128, 0, 0)
 
@@ -483,7 +495,10 @@ class TestDisplayManagerUpdateDisplay:
         ]
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
-            patch("wallpaper_auto.display_manager.get_wallpaper_style", return_value=WallpaperStyle.FILL),
+            patch(
+                "wallpaper_auto.display_manager.get_wallpaper_style",
+                return_value=WallpaperStyle.FILL,
+            ),
             patch("wallpaper_auto.display_manager.get_wallpaper", return_value=Path("C:/orig.jpg")),
         ):
             result = dm.update_display()
@@ -513,7 +528,10 @@ class TestDisplayManagerUpdateDisplay:
         displays = [_make_display(_DEVICE_A, 0, 0, 100, 100)]
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
-            patch("wallpaper_auto.display_manager.get_wallpaper_style", return_value=WallpaperStyle.FILL),
+            patch(
+                "wallpaper_auto.display_manager.get_wallpaper_style",
+                return_value=WallpaperStyle.FILL,
+            ),
             patch("wallpaper_auto.display_manager.get_wallpaper", return_value=Path("C:/orig.jpg")),
         ):
             result = dm.update_display()

@@ -10,16 +10,15 @@ Optionally compresses large images and caches the result for performance.
 The cache directory is obtained from :class:`ConfigStore` so it persists
 across application restarts and is shared by all resources.
 """
+
 import logging
 from os import PathLike
 from pathlib import Path
-
 
 from ..util.wallpaper_util import (
     WallpaperStyle,
 )
 from .base_resource import BaseResource
-
 
 logger = logging.getLogger(__name__)
 
@@ -42,5 +41,4 @@ class StaticWallpaper(BaseResource):
     def mount(self) -> None:
         self.plot_canvas(self.style, self.image_path, immediate_update=False)
 
-    def demount(self) -> None:
-        ...
+    def demount(self) -> None: ...
