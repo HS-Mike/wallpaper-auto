@@ -81,7 +81,7 @@ class TestImageCompressionCacheInit:
         cache.put(src, 20, 20, _small_img(20, 20))
 
         # Corrupt the index.
-        (tmp_path / "compressed" / "index.json").write_text("{corrupt", encoding="utf-8")
+        (tmp_path / "resized" / "index.json").write_text("{corrupt", encoding="utf-8")
 
         caplog.set_level(logging.WARNING)
         cache2 = ImageCompressionCache(tmp_path)
@@ -104,7 +104,7 @@ class TestImageCompressionCacheInit:
         assert filename not in cache2._entries
 
     def test_cleans_up_stale_tmp_file(self, tmp_path: Path):
-        tmp_index = tmp_path / "compressed" / "index.json.tmp"
+        tmp_index = tmp_path / "resized" / "index.json.tmp"
         tmp_index.parent.mkdir(parents=True, exist_ok=True)
         tmp_index.write_text("{}", encoding="utf-8")
 
@@ -170,7 +170,7 @@ class TestImageCompressionCacheGetPut:
         assert filename in cache._entries
 
         # Manually delete the cached file.
-        (tmp_path / "compressed" / filename).unlink()
+        (tmp_path / "resized" / filename).unlink()
 
         result = cache.get(src, 20, 20)
         assert result is None
@@ -351,7 +351,7 @@ class TestImageCompressionCacheClear:
         assert count >= 3
         assert cache._entries == {}
         assert cache._current_size_bytes == 0
-        assert not (tmp_path / "compressed" / "index.json").exists()
+        assert not (tmp_path / "resized" / "index.json").exists()
 
 
 class TestImageCompressionCacheWarning:
@@ -376,11 +376,11 @@ class TestImageCompressionCacheIndexPersistence:
         _small_img(10, 10).save(src)
         cache.put(src, 20, 20, _small_img(20, 20))
 
-        index_path = tmp_path / "compressed" / "index.json"
+        index_path = tmp_path / "resized" / "index.json"
         assert index_path.exists()
 
         # The .tmp file should not exist after a successful write.
-        assert not (tmp_path / "compressed" / "index.json.tmp").exists()
+        assert not (tmp_path / "resized" / "index.json.tmp").exists()
 
         # Index should contain valid JSON.
         data = json.loads(index_path.read_text(encoding="utf-8"))
@@ -415,9 +415,9 @@ class TestImageCompressionCacheEdgeCases:
         _small_img(10, 10).save(src)
         cache.put(src, 20, 20, _small_img(20, 20))
 
-        # Manually delete the compressed dir.
+        # Manually delete the resized dir.
         import shutil
-        shutil.rmtree(tmp_path / "compressed")
+        shutil.rmtree(tmp_path / "resized")
 
         # New cache should start fresh.
         cache2 = ImageCompressionCache(tmp_path)

@@ -18,21 +18,28 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 
 from PIL import Image
 
+
+class _CacheEntry(TypedDict):
+    """Schema for each entry in the LFU index."""
+    access_count: int
+    source_path: str
+    source_size: int
+    source_mtime: float
+    content_prefix_hash: str
+    file_size: int
+
 logger = logging.getLogger(__name__)
 
-# ── tunable constants ──────────────────────────────────────────────────
 
 CACHE_CONTENT_HASH_BYTES: int = 65536          # 64 KB
 CACHE_MAX_SIZE_BYTES: int = 500 * 1024 * 1024  # 500 MB
 CACHE_EVICT_TARGET_RATIO: float = 0.9          # evict until 90 % of max
 LFU_AGING_THRESHOLD: int = 100                 # halve all counters at this ceiling
 
-
-# ── internal helpers ───────────────────────────────────────────────────
 
 @dataclass(frozen=True)
 class _CacheKey:
@@ -55,8 +62,6 @@ class _CacheKey:
         return f"{digest}_{self.region_w}x{self.region_h}.png"
 
 
-# ── main class ─────────────────────────────────────────────────────────
-
 class ImageCompressionCache:
     """Persistent LFU cache for display-resolution wallpaper images.
 
@@ -65,7 +70,7 @@ class ImageCompressionCache:
     same directory.
     """
 
-    _SUBDIR = "compressed"
+    _SUBDIR = "resized"
     _INDEX_FILE = "index.json"
 
     def __init__(self, cache_dir: Path) -> None:
@@ -75,12 +80,10 @@ class ImageCompressionCache:
         self._index_path = self._cache_dir / self._INDEX_FILE
 
         # In-memory state
-        self._entries: dict[str, dict[str, Any]] = {}   # filename → metadata
+        self._entries: dict[str, _CacheEntry] = {}
         self._current_size_bytes: int = 0
 
         self._load_index()
-
-    # ── public API ─────────────────────────────────────────────────────
 
     def get(
         self, source_path: Path, region_w: int, region_h: int
@@ -103,7 +106,7 @@ class ImageCompressionCache:
             if not cached_path.is_file():
                 # Stale index entry — clean up.
                 del self._entries[filename]
-                self._current_size_bytes -= entry.get("file_size", 0)
+                self._current_size_bytes -= entry["file_size"]
                 self._write_index()
                 return None
 
@@ -114,7 +117,7 @@ class ImageCompressionCache:
 
         try:
             return Image.open(cached_path)
-        except Exception:
+        except OSError:
             logger.exception("Failed to read cached image %s", cached_path)
             return None
 
@@ -138,7 +141,11 @@ class ImageCompressionCache:
         cached_path = self._cache_dir / filename
 
         # Save to disk.
-        resized.save(cached_path, "PNG")
+        try:
+            resized.save(cached_path, "PNG")
+        except OSError:
+            logger.exception("Failed to write cached image %s", cached_path)
+            return
         file_size = cached_path.stat().st_size
 
         if file_size > CACHE_MAX_SIZE_BYTES:
@@ -148,14 +155,14 @@ class ImageCompressionCache:
             )
 
         with self._lock:
-            self._entries[filename] = {
-                "access_count": 1,
-                "source_path": key.source_path,
-                "source_size": key.source_size,
-                "source_mtime": key.source_mtime,
-                "content_prefix_hash": key.content_prefix_hash,
-                "file_size": file_size,
-            }
+            self._entries[filename] = _CacheEntry(
+                access_count=1,
+                source_path=key.source_path,
+                source_size=key.source_size,
+                source_mtime=key.source_mtime,
+                content_prefix_hash=key.content_prefix_hash,
+                file_size=file_size,
+            )
             self._current_size_bytes += file_size
 
             if self._current_size_bytes > CACHE_MAX_SIZE_BYTES:
@@ -179,7 +186,13 @@ class ImageCompressionCache:
         if cached is not None:
             return cached
 
-        resized = resize_fn()
+        try:
+            resized = resize_fn()
+        except OSError:
+            logger.exception("Cache resize_fn failed for %s", source_path)
+            # Return a blank image so the composite can still proceed.
+            return Image.new("RGB", (region_w, region_h), (0, 0, 0))
+
         self.put(source_path, region_w, region_h, resized)
         return resized
 
@@ -201,8 +214,6 @@ class ImageCompressionCache:
             self._entries.clear()
             self._current_size_bytes = 0
         return count
-
-    # ── internal helpers ───────────────────────────────────────────────
 
     def _compute_key(
         self, source_path: Path, region_w: int, region_h: int,
@@ -257,7 +268,7 @@ class ImageCompressionCache:
             for fname, meta in self._entries.items():
                 if fname in exclude:
                     continue
-                ac = meta.get("access_count", 0)
+                ac = meta["access_count"]
                 if candidate is None or ac < candidate_count:
                     candidate = fname
                     candidate_count = ac
@@ -277,12 +288,12 @@ class ImageCompressionCache:
 
         entry = self._entries.pop(filename, None)
         if entry is not None:
-            self._current_size_bytes -= entry.get("file_size", 0)
+            self._current_size_bytes -= entry["file_size"]
 
     def _age_if_needed(self) -> None:
         """Halve all LFU counters when any entry exceeds the threshold."""
         if any(
-            meta.get("access_count", 0) > LFU_AGING_THRESHOLD
+            meta["access_count"] > LFU_AGING_THRESHOLD
             for meta in self._entries.values()
         ):
             for meta in self._entries.values():
@@ -339,7 +350,7 @@ class ImageCompressionCache:
             self._recount_from_disk()
             return
 
-        validated: dict[str, dict[str, Any]] = {}
+        validated: dict[str, _CacheEntry] = {}
         total = 0
         for fname, meta in entries.items():
             if not isinstance(meta, dict):
@@ -349,7 +360,7 @@ class ImageCompressionCache:
                 continue  # orphan
 
             # Verify source still matches metadata.
-            source_path_str = meta.get("source_path", "")
+            source_path_str = str(meta.get("source_path", ""))
             source_path = Path(source_path_str) if source_path_str else None
             if source_path:
                 if source_path.is_file():
@@ -367,8 +378,15 @@ class ImageCompressionCache:
                     # Source no longer exists — orphan.
                     continue
 
-            validated[fname] = meta
-            total += meta.get("file_size", 0)
+            validated[fname] = _CacheEntry(
+                access_count=int(meta.get("access_count", 0)),
+                source_path=source_path_str,
+                source_size=int(meta.get("source_size", 0)),
+                source_mtime=float(meta.get("source_mtime", 0)),
+                content_prefix_hash=str(meta.get("content_prefix_hash", "")),
+                file_size=int(meta.get("file_size", 0)),
+            )
+            total += validated[fname]["file_size"]
 
         self._entries = validated
         self._current_size_bytes = total
@@ -378,7 +396,7 @@ class ImageCompressionCache:
 
         All LFU counters are reset to 0.
         """
-        entries: dict[str, dict[str, Any]] = {}
+        entries: dict[str, _CacheEntry] = {}
         total = 0
 
         if not self._cache_dir.is_dir():
@@ -393,14 +411,14 @@ class ImageCompressionCache:
                 st = p.stat()
             except OSError:
                 continue
-            entries[p.name] = {
-                "access_count": 0,
-                "source_path": "",
-                "source_size": 0,
-                "source_mtime": 0.0,
-                "content_prefix_hash": "",
-                "file_size": st.st_size,
-            }
+            entries[p.name] = _CacheEntry(
+                access_count=0,
+                source_path="",
+                source_size=0,
+                source_mtime=0.0,
+                content_prefix_hash="",
+                file_size=st.st_size,
+            )
             total += st.st_size
 
         self._entries = entries

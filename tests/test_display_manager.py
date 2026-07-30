@@ -392,7 +392,8 @@ class TestDisplayManagerPlotCanvas:
             dm.plot_canvas()
         assert (cache / "_composite.png").exists()
 
-    def test_missing_path_buffer_raises_file_not_found(self):
+    def test_missing_path_buffer_returns_blank_image(self):
+        """Missing source file should not crash — cache returns a blank fallback."""
         dm = DisplayManager()
         missing = ConfigStore.instance.cache_path / "nonexistent.png"
         dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, missing)
@@ -402,10 +403,12 @@ class TestDisplayManagerPlotCanvas:
                 return_value=[_make_display(_DEVICE_A, 0, 0, 40, 40)],
             ),
             patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper") as mock_set_wp,
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
         ):
             _mock_com_session(mock_session)
-            with pytest.raises(FileNotFoundError):
-                dm.plot_canvas()
+            dm.plot_canvas()  # should not raise
+        mock_set_wp.assert_called_once()
 
 
 class TestDisplayManagerRenderImageForRegion:
@@ -545,7 +548,7 @@ class TestDisplayManagerCacheIntegration:
     def test_cache_used_for_path_buffers(self, tmp_path: Path):
         """Path-based buffer entries should go through the cache."""
         dm = DisplayManager()
-        cache_dir = tmp_path / "compressed"
+        cache_dir = tmp_path / "resized"
 
         src = tmp_path / "wallpaper.png"
         Image.new("RGB", (50, 50), (200, 100, 50)).save(src)
@@ -561,7 +564,7 @@ class TestDisplayManagerCacheIntegration:
             _mock_com_session(mock_session)
             dm.plot_canvas()
 
-        # The cache should have created the compressed dir with one entry.
+        # The cache should have created the resized dir with one entry.
         assert cache_dir.is_dir()
         png_files = list(cache_dir.glob("*.png"))
         assert len(png_files) >= 1

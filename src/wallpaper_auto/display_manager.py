@@ -7,6 +7,7 @@ it via the COM IDesktopWallpaper API.
 """
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 from PIL import Image
@@ -32,6 +33,11 @@ logging.getLogger("PIL").setLevel(logging.WARNING)
 def _resize_image(img: Image.Image, w: int, h: int) -> Image.Image:
     """Resize *img* to ``(w, h)`` using high-quality LANCZOS."""
     return img.resize((w, h), Image.Resampling.LANCZOS, reducing_gap=3)
+
+
+def _make_resize_fn(path: Path, w: int, h: int) -> Callable[[], Image.Image]:
+    """Build a resize callback that closes over its arguments."""
+    return lambda: _resize_image(Image.open(path), w, h)
 
 
 class DisplayManager:
@@ -164,6 +170,24 @@ class DisplayManager:
         resource._bind_plot_canvas(self.update_canvas_buffer)
         resource.mount()
 
+    def _resolve_cached_image(
+        self,
+        img: Path | Image.Image,
+        w: int,
+        h: int,
+    ) -> Image.Image:
+        """Resolve a buffer entry through the cache, or fall back to ``Image.open``.
+
+        If *img* is a ``Path`` and the cache is available, ``render()`` handles
+        hit-or-miss transparently.  If *img* is a ``Path`` but there is no cache,
+        open it directly.  Otherwise return the PIL ``Image`` as-is.
+        """
+        if isinstance(img, Path) and self._image_cache is not None:
+            return self._image_cache.render(img, w, h, _make_resize_fn(img, w, h))
+        if isinstance(img, Path):
+            return Image.open(img)
+        return img
+
     def update_canvas_buffer(
         self,
         monitor_device_path: str,
@@ -224,14 +248,7 @@ class DisplayManager:
         )
         if span_entry:
             _, img = span_entry
-            if isinstance(img, Path) and self._image_cache is not None:
-                src_path: Path = img
-                img = self._image_cache.render(
-                    src_path, canvas_w, canvas_h,
-                    lambda: _resize_image(Image.open(src_path), canvas_w, canvas_h),
-                )
-            elif isinstance(img, Path):
-                img = Image.open(img)
+            img = self._resolve_cached_image(img, canvas_w, canvas_h)
             rendered, _, _ = DisplayManager._render_image_for_region(
                 img,
                 WallpaperStyle.FILL,
@@ -248,14 +265,7 @@ class DisplayManager:
                 canvas_x = d.position[0] - min_left
                 canvas_y = d.position[1] - min_top
 
-                if isinstance(img, Path) and self._image_cache is not None:
-                    mon_src_path: Path = img
-                    img = self._image_cache.render(
-                        mon_src_path, region_w, region_h,
-                        lambda: _resize_image(Image.open(mon_src_path), region_w, region_h),
-                    )
-                elif isinstance(img, Path):
-                    img = Image.open(img)
+                img = self._resolve_cached_image(img, region_w, region_h)
                 rendered, offset_x, offset_y = DisplayManager._render_image_for_region(
                     img,
                     style,
@@ -303,13 +313,13 @@ class DisplayManager:
             img = img.convert("RGB")
 
         if style == WallpaperStyle.STRETCH:
-            return img.resize((region_w, region_h), Image.Resampling.LANCZOS, reducing_gap=3), 0, 0
+            return _resize_image(img, region_w, region_h), 0, 0
 
         if style == WallpaperStyle.FILL:
             scale = max(region_w / src_w, region_h / src_h)
             new_w = int(src_w * scale)
             new_h = int(src_h * scale)
-            resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS, reducing_gap=3)
+            resized = _resize_image(img, new_w, new_h)
             x = (new_w - region_w) // 2
             y = (new_h - region_h) // 2
             return resized.crop((x, y, x + region_w, y + region_h)), 0, 0
@@ -318,7 +328,7 @@ class DisplayManager:
             scale = min(region_w / src_w, region_h / src_h)
             new_w = int(src_w * scale)
             new_h = int(src_h * scale)
-            resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS, reducing_gap=3)
+            resized = _resize_image(img, new_w, new_h)
             offset_x = (region_w - new_w) // 2
             offset_y = (region_h - new_h) // 2
             return resized, offset_x, offset_y
