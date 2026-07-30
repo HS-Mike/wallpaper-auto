@@ -1,4 +1,4 @@
-"""Tests for DisplayManager — per-monitor wallpaper lifecycle, canvas compositing, and hotplug."""
+"""Tests for DisplayManager — wallpaper lifecycle, canvas compositing, and hotplug detection."""
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -197,7 +197,7 @@ class TestDisplayManagerAddRemove:
     def test_remove_already_patched_display_raises_value_error(self):
         dm = DisplayManager()
         _add_display(dm, _DEVICE_A)
-        with pytest.raises(ValueError, match="do not have a resource"):
+        with pytest.raises(ValueError, match="does not have a resource"):
             dm.remove_display(_DEVICE_A)
 
     def test_update_swaps_active_resource(self):
@@ -536,3 +536,50 @@ class TestDisplayManagerUpdateDisplay:
         ):
             result = dm.update_display()
         assert [d.monitor_device_path for d in result] == [_DEVICE_A]
+
+
+@pytest.mark.usefixtures("_config_store_with_cache")
+class TestDisplayManagerCacheIntegration:
+    """ImageCompressionCache integration with plot_canvas."""
+
+    def test_cache_used_for_path_buffers(self, tmp_path: Path):
+        """Path-based buffer entries should go through the cache."""
+        dm = DisplayManager()
+        cache_dir = tmp_path / "compressed"
+
+        src = tmp_path / "wallpaper.png"
+        Image.new("RGB", (50, 50), (200, 100, 50)).save(src)
+        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, src)
+
+        displays = [_make_display(_DEVICE_A, 0, 0, 50, 50)]
+        with (
+            patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper"),
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+        ):
+            _mock_com_session(mock_session)
+            dm.plot_canvas()
+
+        # The cache should have created the compressed dir with one entry.
+        assert cache_dir.is_dir()
+        png_files = list(cache_dir.glob("*.png"))
+        assert len(png_files) >= 1
+
+        # Access count should be 1 after the first plot.
+        cache = dm._image_cache
+        assert cache is not None
+        filename = next(iter(cache._entries))
+        assert cache._entries[filename]["access_count"] == 1
+
+        # Second call — cache hit, access_count incremented.
+        with (
+            patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper"),
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+        ):
+            _mock_com_session(mock_session)
+            dm.plot_canvas()
+
+        assert cache._entries[filename]["access_count"] == 2

@@ -12,6 +12,7 @@ from pathlib import Path
 from PIL import Image
 
 from .config_store import ConfigStore
+from .image_cache import ImageCompressionCache
 from .resource.base_resource import BaseResource
 from .resource.static_wallpaper import StaticWallpaper
 from .util.display_utils import DisplayInfo, get_display_info
@@ -26,6 +27,11 @@ from .util.wallpaper_util import (
 
 logger = logging.getLogger(__name__)
 logging.getLogger("PIL").setLevel(logging.WARNING)
+
+
+def _resize_image(img: Image.Image, w: int, h: int) -> Image.Image:
+    """Resize *img* to ``(w, h)`` using high-quality LANCZOS."""
+    return img.resize((w, h), Image.Resampling.LANCZOS, reducing_gap=3)
 
 
 class DisplayManager:
@@ -46,6 +52,7 @@ class DisplayManager:
         self._display_resource_map: dict[str, BaseResource] = {}
         self._display_resource_is_patch: dict[str, bool] = {}
         self._canvas_buffer: dict[str, tuple[WallpaperStyle, Path | Image.Image]] = {}
+        self._image_cache: ImageCompressionCache | None = None
 
     def start(self) -> None:
         """Record original wallpaper for all connected displays and register as patches."""
@@ -126,7 +133,8 @@ class DisplayManager:
         is_patch = self._display_resource_is_patch[monitor_device_path]
         if is_patch is True:
             raise ValueError(
-                f"Display (monitor_device_path: {monitor_device_path}) do not have a resource"
+                f"Display (monitor_device_path: {monitor_device_path}) "
+                "does not have a resource"
             )
         res = self._display_resource_map[monitor_device_path]
         res.demount()
@@ -205,6 +213,10 @@ class DisplayManager:
         canvas = Image.new("RGB", (canvas_w, canvas_h), (0, 0, 0))
         display_map = {d.monitor_device_path: d for d in relevant}
 
+        # Lazy-init the image compression cache.
+        if self._image_cache is None and ConfigStore.has_instance():
+            self._image_cache = ImageCompressionCache(ConfigStore.instance.cache_path)
+
         # If any resource specifies SPAN, it replaces the entire composite.
         span_entry = next(
             ((mid, path) for mid, (style, path) in buffer.items() if style == WallpaperStyle.SPAN),
@@ -212,7 +224,13 @@ class DisplayManager:
         )
         if span_entry:
             _, img = span_entry
-            if isinstance(img, Path):
+            if isinstance(img, Path) and self._image_cache is not None:
+                src_path: Path = img
+                img = self._image_cache.render(
+                    src_path, canvas_w, canvas_h,
+                    lambda: _resize_image(Image.open(src_path), canvas_w, canvas_h),
+                )
+            elif isinstance(img, Path):
                 img = Image.open(img)
             rendered, _, _ = DisplayManager._render_image_for_region(
                 img,
@@ -230,7 +248,13 @@ class DisplayManager:
                 canvas_x = d.position[0] - min_left
                 canvas_y = d.position[1] - min_top
 
-                if isinstance(img, Path):
+                if isinstance(img, Path) and self._image_cache is not None:
+                    mon_src_path: Path = img
+                    img = self._image_cache.render(
+                        mon_src_path, region_w, region_h,
+                        lambda: _resize_image(Image.open(mon_src_path), region_w, region_h),
+                    )
+                elif isinstance(img, Path):
                     img = Image.open(img)
                 rendered, offset_x, offset_y = DisplayManager._render_image_for_region(
                     img,
