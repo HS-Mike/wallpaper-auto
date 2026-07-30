@@ -178,54 +178,33 @@ class TestImageCompressionCacheGetPut:
 
 
 class TestImageCompressionCacheRender:
-    def test_render_calls_resize_fn_on_miss(self, tmp_path: Path):
+    def test_render_resizes_on_miss(self, tmp_path: Path):
         cache = ImageCompressionCache(tmp_path)
         src = tmp_path / "src.png"
-        _small_img(10, 10).save(src)
-        called = False
+        _small_img(100, 100).save(src)
 
-        def resize_fn() -> Image.Image:
-            nonlocal called
-            called = True
-            return _small_img(20, 20)
-
-        img = cache.render(src, 20, 20, resize_fn)
-        assert called
+        img = cache.render(src, 20, 20)
         assert img.size == (20, 20)
 
     def test_render_returns_cached_on_subsequent_call(self, tmp_path: Path):
         cache = ImageCompressionCache(tmp_path)
         src = tmp_path / "src.png"
-        _small_img(10, 10).save(src)
-        call_count = 0
+        _small_img(100, 100).save(src)
 
-        def resize_fn() -> Image.Image:
-            nonlocal call_count
-            call_count += 1
-            return _small_img(20, 20)
-
-        cache.render(src, 20, 20, resize_fn)
-        assert call_count == 1
-
-        cache.render(src, 20, 20, resize_fn)
-        assert call_count == 1  # not called again
+        cache.render(src, 20, 20)
+        cache.render(src, 20, 20)
+        assert len(cache._entries) == 1
+        filename = next(iter(cache._entries))
+        assert cache._entries[filename]["access_count"] == 2  # get() hit increments
 
     def test_render_different_resolution_misses(self, tmp_path: Path):
         cache = ImageCompressionCache(tmp_path)
         src = tmp_path / "src.png"
-        _small_img(10, 10).save(src)
-        call_count = 0
+        _small_img(100, 100).save(src)
 
-        def resize_fn(w: int, h: int):
-            def _fn():
-                nonlocal call_count
-                call_count += 1
-                return _small_img(w, h)
-            return _fn
-
-        cache.render(src, 20, 20, resize_fn(20, 20))
-        cache.render(src, 30, 30, resize_fn(30, 30))
-        assert call_count == 2
+        cache.render(src, 20, 20)
+        cache.render(src, 30, 30)
+        assert len(cache._entries) == 2
 
 
 class TestImageCompressionCacheEviction:
@@ -325,15 +304,8 @@ class TestImageCompressionCacheEviction:
             for _ in range(6):
                 cache.get(src, 20, 20)
 
-            # access_count was 1 + 6 = 7, after halving should be 3.
+            # After 6 gets on top of put (count=1), aging halves 7→3.
             count = cache._entries[filename]["access_count"]
-            # After being at 7 and halved: 7//2 = 3 (but there might be additional
-            # access from the get() calls, let's just verify it's <= 3)
-            # Actually: put sets to 1, then 6 gets → 7, then _age_if_needed() after get #6
-            # halves to 3 (7//2). Then the get() that triggered aging increments to 4?
-            # Wait, the order in get() is: increment, then age_if_needed.
-            # So: after 5 gets: count = 6 (1+5). Get #6: count=7, age_if_needed → 7>5, halve all → 3.
-            # But get() returns after _write_index. So final count = 3.
             assert count in (3, 4), f"expected ~3, got {count}"
 
 
@@ -384,7 +356,6 @@ class TestImageCompressionCacheIndexPersistence:
 
         # Index should contain valid JSON.
         data = json.loads(index_path.read_text(encoding="utf-8"))
-        assert data["version"] == 1
         assert len(data["entries"]) == 1
 
     def test_index_survives_restart(self, tmp_path: Path):

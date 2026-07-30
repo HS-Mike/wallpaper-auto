@@ -15,7 +15,6 @@ import hashlib
 import json
 import logging
 import threading
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypedDict
@@ -171,25 +170,25 @@ class ImageCompressionCache:
             self._write_index()
 
     def render(
-        self,
-        source_path: Path,
-        region_w: int,
-        region_h: int,
-        resize_fn: Callable[[], Image.Image],
+        self, source_path: Path, region_w: int, region_h: int
     ) -> Image.Image:
         """Return a cached resized image, or compute and cache it.
 
-        This is the primary entry point — the caller describes the desired
-        output and the cache handles hit-or-miss transparently.
+        This is the primary entry point — the caller says
+        "render this source for this display" and gets the result
+        regardless of cache state.
         """
         cached = self.get(source_path, region_w, region_h)
         if cached is not None:
             return cached
 
         try:
-            resized = resize_fn()
+            with Image.open(source_path) as img:
+                resized = img.resize(
+                    (region_w, region_h), Image.Resampling.LANCZOS, reducing_gap=3,
+                )
         except OSError:
-            logger.exception("Cache resize_fn failed for %s", source_path)
+            logger.exception("Cache failed to open/resize %s", source_path)
             # Return a blank image so the composite can still proceed.
             return Image.new("RGB", (region_w, region_h), (0, 0, 0))
 
@@ -302,7 +301,6 @@ class ImageCompressionCache:
     def _write_index(self) -> None:
         """Atomically write the LFU index to ``index.json``."""
         payload = {
-            "version": 1,
             "entries": self._entries,
         }
         tmp = self._index_path.with_suffix(".json.tmp")
@@ -336,11 +334,6 @@ class ImageCompressionCache:
                 data = json.load(f)
         except (json.JSONDecodeError, OSError):
             logger.warning("Corrupt cache index, recounting from disk")
-            self._recount_from_disk()
-            return
-
-        if not isinstance(data, dict) or data.get("version") != 1:
-            logger.warning("Unrecognised cache index format, recounting from disk")
             self._recount_from_disk()
             return
 

@@ -7,7 +7,6 @@ it via the COM IDesktopWallpaper API.
 """
 
 import logging
-from collections.abc import Callable
 from pathlib import Path
 
 from PIL import Image
@@ -33,11 +32,6 @@ logging.getLogger("PIL").setLevel(logging.WARNING)
 def _resize_image(img: Image.Image, w: int, h: int) -> Image.Image:
     """Resize *img* to ``(w, h)`` using high-quality LANCZOS."""
     return img.resize((w, h), Image.Resampling.LANCZOS, reducing_gap=3)
-
-
-def _make_resize_fn(path: Path, w: int, h: int) -> Callable[[], Image.Image]:
-    """Build a resize callback that closes over its arguments."""
-    return lambda: _resize_image(Image.open(path), w, h)
 
 
 class DisplayManager:
@@ -183,7 +177,7 @@ class DisplayManager:
         open it directly.  Otherwise return the PIL ``Image`` as-is.
         """
         if isinstance(img, Path) and self._image_cache is not None:
-            return self._image_cache.render(img, w, h, _make_resize_fn(img, w, h))
+            return self._image_cache.render(img, w, h)
         if isinstance(img, Path):
             return Image.open(img)
         return img
