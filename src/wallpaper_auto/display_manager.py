@@ -12,7 +12,7 @@ from pathlib import Path
 from PIL import Image
 
 from .config_store import ConfigStore
-from .image_cache import ImageCompressionCache
+from .image_cache import ImageCompressionCache, _resize_image
 from .resource.base_resource import BaseResource
 from .resource.static_wallpaper import StaticWallpaper
 from .util.display_utils import DisplayInfo, get_display_info
@@ -27,11 +27,6 @@ from .util.wallpaper_util import (
 
 logger = logging.getLogger(__name__)
 logging.getLogger("PIL").setLevel(logging.WARNING)
-
-
-def _resize_image(img: Image.Image, w: int, h: int) -> Image.Image:
-    """Resize *img* to ``(w, h)`` using high-quality LANCZOS."""
-    return img.resize((w, h), Image.Resampling.LANCZOS, reducing_gap=3)
 
 
 class DisplayManager:

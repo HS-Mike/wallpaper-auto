@@ -40,6 +40,11 @@ CACHE_EVICT_TARGET_RATIO: float = 0.9          # evict until 90 % of max
 LFU_AGING_THRESHOLD: int = 100                 # halve all counters at this ceiling
 
 
+def _resize_image(img: Image.Image, w: int, h: int) -> Image.Image:
+    """Resize *img* to ``(w, h)`` using high-quality LANCZOS."""
+    return img.resize((w, h), Image.Resampling.LANCZOS, reducing_gap=3)
+
+
 @dataclass(frozen=True)
 class _CacheKey:
     """Uniquely identifies a cacheable image at a target resolution."""
@@ -184,9 +189,7 @@ class ImageCompressionCache:
 
         try:
             with Image.open(source_path) as img:
-                resized = img.resize(
-                    (region_w, region_h), Image.Resampling.LANCZOS, reducing_gap=3,
-                )
+                resized = _resize_image(img, region_w, region_h)
         except OSError:
             logger.exception("Cache failed to open/resize %s", source_path)
             # Return a blank image so the composite can still proceed.

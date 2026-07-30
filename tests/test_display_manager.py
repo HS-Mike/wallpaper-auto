@@ -96,12 +96,13 @@ class TestDisplayManager:
             _make_display(_DEVICE_A, 0, 0, 100, 100),
             _make_display(_DEVICE_B, 100, 0, 100, 100),
         ]
+        style_patch = patch(
+            "wallpaper_auto.display_manager.get_wallpaper_style",
+            return_value=WallpaperStyle.FILL,
+        )
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
-            patch(
-                "wallpaper_auto.display_manager.get_wallpaper_style",
-                return_value=WallpaperStyle.FILL,
-            ),
+            style_patch,
             patch("wallpaper_auto.display_manager.get_wallpaper", return_value=Path("C:/orig.jpg")),
         ):
             dm.start()
@@ -294,8 +295,7 @@ class TestDisplayManagerPlotCanvas:
     def test_span_entry_replaces_entire_composite(self):
         dm = DisplayManager()
         dm._canvas_buffer[_DEVICE_A] = (
-            WallpaperStyle.SPAN,
-            Image.new("RGB", (40, 40), (10, 20, 30)),
+            WallpaperStyle.SPAN, Image.new("RGB", (40, 40), (10, 20, 30)),
         )
         with (
             patch(

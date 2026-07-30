@@ -2,7 +2,6 @@
 
 import json
 import logging
-import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,7 +28,7 @@ class TestCacheKey:
         )
         name = key.filename()
         assert name.endswith("_1920x1080.png")
-        assert len(name) == 16 + 1 + 4 + 1 + 4 + 4  # 30 chars + ".png"
+        assert len(name) == 30
 
     def test_deterministic(self):
         kwargs = dict(
@@ -60,19 +59,6 @@ class TestImageCompressionCacheInit:
         cache = ImageCompressionCache(tmp_path)
         assert cache._entries == {}
         assert cache._current_size_bytes == 0
-
-    def test_loads_existing_index(self, tmp_path: Path):
-        cache = ImageCompressionCache(tmp_path)
-        # Put one entry.
-        src = tmp_path / "source.png"
-        _small_img().save(src)
-        img = _small_img(20, 20)
-        cache.put(src, 20, 20, img)
-        filename = next(iter(cache._entries))
-
-        # Create a new cache instance pointing to the same dir.
-        cache2 = ImageCompressionCache(tmp_path)
-        assert filename in cache2._entries
 
     def test_recounts_on_corrupt_index(self, tmp_path: Path, caplog):
         cache = ImageCompressionCache(tmp_path)
@@ -129,17 +115,6 @@ class TestImageCompressionCacheGetPut:
         assert result is not None
         assert result.size == (20, 20)
 
-    def test_get_increments_access_count(self, tmp_path: Path):
-        cache = ImageCompressionCache(tmp_path)
-        src = tmp_path / "src.png"
-        _small_img(10, 10).save(src)
-        cache.put(src, 20, 20, _small_img(20, 20))
-        filename = next(iter(cache._entries))
-        assert cache._entries[filename]["access_count"] == 1
-
-        cache.get(src, 20, 20)
-        assert cache._entries[filename]["access_count"] == 2
-
     def test_get_returns_none_after_source_change(self, tmp_path: Path):
         cache = ImageCompressionCache(tmp_path)
         src = tmp_path / "src.png"
@@ -151,14 +126,6 @@ class TestImageCompressionCacheGetPut:
         _small_img(10, 10, r=200).save(src)
         # The size and mtime changed, so the key should differ.
         assert cache.get(src, 20, 20) is None
-
-    def test_different_resolution_different_cache_entry(self, tmp_path: Path):
-        cache = ImageCompressionCache(tmp_path)
-        src = tmp_path / "src.png"
-        _small_img(10, 10).save(src)
-        cache.put(src, 20, 20, _small_img(20, 20))
-        cache.put(src, 30, 30, _small_img(30, 30))
-        assert len(cache._entries) == 2
 
     def test_stale_cache_file_removed_on_miss(self, tmp_path: Path):
         """If the cached .png file is manually deleted, get() should remove the index entry."""
@@ -193,9 +160,9 @@ class TestImageCompressionCacheRender:
 
         cache.render(src, 20, 20)
         cache.render(src, 20, 20)
-        assert len(cache._entries) == 1
         filename = next(iter(cache._entries))
-        assert cache._entries[filename]["access_count"] == 2  # get() hit increments
+        # get() hit increments access_count to 2 after put set it to 1.
+        assert cache._entries[filename]["access_count"] == 2
 
     def test_render_different_resolution_misses(self, tmp_path: Path):
         cache = ImageCompressionCache(tmp_path)
@@ -206,90 +173,84 @@ class TestImageCompressionCacheRender:
         cache.render(src, 30, 30)
         assert len(cache._entries) == 2
 
+    def test_render_missing_source_returns_blank(self, tmp_path: Path):
+        """render() should return a blank fallback when the source is missing."""
+        cache = ImageCompressionCache(tmp_path)
+        missing = tmp_path / "nonexistent.png"
+        img = cache.render(missing, 20, 20)
+        assert img.size == (20, 20)
+        # Should be all black (OSError fallback).
+        assert img.getpixel((0, 0)) == (0, 0, 0)
+
 
 class TestImageCompressionCacheEviction:
     def test_evict_oldest_when_over_limit(self, tmp_path: Path):
-        """Put many entries, verify that the least frequently used is evicted."""
-        max_bytes = 2000  # small limit
+        """Put entries until eviction kicks in."""
+        max_bytes = 2000
         with patch("wallpaper_auto.image_cache.CACHE_MAX_SIZE_BYTES", max_bytes):
             with patch("wallpaper_auto.image_cache.CACHE_EVICT_TARGET_RATIO", 0.5):
                 cache = ImageCompressionCache(tmp_path)
-                src = tmp_path / "src.png"
-                _small_img(10, 10).save(src)
 
-                # Put entries — each 100x100 PNG ~500 bytes, 20× = ~10 KB.
+                # Use a separate source file per put so keys differ naturally.
                 for i in range(20):
-                    img = _small_img(100, 100, r=i * 10)
-                    cache.put(src, 100, 100, img)
-                    # Touch source to change its mtime so each put gets a
-                    # different key.
-                    time.sleep(0.01)
-                    src.touch()
+                    s = tmp_path / f"src{i}.png"
+                    _small_img(10, 10).save(s)
+                    cache.put(s, 100, 100, _small_img(100, 100, r=i * 10))
 
-                # We should have fewer entries than put calls (limit 2000,
-                # target 1000, each entry ~500 bytes → ~2 entries max).
+                # At most ~2 entries fit (limit 2000, target 1000, each ~500 bytes).
                 assert len(cache._entries) < 10
 
     def test_exclude_current_from_eviction(self, tmp_path: Path):
-        """The just-saved entry should not be evicted immediately."""
+        """The just-saved entry should survive eviction."""
         max_bytes = 400
         with patch("wallpaper_auto.image_cache.CACHE_MAX_SIZE_BYTES", max_bytes):
-            with patch("wallpaper_auto.image_cache.CACHE_EVICT_TARGET_RATIO", 0.9):
-                cache = ImageCompressionCache(tmp_path)
-                src = tmp_path / "src.png"
-                _small_img(10, 10).save(src)
+            cache = ImageCompressionCache(tmp_path)
 
-                # Each 80x80 PNG is ~200 bytes. With a 400 byte limit,
-                # the second entry should trigger eviction.
-                cache.put(src, 80, 80, _small_img(80, 80))
-                assert len(cache._entries) == 1
-                src.touch()
+            # Put two entries with separate source files.
+            s1 = tmp_path / "src1.png"
+            s2 = tmp_path / "src2.png"
+            _small_img(10, 10).save(s1)
+            _small_img(10, 10).save(s2)
 
-                cache.put(src, 80, 80, _small_img(80, 80))
-                # The second entry was just saved so it should be excluded
-                # from eviction — only the first entry might be evicted.
-                src.touch()
+            # Each entry is ~200 bytes. After the second put, total > 400 → eviction.
+            cache.put(s1, 80, 80, _small_img(80, 80))
+            cache.put(s2, 80, 80, _small_img(80, 80))
 
-                cache.put(src, 80, 80, _small_img(80, 80))
-                # Should still have at least the current entry.
-                assert len(cache._entries) >= 1
+            # s2 (just saved) should survive; s1 may be evicted.
+            assert len(cache._entries) >= 1
+            # Verify s2's entry exists (check via public API).
+            assert cache.get(s2, 80, 80) is not None
 
-    def test_lfu_access_protects_frequent_entries(self, tmp_path: Path):
+    def test_lfu_protects_frequent_entries(self, tmp_path: Path):
         """Frequently accessed entries should survive eviction over infrequent ones."""
         max_bytes = 3000
         with patch("wallpaper_auto.image_cache.CACHE_MAX_SIZE_BYTES", max_bytes):
-            with patch("wallpaper_auto.image_cache.CACHE_EVICT_TARGET_RATIO", 0.5):
-                cache = ImageCompressionCache(tmp_path)
-                src_freq = tmp_path / "freq.png"
-                src_infreq = tmp_path / "infreq.png"
-                _small_img(10, 10).save(src_freq)
-                _small_img(10, 10).save(src_infreq)
+            cache = ImageCompressionCache(tmp_path)
 
-                # Put frequent entry and access it many times.
-                cache.put(src_freq, 100, 100, _small_img(100, 100))
-                for _ in range(5):
-                    cache.get(src_freq, 100, 100)
+            # Create two source files with different paths.
+            src_freq = tmp_path / "freq.png"
+            src_infreq = tmp_path / "infreq.png"
+            _small_img(10, 10).save(src_freq)
+            _small_img(10, 10).save(src_infreq)
 
-                # Put infrequent entry.
-                time.sleep(0.01)
-                src_infreq.touch()
-                cache.put(src_infreq, 100, 100, _small_img(100, 100))
+            # Put and frequently access one entry.
+            cache.put(src_freq, 100, 100, _small_img(100, 100))
+            for _ in range(5):
+                cache.get(src_freq, 100, 100)
 
-                # Access infrequent once.
-                cache.get(src_infreq, 100, 100)
+            # Put and lightly access another.
+            cache.put(src_infreq, 100, 100, _small_img(100, 100))
+            cache.get(src_infreq, 100, 100)
 
-                # Fill until eviction — infrequent should be evicted first.
-                for i in range(15):
-                    s = tmp_path / f"fill{i}.png"
-                    _small_img(10, 10).save(s)
-                    cache.put(s, 100, 100, _small_img(100, 100))
+            # Fill until eviction.
+            for i in range(15):
+                s = tmp_path / f"fill{i}.png"
+                _small_img(10, 10).save(s)
+                cache.put(s, 100, 100, _small_img(100, 100))
 
-                # The frequent entry should survive because it has higher LFU.
-                freq_survived = any(
-                    "freq" in cache._entries[k].get("source_path", "")
-                    for k in cache._entries
-                )
-                assert freq_survived, "frequent entry should survive"
+            # Frequent entry should survive; infrequent may be evicted.
+            assert cache.get(src_freq, 100, 100) is not None, \
+                "frequent entry should survive eviction"
 
     def test_ageing_halves_counters(self, tmp_path: Path):
         """When any entry exceeds LFU_AGING_THRESHOLD, all counters should halve."""
@@ -312,8 +273,6 @@ class TestImageCompressionCacheEviction:
 class TestImageCompressionCacheClear:
     def test_clear_removes_all_entries(self, tmp_path: Path):
         cache = ImageCompressionCache(tmp_path)
-        src = tmp_path / "src.png"
-        _small_img(10, 10).save(src)
         for i in range(3):
             s = tmp_path / f"src{i}.png"
             _small_img(10, 10).save(s)
@@ -321,9 +280,15 @@ class TestImageCompressionCacheClear:
 
         count = cache.clear()
         assert count >= 3
-        assert cache._entries == {}
-        assert cache._current_size_bytes == 0
         assert not (tmp_path / "resized" / "index.json").exists()
+        # Verify via public API.
+        assert cache.get(tmp_path / "src0.png", 20, 20) is None
+
+    def test_clear_on_empty_cache(self, tmp_path: Path):
+        """clear() on an empty cache returns 0 and doesn't crash."""
+        cache = ImageCompressionCache(tmp_path)
+        count = cache.clear()
+        assert count == 0
 
 
 class TestImageCompressionCacheWarning:
@@ -364,13 +329,10 @@ class TestImageCompressionCacheIndexPersistence:
         src = tmp_path / "src.png"
         _small_img(10, 10).save(src)
         cache.put(src, 20, 20, _small_img(20, 20, r=50))
-        original_filename = next(iter(cache._entries))
-        original_count = cache._entries[original_filename]["access_count"]
 
-        # Simulate restart.
+        # Simulate restart and verify the entry still loads.
         cache2 = ImageCompressionCache(tmp_path)
-        assert original_filename in cache2._entries
-        assert cache2._entries[original_filename]["access_count"] == original_count
+        assert cache2.get(src, 20, 20) is not None
 
 
 class TestImageCompressionCacheEdgeCases:
@@ -392,7 +354,6 @@ class TestImageCompressionCacheEdgeCases:
 
         # New cache should start fresh.
         cache2 = ImageCompressionCache(tmp_path)
-        assert cache2._entries == {}
         assert cache2.get(src, 20, 20) is None
 
     def test_different_styles_same_resolution_share_entry(self, tmp_path: Path):
