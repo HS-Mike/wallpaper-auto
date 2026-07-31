@@ -85,9 +85,13 @@ class ImageCompressionCache:
 
         # In-memory state
         self._entries: dict[str, _CacheEntry] = {}
-        self._current_size_bytes: int = 0
 
         self._load_index()
+
+    @property
+    def _current_size_bytes(self) -> int:
+        """Compute current cache size from entry metadata."""
+        return sum(e["file_size"] for e in self._entries.values())
 
     def get(
         self, source_path: Path, region_w: int, region_h: int
@@ -110,7 +114,6 @@ class ImageCompressionCache:
             if not cached_path.is_file():
                 # Stale index entry — clean up.
                 del self._entries[filename]
-                self._current_size_bytes -= entry["file_size"]
                 self._write_index()
                 return None
 
@@ -135,7 +138,8 @@ class ImageCompressionCache:
         """Store a resized image.  Evicts LFU entries when over the size limit.
 
         If the single file itself exceeds ``CACHE_MAX_SIZE_BYTES`` a warning
-        is logged but the file is saved anyway.
+        is logged, the file is saved but not counted toward the size limit
+        to avoid cascading eviction.
         """
         key = self._compute_key(source_path, region_w, region_h)
         if key is None:
@@ -167,11 +171,11 @@ class ImageCompressionCache:
                 content_prefix_hash=key.content_prefix_hash,
                 file_size=file_size,
             )
-            self._current_size_bytes += file_size
-
-            if self._current_size_bytes > CACHE_MAX_SIZE_BYTES:
+            if (
+                file_size <= CACHE_MAX_SIZE_BYTES
+                and self._current_size_bytes > CACHE_MAX_SIZE_BYTES
+            ):
                 self._evict(exclude={filename})
-
             self._write_index()
 
     def render(
@@ -214,7 +218,6 @@ class ImageCompressionCache:
                 if index.exists():
                     index.unlink(missing_ok=True)
             self._entries.clear()
-            self._current_size_bytes = 0
         return count
 
     def _compute_key(
@@ -288,9 +291,7 @@ class ImageCompressionCache:
         except OSError:
             logger.warning("Failed to remove cache file %s", cached_path)
 
-        entry = self._entries.pop(filename, None)
-        if entry is not None:
-            self._current_size_bytes -= entry["file_size"]
+        self._entries.pop(filename, None)
 
     def _age_if_needed(self) -> None:
         """Halve all LFU counters when any entry exceeds the threshold."""
@@ -302,15 +303,13 @@ class ImageCompressionCache:
                 meta["access_count"] //= 2
 
     def _write_index(self) -> None:
-        """Atomically write the LFU index to ``index.json``."""
+        """Write the LFU index to ``index.json``."""
         payload = {
             "entries": self._entries,
         }
-        tmp = self._index_path.with_suffix(".json.tmp")
         try:
-            with open(tmp, "w", encoding="utf-8") as f:
+            with open(self._index_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
-            tmp.replace(self._index_path)
         except OSError:
             logger.exception("Failed to write cache index")
 
@@ -320,14 +319,6 @@ class ImageCompressionCache:
         If the file is missing or corrupt the cached PNG files are kept
         and their sizes are recounted from disk (LFU counters reset to 0).
         """
-        # Clean up stale temp file from previous crash.
-        tmp = self._index_path.with_suffix(".json.tmp")
-        if tmp.exists():
-            try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
-
         if not self._index_path.is_file():
             self._recount_from_disk()
             return
@@ -347,7 +338,6 @@ class ImageCompressionCache:
             return
 
         validated: dict[str, _CacheEntry] = {}
-        total = 0
         for fname, meta in entries.items():
             if not isinstance(meta, dict):
                 continue
@@ -382,10 +372,8 @@ class ImageCompressionCache:
                 content_prefix_hash=str(meta.get("content_prefix_hash", "")),
                 file_size=int(meta.get("file_size", 0)),
             )
-            total += validated[fname]["file_size"]
 
         self._entries = validated
-        self._current_size_bytes = total
 
     def _recount_from_disk(self) -> None:
         """Scan the compressed directory and rebuild index from scratch.
@@ -393,11 +381,9 @@ class ImageCompressionCache:
         All LFU counters are reset to 0.
         """
         entries: dict[str, _CacheEntry] = {}
-        total = 0
 
         if not self._cache_dir.is_dir():
             self._entries = {}
-            self._current_size_bytes = 0
             return
 
         for p in sorted(self._cache_dir.iterdir()):
@@ -415,10 +401,8 @@ class ImageCompressionCache:
                 content_prefix_hash="",
                 file_size=st.st_size,
             )
-            total += st.st_size
 
         self._entries = entries
-        self._current_size_bytes = total
 
         # Write fresh index so we don't hit the recount path again.
         if entries:

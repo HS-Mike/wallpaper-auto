@@ -12,13 +12,10 @@ from wallpaper_auto.image_cache import (
     _CacheKey,
 )
 
-# ── helpers ─────────────────────────────────────────────────────────────
 
 def _small_img(w: int = 10, h: int = 10, r: int = 255, g: int = 0, b: int = 0) -> Image.Image:
     return Image.new("RGB", (w, h), (r, g, b))
 
-
-# ── _CacheKey tests ─────────────────────────────────────────────────────
 
 class TestCacheKey:
     def test_filename_format(self):
@@ -51,8 +48,6 @@ class TestCacheKey:
         b = _CacheKey("/b.jpg", 100, 1.0, "h1", 1920, 1080).filename()
         assert a != b
 
-
-# ── ImageCompressionCache tests ──────────────────────────────────────────
 
 class TestImageCompressionCacheInit:
     def test_empty_cache_dir(self, tmp_path: Path):
@@ -88,14 +83,6 @@ class TestImageCompressionCacheInit:
         # Re-init — orphan should be removed since source is gone.
         cache2 = ImageCompressionCache(tmp_path)
         assert filename not in cache2._entries
-
-    def test_cleans_up_stale_tmp_file(self, tmp_path: Path):
-        tmp_index = tmp_path / "resized" / "index.json.tmp"
-        tmp_index.parent.mkdir(parents=True, exist_ok=True)
-        tmp_index.write_text("{}", encoding="utf-8")
-
-        ImageCompressionCache(tmp_path)  # should not crash
-        assert not tmp_index.exists()
 
 
 class TestImageCompressionCacheGetPut:
@@ -306,8 +293,8 @@ class TestImageCompressionCacheWarning:
 
 
 class TestImageCompressionCacheIndexPersistence:
-    def test_index_is_written_atomically(self, tmp_path: Path):
-        """Index writes should use atomic rename (temp file strategy)."""
+    def test_index_contains_entries_after_put(self, tmp_path: Path):
+        """Index file should contain entry metadata after a put()."""
         cache = ImageCompressionCache(tmp_path)
         src = tmp_path / "src.png"
         _small_img(10, 10).save(src)
@@ -315,11 +302,6 @@ class TestImageCompressionCacheIndexPersistence:
 
         index_path = tmp_path / "resized" / "index.json"
         assert index_path.exists()
-
-        # The .tmp file should not exist after a successful write.
-        assert not (tmp_path / "resized" / "index.json.tmp").exists()
-
-        # Index should contain valid JSON.
         data = json.loads(index_path.read_text(encoding="utf-8"))
         assert len(data["entries"]) == 1
 
