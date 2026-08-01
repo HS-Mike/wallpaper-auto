@@ -172,6 +172,29 @@ fallback_target: "office_view"
 # Uncomment the line below and replace with one of your resource IDs:
 # ---------------------------------------------------------------------------
 # at_shutdown: "office_view"
+
+
+# ---------------------------------------------------------------------------
+# Cache  (optional)
+# ---------------------------------------------------------------------------
+# Controls the wallpaper cache directory and the resized-image cache.
+# ``path`` is the shared cache dir used for both the composited wallpaper
+# and the resized per-display images.  ``resize`` tunes the resized-image
+# cache component:
+#   - enabled:        set to false to disable the resized-image cache entirely
+#                     (default true; when disabled each composite loads and
+#                     resizes images directly)
+#   - max_size_mb:    max total size of the resized cache in MB (default 200)
+#   - evict_ratio:    when over the limit, evict down to this fraction of
+#                     the max before stopping (default 0.9)
+# All fields are optional.
+# ---------------------------------------------------------------------------
+# cache:
+#   path: "C:/Users/You/.cache/wallpaper_auto"
+#   resize:
+#     enabled: true
+#     max_size_mb: 200
+#     evict_ratio: 0.9
 """
 
 

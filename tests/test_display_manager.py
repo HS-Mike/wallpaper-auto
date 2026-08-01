@@ -8,7 +8,7 @@ from PIL import Image
 
 from wallpaper_auto.config_store import ConfigStore
 from wallpaper_auto.display_manager import DisplayManager
-from wallpaper_auto.models import ConfigModel, ResourceConfig
+from wallpaper_auto.models import CacheConfig, CacheResizeConfig, ConfigModel, ResourceConfig
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
 from wallpaper_auto.util.display_utils import DisplayInfo
@@ -28,7 +28,7 @@ def _config_store_with_cache(tmp_path: Path):
         trigger=[],
         rule=[],
         fallback_target="a",
-        cache=str(tmp_path),
+        cache=CacheConfig(path=str(tmp_path)),
     )
     yield tmp_path
 
@@ -586,3 +586,47 @@ class TestDisplayManagerCacheIntegration:
             dm.plot_canvas()
 
         assert cache._entries[filename]["access_count"] == 2
+
+
+@pytest.fixture
+def _config_store_cache_disabled(tmp_path: Path):
+    """Provide a ConfigStore singleton with the resized-image cache disabled."""
+    ConfigStore.clear_instance()
+    store = ConfigStore()
+    store.config = ConfigModel(
+        resource={"a": ResourceConfig(name="static_wallpaper", config={"path": "dummy"})},
+        trigger=[],
+        rule=[],
+        fallback_target="a",
+        cache=CacheConfig(path=str(tmp_path), resize=CacheResizeConfig(enabled=False)),
+    )
+    yield tmp_path
+
+
+@pytest.mark.usefixtures("_config_store_cache_disabled")
+class TestDisplayManagerCacheDisabled:
+    """plot_canvas with the resized-image cache disabled in config."""
+
+    def test_resize_cache_not_created_when_disabled(self, tmp_path: Path):
+        dm = DisplayManager()
+        src = tmp_path / "wallpaper.png"
+        Image.new("RGB", (50, 50), (200, 100, 50)).save(src)
+        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, src)
+
+        displays = [_make_display(_DEVICE_A, 0, 0, 50, 50)]
+        with (
+            patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper"),
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+        ):
+            _mock_com_session(mock_session)
+            dm.plot_canvas()
+
+        # No ImageCompressionCache should be created, and no resized dir written.
+        assert dm._image_cache is None
+        assert not (tmp_path / "resized").exists()
+        # The composite is still produced from the raw image.
+        composite = Image.open(tmp_path / "_composite.png")
+        assert composite.size == (50, 50)
+        assert composite.getpixel((25, 25)) == (200, 100, 50)

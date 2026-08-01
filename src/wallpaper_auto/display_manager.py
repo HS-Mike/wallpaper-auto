@@ -226,9 +226,15 @@ class DisplayManager:
         canvas = Image.new("RGB", (canvas_w, canvas_h), (0, 0, 0))
         display_map = {d.monitor_device_path: d for d in relevant}
 
-        # Lazy-init the image compression cache.
+        # Lazy-init the image compression cache (skipped when disabled in config).
         if self._image_cache is None and ConfigStore.has_instance():
-            self._image_cache = ImageCompressionCache(ConfigStore.instance.cache_path)
+            cfg = ConfigStore.instance.config
+            if cfg is not None and cfg.cache.resize.enabled:
+                self._image_cache = ImageCompressionCache(
+                    ConfigStore.instance.cache_path,
+                    max_size_bytes=cfg.cache.resize.max_size_mb * 1024 * 1024,
+                    evict_ratio=cfg.cache.resize.evict_ratio,
+                )
 
         # If any resource specifies SPAN, it replaces the entire composite.
         span_entry = next(
@@ -265,7 +271,9 @@ class DisplayManager:
 
         # Save to a temp file in the cache dir.
         cache_dir = ConfigStore.instance.cache_path
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        if not cache_dir.exists():
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("Created cache directory: %s", cache_dir)
         temp_path = cache_dir / "_composite.png"
         canvas.save(temp_path, "PNG")
 

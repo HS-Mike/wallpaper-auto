@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 CACHE_CONTENT_HASH_BYTES: int = 65536          # 64 KB
-CACHE_MAX_SIZE_BYTES: int = 500 * 1024 * 1024  # 500 MB
+CACHE_MAX_SIZE_BYTES: int = 200 * 1024 * 1024  # 200 MB
 CACHE_EVICT_TARGET_RATIO: float = 0.9          # evict until 90 % of max
 LFU_AGING_THRESHOLD: int = 100                 # halve all counters at this ceiling
 
@@ -69,7 +69,7 @@ class _CacheKey:
 class ImageCompressionCache:
     """Persistent LFU cache for display-resolution wallpaper images.
 
-    Stores resized images as PNG files under ``<cache_dir>/compressed/``
+    Stores resized images as PNG files under ``<cache_dir>/resized/``
     and keeps access-frequency metadata in ``index.json`` within the
     same directory.
     """
@@ -77,11 +77,25 @@ class ImageCompressionCache:
     _SUBDIR = "resized"
     _INDEX_FILE = "index.json"
 
-    def __init__(self, cache_dir: Path) -> None:
+    def __init__(
+        self,
+        cache_dir: Path,
+        max_size_bytes: int | None = None,
+        evict_ratio: float | None = None,
+    ) -> None:
         self._cache_dir = cache_dir / self._SUBDIR
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        if not self._cache_dir.exists():
+            self._cache_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("Created cache directory: %s", self._cache_dir)
         self._lock = threading.Lock()
         self._index_path = self._cache_dir / self._INDEX_FILE
+
+        self._max_size_bytes = (
+            max_size_bytes if max_size_bytes is not None else CACHE_MAX_SIZE_BYTES
+        )
+        self._evict_ratio = (
+            evict_ratio if evict_ratio is not None else CACHE_EVICT_TARGET_RATIO
+        )
 
         # In-memory state
         self._entries: dict[str, _CacheEntry] = {}
@@ -137,9 +151,9 @@ class ImageCompressionCache:
     ) -> None:
         """Store a resized image.  Evicts LFU entries when over the size limit.
 
-        If the single file itself exceeds ``CACHE_MAX_SIZE_BYTES`` a warning
-        is logged, the file is saved but not counted toward the size limit
-        to avoid cascading eviction.
+        If the single file itself exceeds the configured max size a warning
+        is logged; the file is still saved and counted, but it is excluded
+        from eviction and does not trigger an eviction pass on its own.
         """
         key = self._compute_key(source_path, region_w, region_h)
         if key is None:
@@ -156,10 +170,10 @@ class ImageCompressionCache:
             return
         file_size = cached_path.stat().st_size
 
-        if file_size > CACHE_MAX_SIZE_BYTES:
+        if file_size > self._max_size_bytes:
             logger.warning(
-                "Cached image %s (%d bytes) exceeds CACHE_MAX_SIZE_BYTES (%d)",
-                filename, file_size, CACHE_MAX_SIZE_BYTES,
+                "Cached image %s (%d bytes) exceeds max size (%d)",
+                filename, file_size, self._max_size_bytes,
             )
 
         with self._lock:
@@ -172,8 +186,8 @@ class ImageCompressionCache:
                 file_size=file_size,
             )
             if (
-                file_size <= CACHE_MAX_SIZE_BYTES
-                and self._current_size_bytes > CACHE_MAX_SIZE_BYTES
+                file_size <= self._max_size_bytes
+                and self._current_size_bytes > self._max_size_bytes
             ):
                 self._evict(exclude={filename})
             self._write_index()
@@ -264,7 +278,7 @@ class ImageCompressionCache:
         if exclude is None:
             exclude = set()
 
-        target = int(CACHE_MAX_SIZE_BYTES * CACHE_EVICT_TARGET_RATIO)
+        target = int(self._max_size_bytes * self._evict_ratio)
 
         while self._current_size_bytes > target and len(self._entries) > len(exclude):
             # Find the entry with the lowest access_count (excluding protected).
@@ -376,7 +390,7 @@ class ImageCompressionCache:
         self._entries = validated
 
     def _recount_from_disk(self) -> None:
-        """Scan the compressed directory and rebuild index from scratch.
+        """Scan the resized directory and rebuild index from scratch.
 
         All LFU counters are reset to 0.
         """

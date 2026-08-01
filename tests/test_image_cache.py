@@ -28,19 +28,14 @@ class TestCacheKey:
         assert len(name) == 30
 
     def test_deterministic(self):
-        kwargs = dict(
-            source_path="/a/b.jpg", source_size=100, source_mtime=1000.0,
-            content_prefix_hash="abc", region_w=1920, region_h=1080,
+        key = _CacheKey(
+            "/a/b.jpg", 100, 1000.0, "abc", 1920, 1080,
         )
-        assert _CacheKey(**kwargs).filename() == _CacheKey(**kwargs).filename()
+        assert key.filename() == key.filename()
 
     def test_different_resolution_different_filename(self):
-        base = dict(
-            source_path="/a/b.jpg", source_size=100, source_mtime=1000.0,
-            content_prefix_hash="abc",
-        )
-        a = _CacheKey(**base, region_w=1920, region_h=1080).filename()
-        b = _CacheKey(**base, region_w=2560, region_h=1440).filename()
+        a = _CacheKey("/a/b.jpg", 100, 1000.0, "abc", 1920, 1080).filename()
+        b = _CacheKey("/a/b.jpg", 100, 1000.0, "abc", 2560, 1440).filename()
         assert a != b
 
     def test_different_source_different_filename(self):
@@ -289,7 +284,7 @@ class TestImageCompressionCacheWarning:
             caplog.set_level(logging.WARNING)
             cache.put(src, 100, 100, _small_img(100, 100))
 
-            assert "exceeds CACHE_MAX_SIZE_BYTES" in caplog.text
+            assert "exceeds max size" in caplog.text
 
 
 class TestImageCompressionCacheIndexPersistence:

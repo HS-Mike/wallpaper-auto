@@ -393,32 +393,103 @@ class TestProperties:
         """cache_path returns the user-configured path when it exists and is a directory."""
         cache_dir = tmp_path / "my_cache"
         cache_dir.mkdir()
-        yaml_str = _make_valid_yaml(cache=str(cache_dir))
+        yaml_str = _make_valid_yaml(cache={"path": str(cache_dir)})
         path = tmp_path / "with_cache.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
         assert store.cache_path == cache_dir
 
-    def test_cache_path_raises_when_not_found(self, store: ConfigStore, tmp_path):
-        """cache_path raises FileNotFoundError when the path does not exist."""
+    def test_cache_path_allows_missing_directory(self, store: ConfigStore, tmp_path):
+        """A configured cache path that does not exist yet is returned; callers create it."""
         missing = tmp_path / "does_not_exist"
-        yaml_str = _make_valid_yaml(cache=str(missing))
-        path = tmp_path / "bad_cache.yaml"
+        yaml_str = _make_valid_yaml(cache={"path": str(missing)})
+        path = tmp_path / "missing_cache.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
-        with pytest.raises(FileNotFoundError, match="does not exist"):
-            _ = store.cache_path
+        assert store.cache_path == missing
 
     def test_cache_path_raises_when_not_a_directory(self, store: ConfigStore, tmp_path):
         """cache_path raises NotADirectoryError when the path is a file."""
         cache_file = tmp_path / "not_a_dir"
         cache_file.write_text("", encoding="utf-8")
-        yaml_str = _make_valid_yaml(cache=str(cache_file))
+        yaml_str = _make_valid_yaml(cache={"path": str(cache_file)})
         path = tmp_path / "file_cache.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
         with pytest.raises(NotADirectoryError, match="is not a directory"):
             _ = store.cache_path
+
+    def test_cache_object_form_path(self, store: ConfigStore, tmp_path):
+        """cache as an object with a path resolves cache_path correctly."""
+        cache_dir = tmp_path / "obj_cache"
+        cache_dir.mkdir()
+        yaml_str = _make_valid_yaml(cache={"path": str(cache_dir)})
+        path = tmp_path / "obj_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.cache_path == cache_dir
+
+    def test_cache_defaults_without_cache_block(self, store: ConfigStore, valid_yaml: str):
+        """Without a cache block, the resize cache uses its defaults."""
+        store.load(valid_yaml)
+        assert store.config is not None
+        assert store.config.cache.resize.enabled is True
+        assert store.config.cache.resize.max_size_mb * 1024 * 1024 == 200 * 1024 * 1024
+        assert store.config.cache.resize.evict_ratio == 0.9
+
+    def test_cache_max_size_mb_with_value(self, store: ConfigStore, tmp_path):
+        """max_size_mb is converted to bytes; unset fields fall back to defaults."""
+        cache_dir = tmp_path / "size_cache"
+        cache_dir.mkdir()
+        yaml_str = _make_valid_yaml(
+            cache={"path": str(cache_dir), "resize": {"max_size_mb": 42}},
+        )
+        path = tmp_path / "size_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.config is not None
+        assert store.config.cache.resize.max_size_mb * 1024 * 1024 == 42 * 1024 * 1024
+        assert store.config.cache.resize.evict_ratio == 0.9
+
+    def test_cache_evict_ratio_with_value(self, store: ConfigStore, tmp_path):
+        """evict_ratio is surfaced as configured; unset fields fall back to defaults."""
+        cache_dir = tmp_path / "ratio_cache"
+        cache_dir.mkdir()
+        yaml_str = _make_valid_yaml(
+            cache={"path": str(cache_dir), "resize": {"evict_ratio": 0.5}},
+        )
+        path = tmp_path / "ratio_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.config is not None
+        assert store.config.cache.resize.evict_ratio == 0.5
+        assert store.config.cache.resize.max_size_mb * 1024 * 1024 == 200 * 1024 * 1024
+
+    def test_cache_resize_enabled_false_when_disabled(self, store: ConfigStore, tmp_path):
+        """resize.enabled: false surfaces as cache.resize.enabled False."""
+        cache_dir = tmp_path / "disable_cache"
+        cache_dir.mkdir()
+        yaml_str = _make_valid_yaml(
+            cache={"path": str(cache_dir), "resize": {"enabled": False}},
+        )
+        path = tmp_path / "disabled_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.config is not None
+        assert store.config.cache.resize.enabled is False
+
+    def test_cache_resize_enabled_true_when_explicit(self, store: ConfigStore, tmp_path):
+        """resize.enabled: true surfaces as cache.resize.enabled True."""
+        cache_dir = tmp_path / "enable_cache"
+        cache_dir.mkdir()
+        yaml_str = _make_valid_yaml(
+            cache={"path": str(cache_dir), "resize": {"enabled": True}},
+        )
+        path = tmp_path / "enabled_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.config is not None
+        assert store.config.cache.resize.enabled is True
 
     def test_scene_returns_dict_from_yaml(self, store: ConfigStore, tmp_path):
         """scene returns the configured scene map when present."""
