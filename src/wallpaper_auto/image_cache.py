@@ -77,28 +77,31 @@ class ImageCompressionCache:
     _SUBDIR = "resized"
     _INDEX_FILE = "index.json"
 
-    def __init__(
+    def __init__(self) -> None:
+        self._cache_dir: Path | None = None
+        self._index_path: Path | None = None
+        self._lock = threading.Lock()
+        self._max_size_bytes = CACHE_MAX_SIZE_BYTES
+        self._evict_ratio = CACHE_EVICT_TARGET_RATIO
+        self._entries: dict[str, _CacheEntry] = {}
+
+    def init(
         self,
         cache_dir: Path,
         max_size_bytes: int | None = None,
         evict_ratio: float | None = None,
     ) -> None:
+        """Configure the cache directory and sizing, then load the index from disk."""
         self._cache_dir = cache_dir / self._SUBDIR
         if not self._cache_dir.exists():
             self._cache_dir.mkdir(parents=True, exist_ok=True)
             logger.info("Created cache directory: %s", self._cache_dir)
-        self._lock = threading.Lock()
         self._index_path = self._cache_dir / self._INDEX_FILE
 
-        self._max_size_bytes = (
-            max_size_bytes if max_size_bytes is not None else CACHE_MAX_SIZE_BYTES
-        )
-        self._evict_ratio = (
-            evict_ratio if evict_ratio is not None else CACHE_EVICT_TARGET_RATIO
-        )
-
-        # In-memory state
-        self._entries: dict[str, _CacheEntry] = {}
+        if max_size_bytes is not None:
+            self._max_size_bytes = max_size_bytes
+        if evict_ratio is not None:
+            self._evict_ratio = evict_ratio
 
         self._load_index()
 
@@ -114,6 +117,7 @@ class ImageCompressionCache:
 
         Increments the LFU access counter on hit.
         """
+        assert self._cache_dir is not None, "init() must be called before get()"
         key = self._compute_key(source_path, region_w, region_h)
         if key is None:
             return None
@@ -155,6 +159,7 @@ class ImageCompressionCache:
         is logged; the file is still saved and counted, but it is excluded
         from eviction and does not trigger an eviction pass on its own.
         """
+        assert self._cache_dir is not None, "init() must be called before put()"
         key = self._compute_key(source_path, region_w, region_h)
         if key is None:
             return
@@ -221,6 +226,7 @@ class ImageCompressionCache:
 
         Returns the number of files removed.
         """
+        assert self._cache_dir is not None, "init() must be called before clear()"
         with self._lock:
             count = 0
             if self._cache_dir.is_dir():
@@ -299,6 +305,7 @@ class ImageCompressionCache:
 
     def _remove_entry(self, filename: str) -> None:
         """Delete a single cached file and remove it from the index."""
+        assert self._cache_dir is not None
         cached_path = self._cache_dir / filename
         try:
             cached_path.unlink(missing_ok=True)
@@ -318,6 +325,7 @@ class ImageCompressionCache:
 
     def _write_index(self) -> None:
         """Write the LFU index to ``index.json``."""
+        assert self._index_path is not None
         payload = {
             "entries": self._entries,
         }
@@ -333,6 +341,7 @@ class ImageCompressionCache:
         If the file is missing or corrupt the cached PNG files are kept
         and their sizes are recounted from disk (LFU counters reset to 0).
         """
+        assert self._index_path is not None
         if not self._index_path.is_file():
             self._recount_from_disk()
             return
@@ -394,6 +403,7 @@ class ImageCompressionCache:
 
         All LFU counters are reset to 0.
         """
+        assert self._cache_dir is not None
         entries: dict[str, _CacheEntry] = {}
 
         if not self._cache_dir.is_dir():
