@@ -113,6 +113,14 @@ class WallpaperController:
         self._trigger_manager.init(self._config_store.trigger)
         self._rule_engine.init(self._config_store.rule)
 
+        cache_cfg = self._config_store.cache
+        self._display_manager.init_cache(
+            cache_path=self._config_store.cache_path,
+            resize_enabled=cache_cfg.resize.enabled,
+            max_size_bytes=cache_cfg.resize.max_size_mb * 1024 * 1024,
+            evict_ratio=cache_cfg.resize.evict_ratio,
+        )
+
     def update_system_tray(self) -> None:
         if self._tray is not None:
             self._tray.bridge.update_ui(

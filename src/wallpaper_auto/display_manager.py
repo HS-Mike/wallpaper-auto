@@ -49,6 +49,29 @@ class DisplayManager:
         self._canvas_buffer: dict[str, tuple[WallpaperStyle, Path | Image.Image]] = {}
         self._image_cache: ImageCompressionCache | None = None
 
+    def init_cache(
+        self,
+        cache_path: Path,
+        resize_enabled: bool,
+        max_size_bytes: int,
+        evict_ratio: float,
+    ) -> None:
+        """Create and initialize the image compression cache.
+
+        Called from ``WallpaperController.load_config()`` alongside the
+        other managers' ``init()`` methods.  When *resize_enabled* is
+        false the cache is left as ``None`` and ``_resolve_cached_image``
+        opens images directly.
+        """
+        if resize_enabled:
+            cache = ImageCompressionCache()
+            cache.init(
+                cache_path,
+                max_size_bytes=max_size_bytes,
+                evict_ratio=evict_ratio,
+            )
+            self._image_cache = cache
+
     def start(self) -> None:
         """Record original wallpaper for all connected displays and register as patches."""
         curr_display_info: list[DisplayInfo] = get_display_info()
@@ -225,16 +248,6 @@ class DisplayManager:
 
         canvas = Image.new("RGB", (canvas_w, canvas_h), (0, 0, 0))
         display_map = {d.monitor_device_path: d for d in relevant}
-
-        # Lazy-init the image compression cache (skipped when disabled in config).
-        if self._image_cache is None and ConfigStore.has_instance():
-            cfg = ConfigStore.instance.config
-            if cfg is not None and cfg.cache.resize.enabled:
-                self._image_cache = ImageCompressionCache(
-                    ConfigStore.instance.cache_path,
-                    max_size_bytes=cfg.cache.resize.max_size_mb * 1024 * 1024,
-                    evict_ratio=cfg.cache.resize.evict_ratio,
-                )
 
         # If any resource specifies SPAN, it replaces the entire composite.
         span_entry = next(

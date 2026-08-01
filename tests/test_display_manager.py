@@ -395,6 +395,8 @@ class TestDisplayManagerPlotCanvas:
     def test_missing_path_buffer_returns_blank_image(self):
         """Missing source file should not crash — cache returns a blank fallback."""
         dm = DisplayManager()
+        dm.init_cache(ConfigStore.instance.cache_path, resize_enabled=True,
+                      max_size_bytes=200 * 1024 * 1024, evict_ratio=0.9)
         missing = ConfigStore.instance.cache_path / "nonexistent.png"
         dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, missing)
         with (
@@ -548,6 +550,8 @@ class TestDisplayManagerCacheIntegration:
     def test_cache_used_for_path_buffers(self, tmp_path: Path):
         """Path-based buffer entries should go through the cache."""
         dm = DisplayManager()
+        dm.init_cache(tmp_path, resize_enabled=True,
+                      max_size_bytes=200 * 1024 * 1024, evict_ratio=0.9)
         cache_dir = tmp_path / "resized"
 
         src = tmp_path / "wallpaper.png"
@@ -609,6 +613,8 @@ class TestDisplayManagerCacheDisabled:
 
     def test_resize_cache_not_created_when_disabled(self, tmp_path: Path):
         dm = DisplayManager()
+        dm.init_cache(tmp_path, resize_enabled=False,
+                      max_size_bytes=200 * 1024 * 1024, evict_ratio=0.9)
         src = tmp_path / "wallpaper.png"
         Image.new("RGB", (50, 50), (200, 100, 50)).save(src)
         dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, src)
