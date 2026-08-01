@@ -1,4 +1,4 @@
-"""Tests for DisplayManager — per-monitor wallpaper lifecycle, canvas compositing, and hotplug."""
+"""Tests for DisplayManager — wallpaper lifecycle, canvas compositing, and hotplug detection."""
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -8,7 +8,7 @@ from PIL import Image
 
 from wallpaper_auto.config_store import ConfigStore
 from wallpaper_auto.display_manager import DisplayManager
-from wallpaper_auto.models import ConfigModel, ResourceConfig
+from wallpaper_auto.models import CacheConfig, CacheResizeConfig, ConfigModel, ResourceConfig
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
 from wallpaper_auto.util.display_utils import DisplayInfo
@@ -28,7 +28,7 @@ def _config_store_with_cache(tmp_path: Path):
         trigger=[],
         rule=[],
         fallback_target="a",
-        cache=str(tmp_path),
+        cache=CacheConfig(path=str(tmp_path)),
     )
     yield tmp_path
 
@@ -96,12 +96,13 @@ class TestDisplayManager:
             _make_display(_DEVICE_A, 0, 0, 100, 100),
             _make_display(_DEVICE_B, 100, 0, 100, 100),
         ]
+        style_patch = patch(
+            "wallpaper_auto.display_manager.get_wallpaper_style",
+            return_value=WallpaperStyle.FILL,
+        )
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
-            patch(
-                "wallpaper_auto.display_manager.get_wallpaper_style",
-                return_value=WallpaperStyle.FILL,
-            ),
+            style_patch,
             patch("wallpaper_auto.display_manager.get_wallpaper", return_value=Path("C:/orig.jpg")),
         ):
             dm.start()
@@ -197,7 +198,7 @@ class TestDisplayManagerAddRemove:
     def test_remove_already_patched_display_raises_value_error(self):
         dm = DisplayManager()
         _add_display(dm, _DEVICE_A)
-        with pytest.raises(ValueError, match="do not have a resource"):
+        with pytest.raises(ValueError, match="does not have a resource"):
             dm.remove_display(_DEVICE_A)
 
     def test_update_swaps_active_resource(self):
@@ -294,8 +295,7 @@ class TestDisplayManagerPlotCanvas:
     def test_span_entry_replaces_entire_composite(self):
         dm = DisplayManager()
         dm._canvas_buffer[_DEVICE_A] = (
-            WallpaperStyle.SPAN,
-            Image.new("RGB", (40, 40), (10, 20, 30)),
+            WallpaperStyle.SPAN, Image.new("RGB", (40, 40), (10, 20, 30)),
         )
         with (
             patch(
@@ -392,7 +392,8 @@ class TestDisplayManagerPlotCanvas:
             dm.plot_canvas()
         assert (cache / "_composite.png").exists()
 
-    def test_missing_path_buffer_raises_file_not_found(self):
+    def test_missing_path_buffer_returns_blank_image(self):
+        """Missing source file should not crash — cache returns a blank fallback."""
         dm = DisplayManager()
         missing = ConfigStore.instance.cache_path / "nonexistent.png"
         dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, missing)
@@ -402,10 +403,12 @@ class TestDisplayManagerPlotCanvas:
                 return_value=[_make_display(_DEVICE_A, 0, 0, 40, 40)],
             ),
             patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper") as mock_set_wp,
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
         ):
             _mock_com_session(mock_session)
-            with pytest.raises(FileNotFoundError):
-                dm.plot_canvas()
+            dm.plot_canvas()  # should not raise
+        mock_set_wp.assert_called_once()
 
 
 class TestDisplayManagerRenderImageForRegion:
@@ -536,3 +539,94 @@ class TestDisplayManagerUpdateDisplay:
         ):
             result = dm.update_display()
         assert [d.monitor_device_path for d in result] == [_DEVICE_A]
+
+
+@pytest.mark.usefixtures("_config_store_with_cache")
+class TestDisplayManagerCacheIntegration:
+    """ImageCompressionCache integration with plot_canvas."""
+
+    def test_cache_used_for_path_buffers(self, tmp_path: Path):
+        """Path-based buffer entries should go through the cache."""
+        dm = DisplayManager()
+        cache_dir = tmp_path / "resized"
+
+        src = tmp_path / "wallpaper.png"
+        Image.new("RGB", (50, 50), (200, 100, 50)).save(src)
+        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, src)
+
+        displays = [_make_display(_DEVICE_A, 0, 0, 50, 50)]
+        with (
+            patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper"),
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+        ):
+            _mock_com_session(mock_session)
+            dm.plot_canvas()
+
+        # The cache should have created the resized dir with one entry.
+        assert cache_dir.is_dir()
+        png_files = list(cache_dir.glob("*.png"))
+        assert len(png_files) >= 1
+
+        # Access count should be 1 after the first plot.
+        cache = dm._image_cache
+        assert cache is not None
+        filename = next(iter(cache._entries))
+        assert cache._entries[filename]["access_count"] == 1
+
+        # Second call — cache hit, access_count incremented.
+        with (
+            patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper"),
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+        ):
+            _mock_com_session(mock_session)
+            dm.plot_canvas()
+
+        assert cache._entries[filename]["access_count"] == 2
+
+
+@pytest.fixture
+def _config_store_cache_disabled(tmp_path: Path):
+    """Provide a ConfigStore singleton with the resized-image cache disabled."""
+    ConfigStore.clear_instance()
+    store = ConfigStore()
+    store.config = ConfigModel(
+        resource={"a": ResourceConfig(name="static_wallpaper", config={"path": "dummy"})},
+        trigger=[],
+        rule=[],
+        fallback_target="a",
+        cache=CacheConfig(path=str(tmp_path), resize=CacheResizeConfig(enabled=False)),
+    )
+    yield tmp_path
+
+
+@pytest.mark.usefixtures("_config_store_cache_disabled")
+class TestDisplayManagerCacheDisabled:
+    """plot_canvas with the resized-image cache disabled in config."""
+
+    def test_resize_cache_not_created_when_disabled(self, tmp_path: Path):
+        dm = DisplayManager()
+        src = tmp_path / "wallpaper.png"
+        Image.new("RGB", (50, 50), (200, 100, 50)).save(src)
+        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, src)
+
+        displays = [_make_display(_DEVICE_A, 0, 0, 50, 50)]
+        with (
+            patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper"),
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+        ):
+            _mock_com_session(mock_session)
+            dm.plot_canvas()
+
+        # No ImageCompressionCache should be created, and no resized dir written.
+        assert dm._image_cache is None
+        assert not (tmp_path / "resized").exists()
+        # The composite is still produced from the raw image.
+        composite = Image.open(tmp_path / "_composite.png")
+        assert composite.size == (50, 50)
+        assert composite.getpixel((25, 25)) == (200, 100, 50)

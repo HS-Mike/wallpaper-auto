@@ -12,6 +12,7 @@ from pathlib import Path
 from PIL import Image
 
 from .config_store import ConfigStore
+from .image_cache import ImageCompressionCache, _resize_image
 from .resource.base_resource import BaseResource
 from .resource.static_wallpaper import StaticWallpaper
 from .util.display_utils import DisplayInfo, get_display_info
@@ -46,6 +47,7 @@ class DisplayManager:
         self._display_resource_map: dict[str, BaseResource] = {}
         self._display_resource_is_patch: dict[str, bool] = {}
         self._canvas_buffer: dict[str, tuple[WallpaperStyle, Path | Image.Image]] = {}
+        self._image_cache: ImageCompressionCache | None = None
 
     def start(self) -> None:
         """Record original wallpaper for all connected displays and register as patches."""
@@ -126,7 +128,8 @@ class DisplayManager:
         is_patch = self._display_resource_is_patch[monitor_device_path]
         if is_patch is True:
             raise ValueError(
-                f"Display (monitor_device_path: {monitor_device_path}) do not have a resource"
+                f"Display (monitor_device_path: {monitor_device_path}) "
+                "does not have a resource"
             )
         res = self._display_resource_map[monitor_device_path]
         res.demount()
@@ -155,6 +158,24 @@ class DisplayManager:
         self._display_resource_is_patch[monitor_device_path] = False
         resource._bind_plot_canvas(self.update_canvas_buffer)
         resource.mount()
+
+    def _resolve_cached_image(
+        self,
+        img: Path | Image.Image,
+        w: int,
+        h: int,
+    ) -> Image.Image:
+        """Resolve a buffer entry through the cache, or fall back to ``Image.open``.
+
+        If *img* is a ``Path`` and the cache is available, ``render()`` handles
+        hit-or-miss transparently.  If *img* is a ``Path`` but there is no cache,
+        open it directly.  Otherwise return the PIL ``Image`` as-is.
+        """
+        if isinstance(img, Path) and self._image_cache is not None:
+            return self._image_cache.render(img, w, h)
+        if isinstance(img, Path):
+            return Image.open(img)
+        return img
 
     def update_canvas_buffer(
         self,
@@ -205,6 +226,16 @@ class DisplayManager:
         canvas = Image.new("RGB", (canvas_w, canvas_h), (0, 0, 0))
         display_map = {d.monitor_device_path: d for d in relevant}
 
+        # Lazy-init the image compression cache (skipped when disabled in config).
+        if self._image_cache is None and ConfigStore.has_instance():
+            cfg = ConfigStore.instance.config
+            if cfg is not None and cfg.cache.resize.enabled:
+                self._image_cache = ImageCompressionCache(
+                    ConfigStore.instance.cache_path,
+                    max_size_bytes=cfg.cache.resize.max_size_mb * 1024 * 1024,
+                    evict_ratio=cfg.cache.resize.evict_ratio,
+                )
+
         # If any resource specifies SPAN, it replaces the entire composite.
         span_entry = next(
             ((mid, path) for mid, (style, path) in buffer.items() if style == WallpaperStyle.SPAN),
@@ -212,8 +243,7 @@ class DisplayManager:
         )
         if span_entry:
             _, img = span_entry
-            if isinstance(img, Path):
-                img = Image.open(img)
+            img = self._resolve_cached_image(img, canvas_w, canvas_h)
             rendered, _, _ = DisplayManager._render_image_for_region(
                 img,
                 WallpaperStyle.FILL,
@@ -230,8 +260,7 @@ class DisplayManager:
                 canvas_x = d.position[0] - min_left
                 canvas_y = d.position[1] - min_top
 
-                if isinstance(img, Path):
-                    img = Image.open(img)
+                img = self._resolve_cached_image(img, region_w, region_h)
                 rendered, offset_x, offset_y = DisplayManager._render_image_for_region(
                     img,
                     style,
@@ -242,7 +271,9 @@ class DisplayManager:
 
         # Save to a temp file in the cache dir.
         cache_dir = ConfigStore.instance.cache_path
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        if not cache_dir.exists():
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("Created cache directory: %s", cache_dir)
         temp_path = cache_dir / "_composite.png"
         canvas.save(temp_path, "PNG")
 
@@ -279,13 +310,13 @@ class DisplayManager:
             img = img.convert("RGB")
 
         if style == WallpaperStyle.STRETCH:
-            return img.resize((region_w, region_h), Image.Resampling.LANCZOS, reducing_gap=3), 0, 0
+            return _resize_image(img, region_w, region_h), 0, 0
 
         if style == WallpaperStyle.FILL:
             scale = max(region_w / src_w, region_h / src_h)
             new_w = int(src_w * scale)
             new_h = int(src_h * scale)
-            resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS, reducing_gap=3)
+            resized = _resize_image(img, new_w, new_h)
             x = (new_w - region_w) // 2
             y = (new_h - region_h) // 2
             return resized.crop((x, y, x + region_w, y + region_h)), 0, 0
@@ -294,7 +325,7 @@ class DisplayManager:
             scale = min(region_w / src_w, region_h / src_h)
             new_w = int(src_w * scale)
             new_h = int(src_h * scale)
-            resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS, reducing_gap=3)
+            resized = _resize_image(img, new_w, new_h)
             offset_x = (region_w - new_w) // 2
             offset_y = (region_h - new_h) // 2
             return resized, offset_x, offset_y

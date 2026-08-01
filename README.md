@@ -136,8 +136,13 @@ fallback_target: "default_wallpaper"
 # 6. (Optional) At-shutdown wallpaper — applied when Windows shuts down
 # at_shutdown: "work_wallpaper"
 
-# 7. (Optional) Custom cache directory (default: %LOCALAPPDATA%/wallpaper-auto/cache)
-# cache: "D:/wallpaper-cache"
+# 6. (Optional) Cache — shared dir + resized-image cache tuning
+# cache:
+#   path: "C:/Users/You/.cache/wallpaper_auto"
+#   resize:
+#     enabled: true           # set false to disable the resized-image cache (default true)
+#     max_size_mb: 200        # max total size of resized cache in MB (default 200)
+#     evict_ratio: 0.9        # evict down to this fraction of max (default 0.9)
 ```
 
 ## Running

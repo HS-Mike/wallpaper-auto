@@ -10,9 +10,32 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .image_cache import CACHE_EVICT_TARGET_RATIO, CACHE_MAX_SIZE_BYTES
 from .util.wallpaper_util import WallpaperStyle
 
 DEFAULT_CACHE_DIR = Path.home() / "AppData" / "Local" / "wallpaper-auto" / "cache"
+
+
+class CacheResizeConfig(BaseModel):
+    """Tuning knobs for the resized-image cache (``ImageCompressionCache``).
+
+    Defaults derive from the ``image_cache`` module constants, so an empty
+    ``resize`` block enables the cache with standard tuning.
+    """
+    enabled: bool = True
+    max_size_mb: int = CACHE_MAX_SIZE_BYTES // (1024 * 1024)
+    evict_ratio: float = CACHE_EVICT_TARGET_RATIO
+
+
+class CacheConfig(BaseModel):
+    """Cache directory plus resized-image cache tuning.
+
+    ``path`` is the shared cache dir used by both the composited wallpaper
+    and the resized per-display images. ``resize`` configures the
+    ``ImageCompressionCache`` component specifically.
+    """
+    path: str | None = None
+    resize: CacheResizeConfig = CacheResizeConfig()
 
 
 class TriggerConfig(BaseModel):
@@ -103,17 +126,17 @@ class ConfigModel(BaseModel):
     rule: list[Rule]
     fallback_target: str
     at_shutdown: str | None = None
-    cache: str | None = None
+    cache: CacheConfig = CacheConfig()
 
     @property
     def cache_path(self) -> Path:
-        if self.cache is None:
+        path_str = self.cache.path
+        if path_str is None:
             return DEFAULT_CACHE_DIR
-        p = Path(self.cache)
-        if not p.exists():
-            raise FileNotFoundError(f"cache path '{self.cache}' does not exist")
-        if not p.is_dir():
-            raise NotADirectoryError(f"cache path '{self.cache}' is not a directory")
+        p = Path(path_str)
+        if p.exists() and not p.is_dir():
+            raise NotADirectoryError(f"cache path '{path_str}' is not a directory")
+        # A missing directory is allowed — callers create it on use.
         return p
 
     @model_validator(mode="after")
