@@ -22,4 +22,6 @@ class HaveDisplayEvaluator(BaseEvaluator):
         if not isinstance(param, str):
             raise ValueError(f"invalid {self.__class__.__name__} param")
         displays = get_display_info()
+        if displays is None:
+            return False
         return any(re.search(param, d.model or "") for d in displays)

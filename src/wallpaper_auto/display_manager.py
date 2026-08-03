@@ -86,7 +86,9 @@ class DisplayManager:
 
     def start(self) -> None:
         """Record original wallpaper for all connected displays and register as patches."""
-        curr_display_info: list[DisplayInfo] = get_display_info()
+        curr_display_info = get_display_info()
+        if curr_display_info is None:
+            return
         for i in curr_display_info:
             self.add_display(i.monitor_device_path)
 
@@ -105,13 +107,16 @@ class DisplayManager:
                 set_wallpaper_style(style)
                 set_wallpaper(device_path, image_path)
 
-    def update_display(self) -> list[DisplayInfo]:
+    def update_display(self) -> list[DisplayInfo] | None:
         """Detect monitor hotplug events and add/remove displays accordingly.
 
         Returns:
-            Current display info list for all connected monitors.
+            Current display info list, or None if displays cannot be queried
+            (the sync is skipped and state is left unchanged).
         """
         curr_display_info = get_display_info()
+        if curr_display_info is None:
+            return None
         curr_monitor_device_path = {i.monitor_device_path for i in curr_display_info}
         active_monitor_device_path = self.active_monitor_device_path
         plugged_display = curr_monitor_device_path - active_monitor_device_path
@@ -252,6 +257,8 @@ class DisplayManager:
             return
 
         displays = get_display_info()
+        if displays is None:
+            return
 
         # Compute the union bounding rect of all active monitors in the buffer.
         relevant = [d for d in displays if d.monitor_device_path in buffer]

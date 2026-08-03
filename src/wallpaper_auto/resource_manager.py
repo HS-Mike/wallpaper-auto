@@ -40,7 +40,7 @@ class ResourceManager:
         cls._support_resources[resource_name] = resource
 
     @staticmethod
-    def evaluate_target(target: str) -> dict[str, BaseResource]:
+    def evaluate_target(target: str) -> dict[str, BaseResource] | None:
         """
         Resolve a target (resource or scene name) into per-display resource objects.
 
@@ -52,12 +52,17 @@ class ResourceManager:
             target: Resource or scene name from the config.
 
         Returns:
-            A dict mapping each monitor device path to its ``BaseResource`` instance.
+            A dict mapping each monitor device path to its ``BaseResource``
+            instance, or ``None`` if displays cannot be queried
+            (``get_display_info()`` returned ``None``). ``{}`` is returned
+            when displays are connected but none match the target.
 
         Raises:
             ValueError: *target* is neither a resource nor a scene in the config.
         """
-        display_info: list[DisplayInfo] = get_display_info()
+        display_info = get_display_info()
+        if display_info is None:
+            return None
         if target in ConfigStore.instance.resource:
             resource_cfg: ResourceConfig = ConfigStore.instance.resource[target]
             res = {}

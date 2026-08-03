@@ -261,6 +261,19 @@ class TestDisplayManagerPlotCanvas:
             dm.plot_canvas()
         mock_session.assert_not_called()
 
+    def test_skips_composite_when_display_query_fails(self):
+        """get_display_info returning None (query failure) → composite is skipped, wallpaper untouched."""
+        dm = DisplayManager()
+        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, Image.new("RGB", (10, 10)))
+        with (
+            patch("wallpaper_auto.display_manager.get_display_info", return_value=None),
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper") as mock_set_wp,
+        ):
+            dm.plot_canvas()
+        mock_session.assert_not_called()
+        mock_set_wp.assert_not_called()
+
     def test_multi_monitor_composite_writes_and_applies(self):
         dm = DisplayManager()
         img_a = Image.new("RGB", (50, 50), (255, 0, 0))
@@ -554,6 +567,7 @@ class TestDisplayManagerUpdateDisplay:
             patch("wallpaper_auto.display_manager.get_wallpaper", return_value=Path("C:/orig.jpg")),
         ):
             result = dm.update_display()
+        assert result is not None
         assert _DEVICE_B in dm._display_resource_map
         assert {d.monitor_device_path for d in result} == {_DEVICE_A, _DEVICE_B}
 
@@ -570,6 +584,7 @@ class TestDisplayManagerUpdateDisplay:
         ):
             mock_static.return_value = _make_resource()
             result = dm.update_display()
+        assert result is not None
         # remove_display replaces the resource with a patch; the display stays in the map.
         assert dm._display_resource_is_patch[_DEVICE_B] is True
         assert [d.monitor_device_path for d in result] == [_DEVICE_A]
@@ -587,7 +602,17 @@ class TestDisplayManagerUpdateDisplay:
             patch("wallpaper_auto.display_manager.get_wallpaper", return_value=Path("C:/orig.jpg")),
         ):
             result = dm.update_display()
+        assert result is not None
         assert [d.monitor_device_path for d in result] == [_DEVICE_A]
+
+    def test_query_failure_returns_none_and_leaves_state(self):
+        """get_display_info returning None → sync skipped, existing displays untouched."""
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        with patch("wallpaper_auto.display_manager.get_display_info", return_value=None):
+            result = dm.update_display()
+        assert result is None
+        assert dm.active_monitor_device_path == {_DEVICE_A}
 
 
 @pytest.mark.usefixtures("_config_store_with_cache")

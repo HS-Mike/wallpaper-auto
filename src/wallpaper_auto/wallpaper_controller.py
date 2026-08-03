@@ -83,18 +83,20 @@ class WallpaperController:
             elif isinstance(task, TargetSetTask):
                 self._display_manager.update_display()
                 resources = self._resource_manager.evaluate_target(task.target)
-                for p, r in resources.items():
-                    self._display_manager.update_resource(p, r)
-                self.active_target = task.target
-                self.active_rule = task.matched_rule
-                with self._task_queue.mutex:
-                    has_newer_update = any(
-                        isinstance(t, PlotCanvasTask) for _p, _c, t in self._task_queue.queue
-                    )
-                if not has_newer_update:
-                    self._display_manager.plot_canvas()
-                else:
-                    logger.debug("Skipping canvas plot; a newer update task is already queued.")
+                if resources is not None:
+                    for p, r in resources.items():
+                        self._display_manager.update_resource(p, r)
+                    self.active_target = task.target
+                    self.active_rule = task.matched_rule
+                    with self._task_queue.mutex:
+                        has_newer_update = any(
+                            isinstance(t, PlotCanvasTask)
+                            for _p, _c, t in self._task_queue.queue
+                        )
+                    if not has_newer_update:
+                        self._display_manager.plot_canvas()
+                    else:
+                        logger.debug("Skipping canvas plot; a newer update task is already queued.")
 
             elif isinstance(task, PlotCanvasTask):
                 self._display_manager.update_display()

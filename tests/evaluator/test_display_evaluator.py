@@ -63,6 +63,10 @@ class TestHaveDisplayEvaluator:
         with patch(f"{_MOD}.get_display_info", return_value=[]):
             assert not evaluator("U2719D")
 
+    def test_returns_false_when_query_fails(self, evaluator):
+        with patch(f"{_MOD}.get_display_info", return_value=None):
+            assert not evaluator("U2719D")
+
     def test_returns_false_when_model_is_none(self, evaluator):
         with patch(
             f"{_MOD}.get_display_info",

@@ -108,20 +108,20 @@ class TestGetDisplayInfoBufferSizesError:
     def test_buffer_sizes_failure_raises(self, monkeypatch):
         _install_user32(monkeypatch, buffer_sizes_result=1)
         with pytest.raises(OSError, match="GetDisplayConfigBufferSizes error return"):
-            get_display_info()
+            get_display_info(raise_error=True)
 
 
 class TestGetDisplayInfoQueryConfigError:
     def test_query_config_non_buffer_error_raises(self, monkeypatch):
         _install_user32(monkeypatch, query_result=1)
         with pytest.raises(OSError, match="QueryDisplayConfig error return"):
-            get_display_info()
+            get_display_info(raise_error=True)
 
     def test_query_config_insufficient_buffer_times_out(self, monkeypatch):
         _install_user32(monkeypatch, query_result=ERROR_INSUFFICIENT_BUFFER)
         monkeypatch.setattr(display_utils.time, "sleep", lambda *_a, **_kw: None)
         with pytest.raises(OSError, match="retry time exceed"):
-            get_display_info()
+            get_display_info(raise_error=True)
 
     def test_query_config_recovers_after_retry(self, monkeypatch):
         _install_user32(monkeypatch, query_result=ERROR_INSUFFICIENT_BUFFER)
@@ -137,16 +137,17 @@ class TestGetDisplayInfoQueryConfigError:
         # Returns [] because num_paths.value was never set (stays 0).
         assert get_display_info() == []
 
-    def test_query_config_access_denied_returns_empty(self, monkeypatch):
-        """ERROR_ACCESS_DENIED from QueryDisplayConfig returns []"""
+    def test_query_config_access_denied_raises_transient(self, monkeypatch):
+        """ERROR_ACCESS_DENIED from QueryDisplayConfig raises DisplayTopologyTransientError"""
         _install_user32(monkeypatch, query_result=ERROR_ACCESS_DENIED)
-        assert get_display_info() == []
+        with pytest.raises(DisplayTopologyTransientError):
+            get_display_info(raise_error=True)
 
     def test_query_config_not_supported_raises_transient(self, monkeypatch):
         """ERROR_NOT_SUPPORTED from QueryDisplayConfig raises DisplayTopologyTransientError"""
         _install_user32(monkeypatch, query_result=ERROR_NOT_SUPPORTED)
         with pytest.raises(DisplayTopologyTransientError):
-            get_display_info()
+            get_display_info(raise_error=True)
 
     def test_query_config_invalid_param_remote_session(self, monkeypatch):
         """ERROR_INVALID_PARAMETER in remote session raises RemoteSessionEnvironmentError"""
@@ -155,14 +156,14 @@ class TestGetDisplayInfoQueryConfigError:
         with pytest.raises(
             RemoteSessionEnvironmentError, match="QueryDisplayConfig is unavailable"
         ):
-            get_display_info()
+            get_display_info(raise_error=True)
 
     def test_query_config_invalid_param_non_remote_raises(self, monkeypatch):
         """ERROR_INVALID_PARAMETER outside remote session raises plain OSError"""
         _install_user32(monkeypatch, query_result=ERROR_INVALID_PARAMETER)
         monkeypatch.setattr(display_utils, "is_remote_session", lambda: False)
         with pytest.raises(OSError, match="QueryDisplayConfig error return"):
-            get_display_info()
+            get_display_info(raise_error=True)
 
 
 class TestGetDisplayInfoPathValidation:
@@ -172,7 +173,7 @@ class TestGetDisplayInfoPathValidation:
             monkeypatch, source_idx=DISPLAYCONFIG_PATH_MODE_IDX_INVALID, target_idx=0
         )
         with pytest.raises(OSError, match="sourceInfo.modeInfoIdx not available"):
-            get_display_info()
+            get_display_info(raise_error=True)
 
     def test_invalid_target_mode_idx_raises(self, monkeypatch):
         _install_user32(monkeypatch, num_paths=1, num_modes=2)
@@ -180,7 +181,7 @@ class TestGetDisplayInfoPathValidation:
             monkeypatch, source_idx=0, target_idx=DISPLAYCONFIG_PATH_MODE_IDX_INVALID
         )
         with pytest.raises(OSError, match="targetInfo.modeInfoIdx not available"):
-            get_display_info()
+            get_display_info(raise_error=True)
 
 
 class TestGetDisplayInfoDeviceInfoErrors:
@@ -190,13 +191,13 @@ class TestGetDisplayInfoDeviceInfoErrors:
         )
         _stub_paths_and_modes(monkeypatch, source_idx=0, target_idx=1)
         with pytest.raises(DisplayTopologyTransientError, match="Not Supported"):
-            get_display_info()
+            get_display_info(raise_error=True)
 
     def test_device_info_other_error_raises(self, monkeypatch):
         _install_user32(monkeypatch, num_paths=1, num_modes=2, device_info_result=1)
         _stub_paths_and_modes(monkeypatch, source_idx=0, target_idx=1)
         with pytest.raises(OSError, match="DisplayConfigGetDeviceInfo error return"):
-            get_display_info()
+            get_display_info(raise_error=True)
 
     def test_empty_friendly_name_becomes_none(self, monkeypatch):
         _install_user32(monkeypatch, num_paths=1, num_modes=2)
@@ -213,6 +214,7 @@ class TestGetDisplayInfoDeviceInfoErrors:
         monkeypatch.setattr(display_utils.user32, "DisplayConfigGetDeviceInfo", _device_info_empty)
 
         result = get_display_info()
+        assert result is not None
         assert len(result) == 1
         assert result[0].model is None
 
@@ -235,9 +237,28 @@ class TestGetDisplayInfoDeviceInfoErrors:
         monkeypatch.setattr(ctypes.windll.shcore, "GetDpiForMonitor", _mock_get_dpi)
 
         result = get_display_info()
+        assert result is not None
 
         assert len(result) == 1
         assert result[0].scale == 1.5
+
+
+class TestGetDisplayInfoTolerantDefault:
+    """get_display_info() default behavior: log a warning and return None on error."""
+
+    def test_buffer_sizes_failure_returns_none(self, monkeypatch, caplog):
+        _install_user32(monkeypatch, buffer_sizes_result=1)
+        with caplog.at_level(logging.WARNING, logger="wallpaper_auto.util.display_utils"):
+            assert get_display_info() is None
+        assert "cannot query displays" in caplog.text
+
+    def test_query_config_access_denied_returns_none(self, monkeypatch):
+        _install_user32(monkeypatch, query_result=ERROR_ACCESS_DENIED)
+        assert get_display_info() is None
+
+    def test_query_config_not_supported_returns_none(self, monkeypatch):
+        _install_user32(monkeypatch, query_result=ERROR_NOT_SUPPORTED)
+        assert get_display_info() is None
 
 
 class TestGetAllMonitorsDpiSnapshot:

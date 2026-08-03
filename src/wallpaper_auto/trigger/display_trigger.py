@@ -17,8 +17,6 @@ import win32con
 import win32gui
 
 from ..util.display_utils import (
-    DisplayTopologyTransientError,
-    RemoteSessionEnvironmentError,
     get_all_monitors_dpi_snapshot,
     get_display_info,
 )
@@ -51,10 +49,9 @@ class DisplayTrigger(BaseThreadTrigger):
 
     @staticmethod
     def _display_snapshot() -> frozenset[tuple[str, str]] | None:
-        """Return a snapshot of currently connected displays."""
-        try:
-            display_info = get_display_info()
-        except (DisplayTopologyTransientError, RemoteSessionEnvironmentError):
+        """Return a snapshot of currently connected displays, or None if they cannot be queried."""
+        display_info = get_display_info()
+        if display_info is None:
             return None
         return frozenset((d.monitor_device_path, d.model or "") for d in display_info)
 

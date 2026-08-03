@@ -180,7 +180,26 @@ shcore.GetDpiForMonitor.argtypes = [
 shcore.GetDpiForMonitor.restype = wintypes.LONG
 
 
-def get_display_info() -> list[DisplayInfo]:
+def get_display_info(raise_error: bool = False) -> list[DisplayInfo] | None:
+    """Return the list of connected displays.
+
+    Tolerant by default: on failure, logs a warning and returns ``None``.
+    Pass ``raise_error=True`` to raise the underlying typed error instead
+    (``DisplayTopologyTransientError``, ``RemoteSessionEnvironmentError``,
+    or ``OSError``).
+
+    ``[]`` means there are genuinely no active display paths.
+    """
+    try:
+        return _get_display_info()
+    except OSError as e:
+        if raise_error:
+            raise
+        logger.warning(f"cannot query displays: {e}")
+        return None
+
+
+def _get_display_info() -> list[DisplayInfo]:
     num_paths = wintypes.UINT(0)
     num_modes = wintypes.UINT(0)
 
@@ -209,7 +228,9 @@ def get_display_info() -> list[DisplayInfo]:
         if res == ERROR_SUCCESS:
             break
         if res == ERROR_ACCESS_DENIED:
-            return []
+            raise DisplayTopologyTransientError(
+                "QueryDisplayConfig: ERROR_ACCESS_DENIED (topology transition in progress)"
+            )
         elif res == ERROR_INSUFFICIENT_BUFFER:
             time.sleep(0.5)
             continue

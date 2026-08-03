@@ -127,6 +127,22 @@ class TestResourceManagerEvaluateTarget:
 
         assert result == {}
 
+    @patch("wallpaper_auto.resource_manager.get_display_info")
+    @patch("wallpaper_auto.resource_manager.ConfigStore")
+    def test_query_failure_returns_none(self, mock_cs, mock_get_display):
+        """get_display_info returning None yields None (caller skips the target)."""
+        mock_get_display.return_value = None
+        mock_cs.instance.resource = {
+            "wp1": ResourceConfig(
+                name="static_wallpaper",
+                config={"path": "/fake/path.png", "style": "fill"},
+            )
+        }
+
+        result = ResourceManager.evaluate_target("wp1")
+
+        assert result is None
+
 
 class TestResourceManagerEvaluateScene:
     """ResourceManager.evaluate_scene() — mapping displays to resources by model."""

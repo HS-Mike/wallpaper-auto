@@ -10,7 +10,6 @@ import win32con
 from wallpaper_auto.trigger.display_trigger import DisplayTrigger
 from wallpaper_auto.util.display_utils import (
     DisplayInfo,
-    DisplayTopologyTransientError,
     get_all_monitors_dpi_snapshot,
 )
 
@@ -386,20 +385,16 @@ class TestDisplayTriggerDpi:
 class TestDisplayTriggerErrorPaths:
     """Error paths in _display_snapshot, get_all_monitors_dpi_snapshot, _msg_proc, run."""
 
-    def test_display_snapshot_returns_none_on_transient_error(self, mock_display_deps) -> None:
-        """DisplayTopologyTransientError → _display_snapshot returns None."""
+    def test_display_snapshot_returns_none_when_query_fails(self, mock_display_deps) -> None:
+        """get_display_info returning None → _display_snapshot returns None."""
         trigger = DisplayTrigger()
-        mock_display_deps["get_display_info"].side_effect = DisplayTopologyTransientError(
-            "topology transition"
-        )
+        mock_display_deps["get_display_info"].return_value = None
         assert trigger._display_snapshot() is None
 
-    def test_setup_window_preserves_empty_on_transient_error(self, mock_display_deps) -> None:
+    def test_setup_window_preserves_empty_when_query_fails(self, mock_display_deps) -> None:
         """_setup_window leaves _prev_displays as empty frozenset when snapshot fails."""
         trigger = DisplayTrigger()
-        mock_display_deps["get_display_info"].side_effect = DisplayTopologyTransientError(
-            "topology transition"
-        )
+        mock_display_deps["get_display_info"].return_value = None
 
         trigger._setup_window()
 
@@ -427,11 +422,9 @@ class TestDisplayTriggerErrorPaths:
         assert "Failed to query all monitors DPI" in caplog.text
 
     def test_msg_proc_discards_when_curr_display_none(self, mock_display_deps) -> None:
-        """If _display_snapshot returns None (transient error), no trigger fires."""
+        """If _display_snapshot returns None (query failed), no trigger fires."""
         trigger = DisplayTrigger()
-        mock_display_deps["get_display_info"].side_effect = DisplayTopologyTransientError(
-            "transition"
-        )
+        mock_display_deps["get_display_info"].return_value = None
         with patch.object(trigger, "trigger") as mock_trigger:
             result = trigger._msg_proc(0, win32con.WM_DISPLAYCHANGE, 0, 0)
         mock_trigger.assert_not_called()

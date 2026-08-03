@@ -26,7 +26,11 @@ def _print_all_displays(header: str = "") -> None:
     """Query and print all current displays in unified format."""
     if header:
         print(f"\n=== {header} ===")
-    for i, d in enumerate(get_display_info(), 1):
+    displays = get_display_info()
+    if displays is None:
+        print("  <could not query displays>")
+        return
+    for i, d in enumerate(displays, 1):
         print(f"  {i}. {d.model or 'Unknown'} — source {d.source_resolution} -> target {d.target_resolution} @ {d.position}  scale {d.scale:.0%}  [{d.monitor_device_path}]")
 
 
