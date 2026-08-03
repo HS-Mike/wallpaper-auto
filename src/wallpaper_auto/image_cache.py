@@ -1,9 +1,10 @@
 """
 Disk-backed cache for display-resolution wallpaper images.
 
-Caches source images resized to a target display resolution so that
-expensive LANCZOS resizing (especially for 200 MB+ source files) is
-only done once per unique (source, resolution) pair.
+Caches source images cover-resized to fill a target display resolution
+while preserving aspect ratio (no cropping) so that expensive LANCZOS
+resizing (especially for 200 MB+ source files) is only done once per
+unique (source, resolution) pair.
 
 Eviction uses LFU (Least Frequently Used) with an on-disk ``index.json``
 that persists access counts across application restarts.
@@ -200,25 +201,38 @@ class ImageCompressionCache:
     def render(
         self, source_path: Path, region_w: int, region_h: int
     ) -> Image.Image:
-        """Return a cached resized image, or compute and cache it.
+        """Return a cached cover-resized image, or compute and cache it.
 
-        This is the primary entry point — the caller says
-        "render this source for this display" and gets the result
+        The source is resized to *fill* ``(region_w, region_h)`` while
+        preserving its aspect ratio — a "cover" resize with no cropping.
+        The caller is responsible for cropping the result to the exact
+        display resolution.  This is the primary entry point — the caller
+        says "render this source for this display" and gets the result
         regardless of cache state.
         """
-        cached = self.get(source_path, region_w, region_h)
+        try:
+            img = Image.open(source_path)
+            src_w, src_h = img.size
+        except OSError:
+            logger.exception("Cache failed to open %s", source_path)
+            # Return a blank image so the composite can still proceed.
+            return Image.new("RGB", (region_w, region_h), (0, 0, 0))
+
+        scale = max(region_w / src_w, region_h / src_h)
+        target_w, target_h = int(src_w * scale), int(src_h * scale)
+
+        cached = self.get(source_path, target_w, target_h)
         if cached is not None:
             return cached
 
         try:
-            with Image.open(source_path) as img:
-                resized = _resize_image(img, region_w, region_h)
+            resized = _resize_image(img, target_w, target_h)
         except OSError:
-            logger.exception("Cache failed to open/resize %s", source_path)
+            logger.exception("Cache failed to resize %s", source_path)
             # Return a blank image so the composite can still proceed.
             return Image.new("RGB", (region_w, region_h), (0, 0, 0))
 
-        self.put(source_path, region_w, region_h, resized)
+        self.put(source_path, target_w, target_h, resized)
         return resized
 
     def clear(self) -> int:

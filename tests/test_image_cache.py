@@ -177,6 +177,30 @@ class TestImageCompressionCacheRender:
         # Should be all black (OSError fallback).
         assert img.getpixel((0, 0)) == (0, 0, 0)
 
+    def test_render_preserves_aspect_ratio(self, tmp_path: Path):
+        """render() cover-resizes a non-square source without stretching."""
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        src = tmp_path / "src.png"
+        _small_img(200, 100).save(src)
+
+        img = cache.render(src, 100, 100)
+        # Cover: fills the 100x100 region, overflowing width — aspect 2:1 kept.
+        assert img.size == (200, 100)
+        assert round(img.size[0] / img.size[1], 3) == 2.0
+        assert img.size[0] >= 100 and img.size[1] >= 100
+
+    def test_render_cover_upscales_small_source(self, tmp_path: Path):
+        """A source smaller than the region is upscaled to fill it."""
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        src = tmp_path / "src.png"
+        _small_img(100, 50).save(src)
+
+        img = cache.render(src, 200, 200)
+        assert img.size == (400, 200)
+        assert round(img.size[0] / img.size[1], 3) == 2.0
+
 
 class TestImageCompressionCacheEviction:
     def test_evict_oldest_when_over_limit(self, tmp_path: Path):

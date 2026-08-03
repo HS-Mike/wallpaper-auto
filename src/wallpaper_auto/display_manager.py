@@ -37,6 +37,16 @@ class DisplayManager:
     per-monitor styles are achieved by compositing each monitor's image
     into a spanned wallpaper canvas and applying it with ``SPAN`` style.
 
+    Compositing happens in two stages:
+    1. **Resize** — each source image is cover-resized to fill its display
+       while preserving aspect ratio (no cropping). Path-based images go
+       through ``ImageCompressionCache.render()``; ``CENTER``/``TILE`` styles
+       keep native pixels.
+    2. **Composite** — ``_render_image_for_region`` crops each resized image
+       to its display's exact resolution, centered in the monitor's
+       virtual-desktop region, then the canvas is applied as a ``SPAN``
+       wallpaper.
+
     The "patch" mechanism tracks whether a display is showing its original
     (pre-app) wallpaper (``is_patch == True``) or a resource the app set.
     This ensures original wallpapers are restored when the app stops or
@@ -283,7 +293,12 @@ class DisplayManager:
                 canvas_x = d.position[0] - min_left
                 canvas_y = d.position[1] - min_top
 
-                img = self._resolve_cached_image(img, region_w, region_h)
+                # CENTER/TILE keep native pixels — bypass the cover-resize cache.
+                if style in (WallpaperStyle.CENTER, WallpaperStyle.TILE):
+                    if isinstance(img, Path):
+                        img = Image.open(img)
+                else:
+                    img = self._resolve_cached_image(img, region_w, region_h)
                 rendered, offset_x, offset_y = DisplayManager._render_image_for_region(
                     img,
                     style,
