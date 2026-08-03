@@ -28,27 +28,26 @@ class TestStaticWallpaperInit:
 
 
 class TestStaticWallpaperMount:
-    def test_mount_calls_plot_canvas(self, tmp_path):
+    def test_mount_buffers_canvas(self, tmp_path):
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), style=SWWallpaperStyle.FILL)
         wp._bind_monitor_device_path(_DEVICE_PATH)
         mock_plot = MagicMock()
-        wp._bind_plot_canvas(mock_plot)
+        wp._update_canvas = mock_plot
 
         wp.mount()
 
-        mock_plot.assert_called_once_with(
-            _DEVICE_PATH, SWWallpaperStyle.FILL, Path(img_path), False
-        )
+        mock_plot.assert_called_once_with(_DEVICE_PATH, SWWallpaperStyle.FILL, Path(img_path))
 
-    def test_mount_raises_when_plot_canvas_not_bound(self, tmp_path):
+    def test_mount_raises_when_canvas_unbound(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(StaticWallpaper, "_update_canvas", None)
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), style=SWWallpaperStyle.FILL)
         wp._bind_monitor_device_path(_DEVICE_PATH)
 
-        with pytest.raises(RuntimeError, match="plot_canvas not bound"):
+        with pytest.raises(RuntimeError, match="update_canvas not bound"):
             wp.mount()
 
 

@@ -296,11 +296,14 @@ class OnlineResource(BaseResource):
         self.style = style
 
     def mount(self):
-        # Download image, then set as wallpaper
+        # Download image, then buffer it via update_canvas(). The worker loop
+        # composites the buffered canvas (call self.plot_canvas() to request an
+        # immediate composite).
+        self.update_canvas(self.style, path)
         ...
 
     def demount(self):
-        # Restore previous wallpaper
+        # Lifecycle notification — the wallpaper system restores the previous wallpaper.
         ...
 
 run_service("config.yaml", custom_resources={"online": OnlineResource})

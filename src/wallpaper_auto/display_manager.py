@@ -7,6 +7,7 @@ it via the COM IDesktopWallpaper API.
 """
 
 import logging
+import threading
 from pathlib import Path
 
 from PIL import Image
@@ -48,6 +49,7 @@ class DisplayManager:
         self._display_resource_is_patch: dict[str, bool] = {}
         self._canvas_buffer: dict[str, tuple[WallpaperStyle, Path | Image.Image]] = {}
         self._image_cache: ImageCompressionCache | None = None
+        self._plot_lock = threading.Lock()
 
     def init_cache(
         self,
@@ -130,7 +132,6 @@ class DisplayManager:
         image_path = get_wallpaper(monitor_device_path)
         restore_res = StaticWallpaper(style, image_path)
         restore_res._bind_monitor_device_path(monitor_device_path)
-        restore_res._bind_plot_canvas(self.update_canvas_buffer)
         self._restore_wallpaper[monitor_device_path] = (style, image_path)
         self._display_resource_map[monitor_device_path] = restore_res
         self._display_resource_is_patch[monitor_device_path] = True
@@ -156,12 +157,10 @@ class DisplayManager:
             )
         res = self._display_resource_map[monitor_device_path]
         res.demount()
-        res._unbind_plot_canvas()
         orig_patch_res = StaticWallpaper(*self._restore_wallpaper[monitor_device_path])
         orig_patch_res._bind_monitor_device_path(monitor_device_path)
         self._display_resource_map[monitor_device_path] = orig_patch_res
         self._display_resource_is_patch[monitor_device_path] = True
-        orig_patch_res._bind_plot_canvas(self.update_canvas_buffer)
         orig_patch_res.mount()
 
     def update_resource(self, monitor_device_path: str, resource: BaseResource) -> None:
@@ -176,10 +175,8 @@ class DisplayManager:
         prev_resource = self._display_resource_map[monitor_device_path]
         if prev_resource is not None:
             prev_resource.demount()
-            prev_resource._unbind_plot_canvas()
         self._display_resource_map[monitor_device_path] = resource
         self._display_resource_is_patch[monitor_device_path] = False
-        resource._bind_plot_canvas(self.update_canvas_buffer)
         resource.mount()
 
     def _resolve_cached_image(
@@ -200,24 +197,24 @@ class DisplayManager:
             return Image.open(img)
         return img
 
-    def update_canvas_buffer(
+    def update_canvas(
         self,
         monitor_device_path: str,
         style: WallpaperStyle,
         image: Path | Image.Image,
-        immediate_update: bool = False,
     ) -> None:
         """Buffer a per-monitor wallpaper entry for the next composite.
+
+        Registered once on :class:`BaseResource` as the class-wide buffer
+        callback (see :meth:`BaseResource.register_update_canvas`).
 
         Args:
             monitor_device_path: Unique device path of the monitor.
             style: Wallpaper fit/style for this monitor.
             image: Image path or PIL Image to display.
-            immediate_update: If True, trigger ``plot_canvas()`` immediately.
         """
-        self._canvas_buffer[monitor_device_path] = (style, image)
-        if immediate_update is True:
-            self.plot_canvas()
+        with self._plot_lock:
+            self._canvas_buffer[monitor_device_path] = (style, image)
 
     def plot_canvas(self) -> None:
         """Composite buffered per-monitor images into a spanned wallpaper and apply it.
@@ -226,6 +223,19 @@ class DisplayManager:
         renders each image into its monitor's region on the virtual desktop
         according to its style, then applies the composite as a spanned
         wallpaper via the COM ``IDesktopWallpaper`` API.
+
+        Serialized by ``self._plot_lock``: the composite reads the buffer
+        snapshot and writes ``_composite.png`` under the same lock so
+        concurrent ``update_canvas`` writes (e.g. from a ``ResourceCycle``
+        cycling thread) cannot corrupt the file.
+        """
+        with self._plot_lock:
+            self._composite_and_apply()
+
+    def _composite_and_apply(self) -> None:
+        """Composite the buffered images and apply the result as wallpaper.
+
+        Must be called with ``self._plot_lock`` held.
         """
         buffer = dict(self._canvas_buffer)
         if not buffer:

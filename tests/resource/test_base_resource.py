@@ -5,10 +5,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from wallpaper_auto.resource.base_resource import (
-    BaseResource,
-    PlotCanvasProtocol,
-)
+from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.util.wallpaper_util import WallpaperStyle
 
 
@@ -16,9 +13,8 @@ def _noop_canvas(
     monitor_device_path: str,
     style: WallpaperStyle,
     image: Path | Image.Image,
-    immediate_update: bool = False,
 ) -> None:
-    """Canvas stub that does nothing — matches PlotCanvasProtocol exactly."""
+    """Canvas stub that does nothing — matches UpdateCanvasProtocol exactly."""
 
 
 class MockResource(BaseResource):
@@ -53,7 +49,12 @@ class TestInitState:
     def test_monitor_path_is_none(self) -> None:
         assert MockResource().monitor_device_path is None
 
-    def test_plot_canvas_is_none(self) -> None:
+    def test_update_canvas_is_none(self, monkeypatch) -> None:
+        monkeypatch.setattr(BaseResource, "_update_canvas", None)
+        assert MockResource()._update_canvas is None
+
+    def test_plot_canvas_is_none(self, monkeypatch) -> None:
+        monkeypatch.setattr(BaseResource, "_plot_canvas", None)
         assert MockResource()._plot_canvas is None
 
 
@@ -78,75 +79,10 @@ class TestBindMonitorDevicePath:
         assert r.monitor_device_path == "MONITOR\\2"
 
 
-class TestBindPlotCanvas:
-    def test_bind_sets_canvas(self) -> None:
-        r = MockResource()
-        canvas: PlotCanvasProtocol = _noop_canvas
-        r._bind_plot_canvas(canvas)
-        assert r._plot_canvas is canvas
+class TestUpdateCanvas:
+    """update_canvas buffers an image through the class-wide callback."""
 
-    def test_rebind_raises(self) -> None:
-        r = MockResource()
-        r._bind_plot_canvas(_noop_canvas)
-        with pytest.raises(RuntimeError, match="plot_canvas already bound"):
-            r._bind_plot_canvas(_noop_canvas)
-
-
-class TestBindUnbindCycle:
-    """Bind → unbind → rebind cycle for plot_canvas."""
-
-    def test_bind_unbind_rebind(self) -> None:
-        r = MockResource()
-
-        def _c1(
-            monitor_device_path: str,
-            style: WallpaperStyle,
-            image: Path | Image.Image,
-            immediate_update: bool = False,
-        ) -> None:
-            return None
-
-        def _c2(
-            monitor_device_path: str,
-            style: WallpaperStyle,
-            image: Path | Image.Image,
-            immediate_update: bool = False,
-        ) -> None:
-            return None
-
-        r._bind_plot_canvas(_c1)
-        assert r._plot_canvas is _c1
-        r._unbind_plot_canvas()
-        assert r._plot_canvas is None
-
-        r._bind_plot_canvas(_c2)
-        assert r._plot_canvas is _c2
-        r._unbind_plot_canvas()
-        assert r._plot_canvas is None
-
-
-class TestUnbindPlotCanvas:
-    def test_unbind_clears_canvas(self) -> None:
-        r = MockResource()
-        r._bind_plot_canvas(_noop_canvas)
-        r._unbind_plot_canvas()
-        assert r._plot_canvas is None
-
-    def test_unbind_without_bind_raises(self) -> None:
-        r = MockResource()
-        with pytest.raises(RuntimeError, match="plot_canvas not bound"):
-            r._unbind_plot_canvas()
-
-    def test_double_unbind_raises(self) -> None:
-        r = MockResource()
-        r._bind_plot_canvas(_noop_canvas)
-        r._unbind_plot_canvas()
-        with pytest.raises(RuntimeError, match="plot_canvas not bound"):
-            r._unbind_plot_canvas()
-
-
-class TestPlotCanvas:
-    def test_dispatches_to_bound_canvas(self) -> None:
+    def test_dispatches_to_callback(self) -> None:
         r = MockResource()
         r._bind_monitor_device_path("MONITOR\\1")
         captured: list[tuple[object, ...]] = []
@@ -155,36 +91,17 @@ class TestPlotCanvas:
             monitor_device_path: str,
             style: WallpaperStyle,
             image: Path | Image.Image,
-            immediate_update: bool = False,
         ) -> None:
-            captured.append((monitor_device_path, style, image, immediate_update))
+            captured.append((monitor_device_path, style, image))
 
-        r._bind_plot_canvas(canvas)
+        r._update_canvas = canvas
         img = Image.new("RGB", (4, 4))
-        r.plot_canvas(WallpaperStyle.FILL, img, immediate_update=True)
+        r.update_canvas(WallpaperStyle.FILL, img)
 
-        assert captured == [("MONITOR\\1", WallpaperStyle.FILL, img, True)]
-
-    def test_default_immediate_update_is_false(self) -> None:
-        """immediate_update defaults to False when omitted."""
-        r = MockResource()
-        r._bind_monitor_device_path("MONITOR\\1")
-        captured: list[bool] = []
-
-        def canvas(
-            monitor_device_path: str,
-            style: WallpaperStyle,
-            image: Path | Image.Image,
-            immediate_update: bool = False,
-        ) -> None:
-            captured.append(immediate_update)
-
-        r._bind_plot_canvas(canvas)
-        r.plot_canvas(WallpaperStyle.FIT, Image.new("RGB", (4, 4)))
-        assert captured == [False]
+        assert captured == [("MONITOR\\1", WallpaperStyle.FILL, img)]
 
     def test_with_path_image(self) -> None:
-        """plot_canvas accepts a pathlib.Path as image argument."""
+        """update_canvas accepts a pathlib.Path as image argument."""
         r = MockResource()
         r._bind_monitor_device_path("MONITOR\\1")
         captured: list[object] = []
@@ -193,13 +110,12 @@ class TestPlotCanvas:
             monitor_device_path: str,
             style: WallpaperStyle,
             image: Path | Image.Image,
-            immediate_update: bool = False,
         ) -> None:
             captured.append(image)
 
-        r._bind_plot_canvas(canvas)
+        r._update_canvas = canvas
         path = Path("/tmp/wallpaper.png")
-        r.plot_canvas(WallpaperStyle.STRETCH, path)
+        r.update_canvas(WallpaperStyle.STRETCH, path)
         assert captured == [path]
         assert isinstance(captured[0], Path)
 
@@ -212,22 +128,76 @@ class TestPlotCanvas:
             monitor_device_path: str,
             style: WallpaperStyle,
             image: Path | Image.Image,
-            immediate_update: bool = False,
         ) -> None:
             raise RuntimeError("canvas failure")
 
-        r._bind_plot_canvas(canvas)
+        r._update_canvas = canvas
         with pytest.raises(RuntimeError, match="canvas failure"):
-            r.plot_canvas(WallpaperStyle.FILL, Image.new("RGB", (4, 4)))
+            r.update_canvas(WallpaperStyle.FILL, Image.new("RGB", (4, 4)))
 
-    def test_raises_when_canvas_unbound(self) -> None:
+    def test_raises_when_canvas_unbound(self, monkeypatch) -> None:
+        monkeypatch.setattr(BaseResource, "_update_canvas", None)
         r = MockResource()
         r._bind_monitor_device_path("MONITOR\\1")
-        with pytest.raises(RuntimeError, match="plot_canvas not bound"):
-            r.plot_canvas(WallpaperStyle.FILL, Image.new("RGB", (4, 4)))
+        with pytest.raises(RuntimeError, match="update_canvas not bound"):
+            r.update_canvas(WallpaperStyle.FILL, Image.new("RGB", (4, 4)))
 
     def test_raises_when_monitor_path_unbound(self) -> None:
         r = MockResource()
-        r._bind_plot_canvas(_noop_canvas)
+        r._update_canvas = _noop_canvas
         with pytest.raises(RuntimeError, match="monitor_device_path not bound"):
-            r.plot_canvas(WallpaperStyle.FILL, Image.new("RGB", (4, 4)))
+            r.update_canvas(WallpaperStyle.FILL, Image.new("RGB", (4, 4)))
+
+
+class TestPlotCanvas:
+    """plot_canvas requests a composite through the class-wide callback."""
+
+    def test_dispatches_to_class_callback(self, monkeypatch) -> None:
+        called: list[bool] = []
+        # staticmethod wrapper — a plain function stored on the class would be
+        # bound as a method on instance access.
+        monkeypatch.setattr(BaseResource, "_plot_canvas", staticmethod(lambda: called.append(True)))
+        MockResource().plot_canvas()
+        assert called == [True]
+
+    def test_raises_when_no_callback_registered(self, monkeypatch) -> None:
+        monkeypatch.setattr(BaseResource, "_plot_canvas", None)
+        r = MockResource()
+        with pytest.raises(RuntimeError, match="plot_canvas not bound"):
+            r.plot_canvas()
+
+    def test_instance_can_override_class_callback(self, monkeypatch) -> None:
+        class_calls: list[str] = []
+        monkeypatch.setattr(BaseResource, "_plot_canvas", lambda: class_calls.append("class"))
+        r = MockResource()
+        instance_calls: list[str] = []
+        r._plot_canvas = lambda: instance_calls.append("instance")
+        r.plot_canvas()
+        assert class_calls == []
+        assert instance_calls == ["instance"]
+
+
+class TestRegisterCanvasCallbacks:
+    """Class-wide registration of buffer and composite callbacks."""
+
+    def test_register_update_canvas_sets_class_attribute(self, monkeypatch) -> None:
+        monkeypatch.setattr(BaseResource, "_update_canvas", None)
+
+        def cb(
+            monitor_device_path: str,
+            style: WallpaperStyle,
+            image: Path | Image.Image,
+        ) -> None:
+            return None
+
+        BaseResource.register_update_canvas(cb)
+        assert BaseResource._update_canvas is cb
+
+    def test_register_plot_canvas_sets_class_attribute(self, monkeypatch) -> None:
+        monkeypatch.setattr(BaseResource, "_plot_canvas", None)
+
+        def cb() -> None:
+            return None
+
+        BaseResource.register_plot_canvas(cb)
+        assert BaseResource._plot_canvas is cb

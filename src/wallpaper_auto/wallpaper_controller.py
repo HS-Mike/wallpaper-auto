@@ -17,6 +17,7 @@ from . import at_system_shutdown
 from .config_store import ConfigStore
 from .display_manager import DisplayManager
 from .models import Rule
+from .resource.base_resource import BaseResource
 from .resource_manager import ResourceManager
 from .rule_engine import RuleEngine
 from .system_tray import WallpaperSwitchSystemTray
@@ -42,6 +43,8 @@ class WallpaperController:
         self._config_store: ConfigStore = ConfigStore()
         self._resource_manager: ResourceManager = ResourceManager()
         self._display_manager: DisplayManager = DisplayManager()
+        BaseResource.register_update_canvas(self._display_manager.update_canvas)
+        BaseResource.register_plot_canvas(self.add_plot_canvas_task)
         self._trigger_manager: TriggerManager = TriggerManager()
         self._trigger_manager.add_callback(self.evaluate)
         self._rule_engine: RuleEngine = RuleEngine()

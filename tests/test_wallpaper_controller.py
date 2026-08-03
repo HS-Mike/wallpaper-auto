@@ -6,6 +6,7 @@ from unittest.mock import ANY, MagicMock, call, patch
 import pytest
 
 from wallpaper_auto.models import Rule
+from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.task import Mode, ModeSwitchTask, PlotCanvasTask, QuitTask, TargetSetTask
 from wallpaper_auto.wallpaper_controller import WallpaperController
 
@@ -71,6 +72,25 @@ class TestWallpaperControllerInit:
 
     def test_evaluate_registered_as_trigger_callback(self, controller):
         assert controller.evaluate in controller._trigger_manager._callbacks
+
+    def test_registers_canvas_callbacks_on_resource_class(self, monkeypatch):
+        """Controller __init__ registers the class-wide canvas callbacks."""
+        registered: dict[str, object] = {}
+        monkeypatch.setattr(
+            BaseResource,
+            "register_update_canvas",
+            lambda cb: registered.setdefault("update_canvas", cb),
+        )
+        monkeypatch.setattr(
+            BaseResource,
+            "register_plot_canvas",
+            lambda cb: registered.setdefault("plot_canvas", cb),
+        )
+
+        controller = WallpaperController()
+
+        assert registered["update_canvas"] == controller._display_manager.update_canvas
+        assert registered["plot_canvas"] == controller.add_plot_canvas_task
 
 
 class TestWallpaperControllerLoadConfig:

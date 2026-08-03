@@ -39,6 +39,6 @@ class StaticWallpaper(BaseResource):
         self._original_wallpaper_path: Path | None = None
 
     def mount(self) -> None:
-        self.plot_canvas(self.style, self.image_path, immediate_update=False)
+        self.update_canvas(self.style, self.image_path)
 
     def demount(self) -> None: ...

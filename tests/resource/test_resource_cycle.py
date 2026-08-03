@@ -3,14 +3,12 @@ Tests for resource_cycle.py — ResourceCycle.
 """
 
 import time
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource.resource_cycle import ResourceCycle
-from wallpaper_auto.util.wallpaper_util import WallpaperStyle
 
 _DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
 
@@ -83,13 +81,10 @@ class TestResourceCycleLifecycle:
     """Mount lifecycle."""
 
     def test_mount_demount_lifecycle(self, mock_sub_resources):
-        """mount starts background thread; demount stops it.
-        A resource is single-use: mount once, demount once.
-        Re-mounting the same instance is not expected.
-        """
+        """mount starts background thread, mounts the first sub-resource, demount stops it."""
         cycle = ResourceCycle(resources=mock_sub_resources)
         cycle._bind_monitor_device_path(_DEVICE_PATH)
-        cycle._bind_plot_canvas(MagicMock())
+        cycle._plot_canvas = MagicMock()
         cycle.mount()
         assert cycle._cycling_thread is not None
         assert cycle._cycling_thread.is_alive()
@@ -97,29 +92,16 @@ class TestResourceCycleLifecycle:
         deadline = time.monotonic() + 5.0
         while mock_sub_resources[0].mount.call_count < 1 and time.monotonic() < deadline:
             time.sleep(0.02)
+        assert mock_sub_resources[0].mount.call_count >= 1, "mount not called within 5s timeout"
 
         cycle.demount()
         assert cycle._cycling_thread is None
-
-    def test_mount_mounts_first_resource(self, mock_sub_resources):
-        """mount triggers mount() on the first sub-resource via the cycling thread."""
-        cycle = ResourceCycle(resources=mock_sub_resources)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
-        cycle._bind_plot_canvas(MagicMock())
-        cycle.mount()
-
-        deadline = time.monotonic() + 5.0
-        while mock_sub_resources[0].mount.call_count < 1 and time.monotonic() < deadline:
-            time.sleep(0.02)
-
-        assert mock_sub_resources[0].mount.call_count >= 1, "mount not called within 5s timeout"
-        cycle.demount()
 
     def test_mount_random_starts_at_random_index(self, mock_sub_resources):
         """With random=True, a different starting index may be selected."""
         cycle = ResourceCycle(resources=mock_sub_resources, random=True)
         cycle._bind_monitor_device_path(_DEVICE_PATH)
-        cycle._bind_plot_canvas(MagicMock())
+        cycle._plot_canvas = MagicMock()
         cycle.mount()
 
         deadline = time.monotonic() + 5.0
@@ -174,7 +156,7 @@ class TestResourceCycleCycling:
         """Cycling thread demounts current and mounts next after ~interval."""
         cycle = ResourceCycle(resources=mock_sub_resources, interval=0.05)
         cycle._bind_monitor_device_path(_DEVICE_PATH)
-        cycle._bind_plot_canvas(MagicMock())
+        cycle._plot_canvas = MagicMock()
         cycle.mount()
 
         deadline = time.monotonic() + 5.0
@@ -190,7 +172,7 @@ class TestResourceCycleCycling:
         """Setting stop event causes thread to exit before next interval."""
         cycle = ResourceCycle(resources=mock_sub_resources, interval=10)
         cycle._bind_monitor_device_path(_DEVICE_PATH)
-        cycle._bind_plot_canvas(MagicMock())
+        cycle._plot_canvas = MagicMock()
         cycle.mount()
         assert cycle._cycling_thread is not None and cycle._cycling_thread.is_alive()
 
@@ -216,7 +198,7 @@ class TestResourceCycleEdgeCases:
         single = [mock_sub_resources[0]]
         cycle = ResourceCycle(resources=single, interval=0.05)
         cycle._bind_monitor_device_path(_DEVICE_PATH)
-        cycle._bind_plot_canvas(MagicMock())
+        cycle._plot_canvas = MagicMock()
         cycle.mount()
         assert cycle._index == 0
 
@@ -228,44 +210,3 @@ class TestResourceCycleEdgeCases:
 
         assert mock_sub_resources[0].demount.call_count >= 2
         assert mock_sub_resources[0].mount.call_count >= 3
-
-    def test_type_error_on_invalid_type(self):
-        """Non-BaseResource, non-dict items raise TypeError."""
-        with pytest.raises(TypeError):
-            ResourceCycle(resources=[123])  # type: ignore[list-item]
-
-
-class TestGetPlotCanvasWrapper:
-    """The plot_canvas_wrapper returned by get_plot_canvas_wrapper."""
-
-    def test_wrapper_calls_plot_canvas_with_immediate_update(self, mock_sub_resources):
-        """Wrapper forces immediate_update=True regardless of caller arg."""
-        cycle = ResourceCycle(resources=mock_sub_resources)
-        canvas_mock = MagicMock()
-        cycle._bind_plot_canvas(canvas_mock)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
-        wrapper = cycle.get_plot_canvas_wrapper()
-
-        wrapper(_DEVICE_PATH, WallpaperStyle.FILL, Path("img"), immediate_update=False)
-
-        canvas_mock.assert_called_once_with(_DEVICE_PATH, WallpaperStyle.FILL, Path("img"), True)
-
-    def test_wrapper_asserts_plot_canvas_bound(self, mock_sub_resources):
-        cycle = ResourceCycle(resources=mock_sub_resources)
-        cycle._bind_plot_canvas(MagicMock())
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
-        wrapper = cycle.get_plot_canvas_wrapper()
-        # Simulate the canvas being unbound after the wrapper is captured.
-        cycle._plot_canvas = None
-        with pytest.raises(AssertionError, match="plot_canvas not bound"):
-            wrapper(_DEVICE_PATH, WallpaperStyle.FILL, Path("img"))
-
-    def test_wrapper_asserts_monitor_path_bound(self, mock_sub_resources):
-        cycle = ResourceCycle(resources=mock_sub_resources)
-        # Bind both, capture the wrapper, then unbind the path.
-        cycle._bind_plot_canvas(MagicMock())
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
-        wrapper = cycle.get_plot_canvas_wrapper()
-        cycle.monitor_device_path = None
-        with pytest.raises(AssertionError, match="monitor_device_path not bound"):
-            wrapper(_DEVICE_PATH, WallpaperStyle.FILL, Path("img"))

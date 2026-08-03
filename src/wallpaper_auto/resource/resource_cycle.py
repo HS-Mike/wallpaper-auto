@@ -11,13 +11,9 @@ from __future__ import annotations
 import logging
 import random
 import threading
-from pathlib import Path
 from typing import Any
 
-from PIL import Image
-
-from ..util.wallpaper_util import WallpaperStyle
-from .base_resource import BaseResource, PlotCanvasProtocol
+from .base_resource import BaseResource
 
 logger = logging.getLogger(__name__)
 
@@ -104,26 +100,8 @@ class ResourceCycle(BaseResource):
         else:
             self._index = (self._index + 1) % len(self._resources)
 
-    def get_plot_canvas_wrapper(self) -> PlotCanvasProtocol:
-        assert self._plot_canvas is not None, "plot_canvas not bound"
-        assert self.monitor_device_path is not None, "monitor_device_path not bound"
-
-        def plot_canvas_wrapper(
-            monitor_device_path: str,
-            style: WallpaperStyle,
-            image: Path | Image.Image,
-            immediate_update: bool = False,
-        ) -> None:
-            assert self._plot_canvas is not None, "plot_canvas not bound"
-            assert self.monitor_device_path is not None, "monitor_device_path not bound"
-            return self._plot_canvas(monitor_device_path, style, image, True)
-
-        return plot_canvas_wrapper
-
     def _cycling_loop(self) -> None:
         logger.debug("resource cycle cycling thread start")
-
-        plot_canvas_wrapper = self.get_plot_canvas_wrapper()
 
         # Pick the first resource (random start or index 0)
         if self.random:
@@ -131,19 +109,17 @@ class ResourceCycle(BaseResource):
         r = self._resources[self._index]
         assert self.monitor_device_path is not None
         r._bind_monitor_device_path(self.monitor_device_path)
-        r._bind_plot_canvas(plot_canvas_wrapper)
         r.mount()
+        self.plot_canvas()
 
         while not self._stop_event.wait(timeout=self.interval):
             r.demount()
-            r._unbind_plot_canvas()
             self._advance_index()
             r = self._resources[self._index]
             r._bind_monitor_device_path(self.monitor_device_path)
-            r._bind_plot_canvas(plot_canvas_wrapper)
             r.mount()
+            self.plot_canvas()
         r.demount()
-        r._unbind_plot_canvas()
         logger.debug("resource cycle cycling thread exit")
 
     def mount(self) -> None:
