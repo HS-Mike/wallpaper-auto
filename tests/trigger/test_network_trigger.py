@@ -25,11 +25,6 @@ def mock_pythoncom():
         yield m
 
 
-# ===========================================================================
-# TestNetworkTriggerLifecycle
-# ===========================================================================
-
-
 class TestNetworkTriggerLifecycle:
     """Tests for start/stop lifecycle -- exit event creation/closing,
     signal, and cleanup."""
@@ -55,11 +50,6 @@ class TestNetworkTriggerLifecycle:
             trigger.start()
         # clean up
         trigger.stop()
-
-
-# ===========================================================================
-# TestNetworkTriggerRun
-# ===========================================================================
 
 
 class TestNetworkTriggerRun:
@@ -144,11 +134,6 @@ class TestNetworkTriggerRun:
             mock_pythoncom.CoUninitialize.assert_called_once()
             # CloseHandle is called for net_event in finally block
             mock_kernel32.CloseHandle.assert_called_once()
-
-
-# ===========================================================================
-# TestNetworkTriggerFingerprint
-# ===========================================================================
 
 
 class TestNetworkTriggerFingerprint:

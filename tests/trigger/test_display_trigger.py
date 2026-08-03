@@ -17,10 +17,6 @@ from wallpaper_auto.util.display_utils import (
 # the real function's exception-handling branch.
 _REAL_GET_DPI_SNAPSHOT = get_all_monitors_dpi_snapshot
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def mock_display_deps():
@@ -63,11 +59,6 @@ def mock_display_deps():
         }
 
 
-# ===========================================================================
-# TestDisplayTriggerInit
-# ===========================================================================
-
-
 class TestDisplayTriggerInit:
     """Tests for DisplayTrigger initial state."""
 
@@ -77,11 +68,6 @@ class TestDisplayTriggerInit:
         assert trigger.hwnd is None
         assert trigger._prev_displays == frozenset()
         assert trigger._prev_monitor_dpis == frozenset()
-
-
-# ===========================================================================
-# TestDisplayTriggerMsgProc
-# ===========================================================================
 
 
 _DEVICE_A = r"\\?\DISPLAY#DELA#{...}"
@@ -165,11 +151,6 @@ class TestDisplayTriggerMsgProc:
         assert result == 42
 
 
-# ===========================================================================
-# TestDisplayTriggerLifecycle
-# ===========================================================================
-
-
 class TestDisplayTriggerLifecycle:
     """Tests for start and stop lifecycle."""
 
@@ -209,11 +190,6 @@ class TestDisplayTriggerLifecycle:
 
         assert trigger._thread is None  # set to None by stop()
         assert trigger.hwnd is None  # set to None by WM_DESTROY handler
-
-
-# ===========================================================================
-# TestDisplayTriggerRun
-# ===========================================================================
 
 
 class TestDisplayTriggerRun:
@@ -273,11 +249,6 @@ class TestDisplayTriggerRun:
         # CoUninitialize must still be called despite the UnregisterClass error
         mock_display_deps["pythoncom"].CoUninitialize.assert_called_once()
         assert "UnregisterClass failed" in caplog.text
-
-
-# ===========================================================================
-# TestDisplayTriggerDpi
-# ===========================================================================
 
 
 class TestDisplayTriggerDpi:
@@ -375,11 +346,6 @@ class TestDisplayTriggerDpi:
 
         assert callback_called == [True]
         assert trigger._prev_monitor_dpis == changed_dual
-
-
-# ===========================================================================
-# TestDisplayTriggerErrorPaths
-# ===========================================================================
 
 
 class TestDisplayTriggerErrorPaths:
