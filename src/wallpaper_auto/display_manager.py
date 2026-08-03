@@ -8,6 +8,7 @@ it via the COM IDesktopWallpaper API.
 
 import logging
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image
@@ -28,6 +29,31 @@ from .util.wallpaper_util import (
 
 logger = logging.getLogger(__name__)
 logging.getLogger("PIL").setLevel(logging.WARNING)
+
+
+@dataclass
+class DisplayState:
+    """Per-display state tracked by :class:`DisplayManager`.
+
+    Attributes:
+        monitor_device_path: Unique device path of the monitor.
+        resource: The active resource, or the patch ``StaticWallpaper`` when
+            ``is_patch`` is True.
+        is_patch: True when the display is showing its original wallpaper
+            (a patch), False when it shows a resource the app set.
+        restore: The display's genuine original ``(style, image_path)``,
+            captured while the desktop wallpaper was still untouched by the
+            app.  ``None`` for displays added after the app applied its SPAN
+            composite — the original is unrecoverable (``IDesktopWallpaper``
+            ignores monitorID under SPAN) and must never be restored.
+        canvas: The buffered ``(style, image)`` compositing entry, or None.
+    """
+
+    monitor_device_path: str
+    resource: BaseResource
+    is_patch: bool
+    restore: tuple[WallpaperStyle, Path] | None = None
+    canvas: tuple[WallpaperStyle, Path | Image.Image] | None = None
 
 
 class DisplayManager:
@@ -51,15 +77,24 @@ class DisplayManager:
     (pre-app) wallpaper (``is_patch == True``) or a resource the app set.
     This ensures original wallpapers are restored when the app stops or
     a display is removed.
+
+    **Thread-safety:** every public method is internally synchronized by a
+    single ``_lock`` (monitor pattern) — callers never rely on threading
+    conventions. Two invariants keep the lock deadlock/stall-free:
+      1. ``_lock`` is never held across a resource lifecycle call
+         (``demount()``/``mount()``), since ``demount()`` may join a cycling
+         thread blocked on the lock and ``mount()`` calls back into
+         ``update_canvas()``.
+      2. ``_lock`` is never held across a nested public-method call; methods
+         that call other public methods compute under the lock, release it,
+         then delegate.
     """
 
     def __init__(self) -> None:
-        self._restore_wallpaper: dict[str, tuple[WallpaperStyle, Path]] = {}
-        self._display_resource_map: dict[str, BaseResource] = {}
-        self._display_resource_is_patch: dict[str, bool] = {}
-        self._canvas_buffer: dict[str, tuple[WallpaperStyle, Path | Image.Image]] = {}
+        self._displays: dict[str, DisplayState] = {}
+        self._wallpaper_applied: bool = False
         self._image_cache: ImageCompressionCache | None = None
-        self._plot_lock = threading.Lock()
+        self._lock = threading.Lock()
 
     def init_cache(
         self,
@@ -75,37 +110,51 @@ class DisplayManager:
         false the cache is left as ``None`` and ``_resolve_cached_image``
         opens images directly.
         """
-        if resize_enabled:
-            cache = ImageCompressionCache()
-            cache.init(
-                cache_path,
-                max_size_bytes=max_size_bytes,
-                evict_ratio=evict_ratio,
-            )
-            self._image_cache = cache
+        with self._lock:
+            if resize_enabled:
+                cache = ImageCompressionCache()
+                cache.init(
+                    cache_path,
+                    max_size_bytes=max_size_bytes,
+                    evict_ratio=evict_ratio,
+                )
+                self._image_cache = cache
 
     def start(self) -> None:
-        """Record original wallpaper for all connected displays and register as patches."""
-        curr_display_info = get_display_info()
-        if curr_display_info is None:
-            return
-        for i in curr_display_info:
-            self.add_display(i.monitor_device_path)
+        """Begin a fresh lifecycle: record originals for all connected displays.
 
-    def stop(self, restore: bool) -> None:
-        """Revert all displays to original wallpapers and optionally restore global style.
-
-        Args:
-            restore: If True, also restore the original ``WallpaperStyle``
-                and per-monitor images via the COM API.
+        A composite must never be applied before ``start()``, so
+        ``_wallpaper_applied`` must already be ``False`` here (``stop()`` clears
+        it at the end of the previous lifecycle).
         """
-        # restore original wallpaper status
-        for i in self._display_resource_map:
-            self.remove_display(i)
-        if restore is True:
-            for device_path, (style, image_path) in self._restore_wallpaper.items():
-                set_wallpaper_style(style)
-                set_wallpaper(device_path, image_path)
+        with self._lock:
+            if self._wallpaper_applied:
+                raise RuntimeError("cannot start: a composite was applied before start()")
+            curr_display_info = get_display_info()
+            if curr_display_info is None:
+                return
+            paths = [d.monitor_device_path for d in curr_display_info]
+        for p in paths:
+            self.add_display(p)
+
+    def stop(self) -> None:
+        """Revert all displays to their original wallpapers.
+
+        Restores each display that has a genuine ``restore`` record (captured
+        at ``start()``) and clears ``_wallpaper_applied`` for the next
+        lifecycle.  Displays added after the app applied its SPAN composite
+        have no restore record and are simply dropped.
+        """
+        with self._lock:
+            monitors = list(self._displays)
+        for m in monitors:
+            self.remove_display(m)
+        with self._lock:
+            for state in self._displays.values():
+                if state.restore is not None:
+                    set_wallpaper_style(state.restore[0])
+                    set_wallpaper(state.monitor_device_path, state.restore[1])
+            self._wallpaper_applied = False
 
     def update_display(self) -> list[DisplayInfo] | None:
         """Detect monitor hotplug events and add/remove displays accordingly.
@@ -117,66 +166,91 @@ class DisplayManager:
         curr_display_info = get_display_info()
         if curr_display_info is None:
             return None
-        curr_monitor_device_path = {i.monitor_device_path for i in curr_display_info}
-        active_monitor_device_path = self.active_monitor_device_path
-        plugged_display = curr_monitor_device_path - active_monitor_device_path
-        unplugged_display = active_monitor_device_path - curr_monitor_device_path
-        for i in plugged_display:
-            self.add_display(i)
-        for i in unplugged_display:
-            self.remove_display(i)
+        with self._lock:
+            curr = {d.monitor_device_path for d in curr_display_info}
+            active = set(self._displays.keys())
+            plugged = curr - active
+            unplugged = active - curr
+        for p in plugged:
+            self.add_display(p)
+        for u in unplugged:
+            self.remove_display(u)
         return curr_display_info
 
     @property
     def active_monitor_device_path(self) -> set[str]:
         """Return the set of monitor device paths currently tracked by the manager."""
-        return set(self._display_resource_map.keys())
+        with self._lock:
+            return set(self._displays.keys())
 
     def add_display(self, monitor_device_path: str) -> None:
-        """Register a newly connected display and save its original wallpaper.
+        """Register a newly connected display.
 
-        Creates a patch ``StaticWallpaper`` with the current wallpaper and
-        style, binds it to the display, and stores it for later restoration.
+        Creates a patch ``StaticWallpaper`` and stores a genuine ``restore``
+        record only while the desktop wallpaper is still untouched by the app.
+        Once the app has applied its SPAN composite, ``GetWallpaper`` ignores
+        the monitorID and returns the app's own composite — so no restore
+        record is kept for such displays.
 
         Args:
             monitor_device_path: Unique device path of the monitor.
         """
-        if monitor_device_path in self._display_resource_map:
-            return
-        style = get_wallpaper_style()
-        image_path = get_wallpaper(monitor_device_path)
-        restore_res = StaticWallpaper(style, image_path)
-        restore_res._bind_monitor_device_path(monitor_device_path)
-        self._restore_wallpaper[monitor_device_path] = (style, image_path)
-        self._display_resource_map[monitor_device_path] = restore_res
-        self._display_resource_is_patch[monitor_device_path] = True
+        with self._lock:
+            if monitor_device_path in self._displays:
+                return
+            style = get_wallpaper_style()
+            image_path = get_wallpaper(monitor_device_path)
+            patch = StaticWallpaper(style, image_path)
+            patch._bind_monitor_device_path(monitor_device_path)
+            self._displays[monitor_device_path] = DisplayState(
+                monitor_device_path=monitor_device_path,
+                resource=patch,
+                is_patch=True,
+                restore=(style, image_path) if not self._wallpaper_applied else None,
+            )
 
     def remove_display(self, monitor_device_path: str) -> None:
         """Revert a display back to its original wallpaper.
 
         Demounts the active resource, replaces it with a patch
         ``StaticWallpaper`` of the original wallpaper, and re-applies it.
+        Displays with no ``restore`` record (added after the app applied its
+        composite) are dropped instead of patched — there is no genuine
+        original to restore, and mounting a SPAN composite patch would corrupt
+        the whole canvas.
 
         Args:
             monitor_device_path: Unique device path of the monitor.
 
         Raises:
-            ValueError: If the display is already a patch (no active
-                resource to remove).
+            ValueError: If the display is already a patch with a restore
+                record (no active resource to remove).
         """
-        is_patch = self._display_resource_is_patch[monitor_device_path]
-        if is_patch is True:
-            raise ValueError(
-                f"Display (monitor_device_path: {monitor_device_path}) "
-                "does not have a resource"
-            )
-        res = self._display_resource_map[monitor_device_path]
-        res.demount()
-        orig_patch_res = StaticWallpaper(*self._restore_wallpaper[monitor_device_path])
-        orig_patch_res._bind_monitor_device_path(monitor_device_path)
-        self._display_resource_map[monitor_device_path] = orig_patch_res
-        self._display_resource_is_patch[monitor_device_path] = True
-        orig_patch_res.mount()
+        with self._lock:
+            state = self._displays[monitor_device_path]
+            if state.is_patch is True:
+                if state.restore is None:
+                    # Hotplugged patch: nothing to remove, nothing to restore.
+                    self._displays.pop(monitor_device_path, None)
+                    return
+                raise ValueError(
+                    f"Display (monitor_device_path: {monitor_device_path}) does not have a resource"
+                )
+            resource_to_demount = state.resource
+            if state.restore is None:
+                # Hotplugged display with a resource: drop it; a re-plug re-adds
+                # via add_display().
+                self._displays.pop(monitor_device_path, None)
+                patch_to_mount = None
+            else:
+                patch = StaticWallpaper(*state.restore)
+                patch._bind_monitor_device_path(monitor_device_path)
+                state.resource = patch
+                state.is_patch = True
+                patch_to_mount = patch
+        resource_to_demount.demount()  # outside lock (may join a cycling thread)
+        if patch_to_mount is not None:
+            patch_to_mount.mount()  # outside lock (→ update_canvas takes the lock)
 
     def update_resource(self, monitor_device_path: str, resource: BaseResource) -> None:
         """Replace the active resource on a display with a new one.
@@ -187,12 +261,13 @@ class DisplayManager:
             monitor_device_path: Unique device path of the monitor.
             resource: The new resource to activate.
         """
-        prev_resource = self._display_resource_map[monitor_device_path]
-        if prev_resource is not None:
-            prev_resource.demount()
-        self._display_resource_map[monitor_device_path] = resource
-        self._display_resource_is_patch[monitor_device_path] = False
-        resource.mount()
+        with self._lock:
+            state = self._displays[monitor_device_path]
+            prev = state.resource
+            state.resource = resource
+            state.is_patch = False
+        prev.demount()  # outside lock (may join a cycling thread)
+        resource.mount()  # outside lock (→ update_canvas takes the lock)
 
     def _resolve_cached_image(
         self,
@@ -228,31 +303,40 @@ class DisplayManager:
             style: Wallpaper fit/style for this monitor.
             image: Image path or PIL Image to display.
         """
-        with self._plot_lock:
-            self._canvas_buffer[monitor_device_path] = (style, image)
+        with self._lock:
+            state = self._displays.get(monitor_device_path)
+            if state is None:
+                # Display removed concurrently (e.g. remove_display on the worker
+                # loop while a ResourceCycle cycling thread buffers) — drop the
+                # stale update rather than raising KeyError.
+                return
+            state.canvas = (style, image)
 
     def plot_canvas(self) -> None:
         """Composite buffered per-monitor images into a spanned wallpaper and apply it.
 
-        Reads ``self._canvas_buffer`` (``{monitor_id: (style, image)}``),
-        renders each image into its monitor's region on the virtual desktop
-        according to its style, then applies the composite as a spanned
-        wallpaper via the COM ``IDesktopWallpaper`` API.
+        Reads the buffered per-monitor entries from ``self._displays``
+        (``{monitor_id: (style, image)}``), renders each image into its
+        monitor's region on the virtual desktop according to its style, then
+        applies the composite as a spanned wallpaper via the COM
+        ``IDesktopWallpaper`` API.
 
-        Serialized by ``self._plot_lock``: the composite reads the buffer
-        snapshot and writes ``_composite.png`` under the same lock so
-        concurrent ``update_canvas`` writes (e.g. from a ``ResourceCycle``
-        cycling thread) cannot corrupt the file.
+        Serialized by ``self._lock``: the composite reads the buffer snapshot
+        and writes ``_composite.png`` under the same lock so concurrent
+        ``update_canvas`` writes (e.g. from a ``ResourceCycle`` cycling thread)
+        cannot corrupt the file.
         """
-        with self._plot_lock:
+        with self._lock:
             self._composite_and_apply()
 
     def _composite_and_apply(self) -> None:
         """Composite the buffered images and apply the result as wallpaper.
 
-        Must be called with ``self._plot_lock`` held.
+        Must be called with ``self._lock`` held.
         """
-        buffer = dict(self._canvas_buffer)
+        buffer = {
+            s.monitor_device_path: s.canvas for s in self._displays.values() if s.canvas is not None
+        }
         if not buffer:
             return
 
@@ -322,7 +406,10 @@ class DisplayManager:
         temp_path = cache_dir / "_composite.png"
         canvas.save(temp_path, "PNG")
 
-        # Apply as spanned wallpaper.
+        # Apply as spanned wallpaper. Mark the app as having claimed the desktop
+        # BEFORE applying: even a partial apply leaves the wallpaper SPAN, so any
+        # display captured afterwards has no genuine original to record.
+        self._wallpaper_applied = True
         with com_session():
             set_wallpaper_style(WallpaperStyle.SPAN)
             set_wallpaper(None, temp_path)

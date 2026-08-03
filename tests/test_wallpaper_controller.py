@@ -28,6 +28,7 @@ def _start_controller(controller):
         patch("signal.signal"),
         patch.object(controller, "evaluate"),
         patch.object(controller, "_display_trigger"),
+        patch.object(controller._display_manager, "start"),
         patch.object(controller._trigger_manager, "activate"),
     ):
         controller.start()
@@ -423,6 +424,7 @@ class TestWallpaperControllerLifecycle:
         with (
             patch.object(controller, "evaluate"),
             patch.object(controller, "_display_trigger"),
+            patch.object(controller._display_manager, "start"),
             patch("signal.signal") as mock_signal,
         ):
             controller.start()

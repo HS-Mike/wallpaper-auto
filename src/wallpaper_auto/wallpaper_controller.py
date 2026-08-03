@@ -90,8 +90,7 @@ class WallpaperController:
                     self.active_rule = task.matched_rule
                     with self._task_queue.mutex:
                         has_newer_update = any(
-                            isinstance(t, PlotCanvasTask)
-                            for _p, _c, t in self._task_queue.queue
+                            isinstance(t, PlotCanvasTask) for _p, _c, t in self._task_queue.queue
                         )
                     if not has_newer_update:
                         self._display_manager.plot_canvas()
@@ -219,6 +218,7 @@ class WallpaperController:
             self._tray.show()
 
         self._display_trigger.start()
+        self._display_manager.start()
         self._worker_loop_thread = threading.Thread(target=self._worker_loop)
         self._worker_loop_thread.start()
         self.evaluate()
@@ -234,7 +234,7 @@ class WallpaperController:
         self._worker_loop_thread.join()
         self._worker_loop_thread = None
         self._trigger_manager.deactivate()
-        self._display_manager.stop(restore=True)
+        self._display_manager.stop()
         at_system_shutdown.unregister(self.at_shutdown)
         if self._tray is not None:
             app = self._tray._app

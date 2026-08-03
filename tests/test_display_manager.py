@@ -8,7 +8,7 @@ import pytest
 from PIL import Image
 
 from wallpaper_auto.config_store import ConfigStore
-from wallpaper_auto.display_manager import DisplayManager
+from wallpaper_auto.display_manager import DisplayManager, DisplayState
 from wallpaper_auto.models import CacheConfig, CacheResizeConfig, ConfigModel, ResourceConfig
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
@@ -54,6 +54,24 @@ def _make_resource(**overrides) -> MagicMock:
     return r
 
 
+def _put_canvas(
+    dm: DisplayManager,
+    device: str,
+    style: WallpaperStyle,
+    img: Path | Image.Image,
+) -> None:
+    """Register *device* with a buffered canvas entry (for plot tests)."""
+    if device in dm._displays:
+        dm._displays[device].canvas = (style, img)
+    else:
+        dm._displays[device] = DisplayState(
+            monitor_device_path=device,
+            resource=_make_resource(),
+            is_patch=True,
+            canvas=(style, img),
+        )
+
+
 def _add_display(
     dm: DisplayManager,
     device_path: str,
@@ -77,9 +95,8 @@ class TestDisplayManager:
 
     def test_init_creates_empty_state(self):
         dm = DisplayManager()
-        assert dm._restore_wallpaper == {}
-        assert dm._display_resource_map == {}
-        assert dm._canvas_buffer == {}
+        assert dm._displays == {}
+        assert dm._wallpaper_applied is False
 
     def test_empty_monitor_device_path_initially(self):
         assert DisplayManager().active_monitor_device_path == set()
@@ -106,15 +123,15 @@ class TestDisplayManager:
             patch("wallpaper_auto.display_manager.get_wallpaper", return_value=Path("C:/orig.jpg")),
         ):
             dm.start()
-        assert set(dm._display_resource_map.keys()) == {_DEVICE_A, _DEVICE_B}
+        assert set(dm._displays.keys()) == {_DEVICE_A, _DEVICE_B}
 
     def test_stop_without_displays_is_noop(self):
         dm = DisplayManager()
         with patch("wallpaper_auto.display_manager.set_wallpaper") as mock_set:
-            dm.stop(restore=False)
+            dm.stop()
         mock_set.assert_not_called()
 
-    def test_stop_restore_true_sets_wallpaper_and_style(self):
+    def test_stop_sets_wallpaper_and_style(self):
         dm = DisplayManager()
         _add_display(dm, _DEVICE_A)
         custom = _make_resource()
@@ -125,22 +142,61 @@ class TestDisplayManager:
             patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
         ):
             mock_static.return_value = _make_resource()
-            dm.stop(restore=True)
+            dm.stop()
         mock_set_wp.assert_called_once_with(_DEVICE_A, Path("C:/orig.jpg"))
         mock_set_style.assert_called_once_with(WallpaperStyle.FILL)
 
-    def test_stop_restore_false_does_not_set_wallpaper(self):
+    def test_start_raises_if_wallpaper_already_applied(self):
+        """A composite applied before start() is an invalid lifecycle state."""
         dm = DisplayManager()
-        _add_display(dm, _DEVICE_A)
-        custom = _make_resource()
-        dm.update_resource(_DEVICE_A, custom)
+        dm._wallpaper_applied = True
+        with (
+            pytest.raises(RuntimeError, match="before start"),
+            patch("wallpaper_auto.display_manager.get_display_info"),
+        ):
+            dm.start()
+
+    def test_stop_clears_wallpaper_applied(self):
+        dm = DisplayManager()
+        dm._wallpaper_applied = True
+        dm.stop()
+        assert dm._wallpaper_applied is False
+
+    def test_stop_restore_skips_hotplugged_display(self):
+        """A display added after the app's composite is never restored on stop."""
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)  # startup: genuine restore record
+        dm.update_resource(_DEVICE_A, _make_resource())
+        dm._wallpaper_applied = True
+        _add_display(dm, _DEVICE_B)  # hotplugged: no restore record
+        dm.update_resource(_DEVICE_B, _make_resource())
         with (
             patch("wallpaper_auto.display_manager.set_wallpaper") as mock_set_wp,
             patch("wallpaper_auto.display_manager.set_wallpaper_style") as mock_set_style,
             patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
         ):
             mock_static.return_value = _make_resource()
-            dm.stop(restore=False)
+            dm.stop()
+        # Only A's genuine original is restored; B's fake composite is never applied.
+        assert mock_set_wp.call_count == 1
+        assert mock_set_wp.call_args.args[0] == _DEVICE_A
+        assert mock_set_style.call_args.args[0] is WallpaperStyle.FILL
+
+    def test_stop_drops_hotplugged_patch_without_restoring(self):
+        """A hotplugged patch at stop() is dropped and never restored.
+
+        A display added after the app's composite has no genuine restore record;
+        stopping must drop it (not crash) and must not re-apply anything for it.
+        """
+        dm = DisplayManager()
+        dm._wallpaper_applied = True
+        _add_display(dm, _DEVICE_A)  # hotplugged patch, never got a resource
+        with (
+            patch("wallpaper_auto.display_manager.set_wallpaper") as mock_set_wp,
+            patch("wallpaper_auto.display_manager.set_wallpaper_style") as mock_set_style,
+        ):
+            dm.stop()
+        assert _DEVICE_A not in dm._displays
         mock_set_wp.assert_not_called()
         mock_set_style.assert_not_called()
 
@@ -151,10 +207,11 @@ class TestDisplayManagerAddRemove:
     def test_add_creates_restore_and_active_resource(self):
         dm = DisplayManager()
         _add_display(dm, _DEVICE_A, style=WallpaperStyle.STRETCH)
-        assert dm._restore_wallpaper[_DEVICE_A] == (WallpaperStyle.STRETCH, Path("C:/orig.jpg"))
-        assert isinstance(dm._display_resource_map[_DEVICE_A], StaticWallpaper)
-        assert dm._display_resource_map[_DEVICE_A].monitor_device_path == _DEVICE_A
-        assert dm._display_resource_is_patch[_DEVICE_A] is True
+        state = dm._displays[_DEVICE_A]
+        assert state.restore == (WallpaperStyle.STRETCH, Path("C:/orig.jpg"))
+        assert isinstance(state.resource, StaticWallpaper)
+        assert state.resource.monitor_device_path == _DEVICE_A
+        assert state.is_patch is True
 
     def test_add_is_idempotent(self):
         dm = DisplayManager()
@@ -169,9 +226,9 @@ class TestDisplayManagerAddRemove:
             ) as mock_wp,
         ):
             dm.add_display(_DEVICE_A)
-            first = dm._display_resource_map[_DEVICE_A]
+            first = dm._displays[_DEVICE_A]
             dm.add_display(_DEVICE_A)
-            second = dm._display_resource_map[_DEVICE_A]
+            second = dm._displays[_DEVICE_A]
         assert first is second
         assert mock_wp.call_count == 1
         assert mock_style.call_count == 1
@@ -188,7 +245,7 @@ class TestDisplayManagerAddRemove:
             dm.remove_display(_DEVICE_A)
         custom.demount.assert_called_once()
         mock_static.assert_called_once()
-        assert dm._display_resource_is_patch[_DEVICE_A] is True
+        assert dm._displays[_DEVICE_A].is_patch is True
 
     def test_remove_nonexistent_display_raises_key_error(self):
         dm = DisplayManager()
@@ -204,13 +261,13 @@ class TestDisplayManagerAddRemove:
     def test_update_swaps_active_resource(self):
         dm = DisplayManager()
         _add_display(dm, _DEVICE_A)
-        prev = dm._display_resource_map[_DEVICE_A]
+        prev = dm._displays[_DEVICE_A].resource
         with patch.object(prev, "demount") as mock_demount:
             new_resource = _make_resource()
             dm.update_resource(_DEVICE_A, new_resource)
             mock_demount.assert_called_once()
-        assert dm._display_resource_map[_DEVICE_A] is new_resource
-        assert dm._display_resource_is_patch[_DEVICE_A] is False
+        assert dm._displays[_DEVICE_A].resource is new_resource
+        assert dm._displays[_DEVICE_A].is_patch is False
         new_resource.mount.assert_called_once()
 
     def test_update_nonexistent_display_raises_key_error(self):
@@ -220,20 +277,50 @@ class TestDisplayManagerAddRemove:
 
     def test_update_canvas_stores_entry(self):
         dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
         img = Image.new("RGB", (10, 10))
         with patch.object(dm, "plot_canvas") as mock_plot:
             dm.update_canvas(_DEVICE_A, WallpaperStyle.FILL, img)
-        assert dm._canvas_buffer[_DEVICE_A] == (WallpaperStyle.FILL, img)
+        assert dm._displays[_DEVICE_A].canvas == (WallpaperStyle.FILL, img)
         mock_plot.assert_not_called()
 
     def test_update_canvas_overwrites_existing_entry(self):
         dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
         img_a = Image.new("RGB", (10, 10), (255, 0, 0))
         img_b = Image.new("RGB", (10, 10), (0, 255, 0))
         dm.update_canvas(_DEVICE_A, WallpaperStyle.FILL, img_a)
-        assert dm._canvas_buffer[_DEVICE_A] == (WallpaperStyle.FILL, img_a)
+        assert dm._displays[_DEVICE_A].canvas == (WallpaperStyle.FILL, img_a)
         dm.update_canvas(_DEVICE_A, WallpaperStyle.FIT, img_b)
-        assert dm._canvas_buffer[_DEVICE_A] == (WallpaperStyle.FIT, img_b)
+        assert dm._displays[_DEVICE_A].canvas == (WallpaperStyle.FIT, img_b)
+
+    def test_add_display_after_wallpaper_applied_not_recorded(self):
+        dm = DisplayManager()
+        dm._wallpaper_applied = True
+        _add_display(dm, _DEVICE_A)
+        state = dm._displays[_DEVICE_A]
+        assert state.restore is None
+        assert state.is_patch is True
+
+    def test_remove_display_hotplugged_resource_does_not_mount_patch(self):
+        dm = DisplayManager()
+        dm._wallpaper_applied = True
+        _add_display(dm, _DEVICE_A)
+        custom = _make_resource()
+        dm.update_resource(_DEVICE_A, custom)
+        with patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static:
+            dm.remove_display(_DEVICE_A)
+        custom.demount.assert_called_once()
+        mock_static.assert_not_called()
+        assert _DEVICE_A not in dm._displays
+
+    def test_update_canvas_after_remove_is_safe(self):
+        """update_canvas on a display popped by remove_display must not raise."""
+        dm = DisplayManager()
+        dm._wallpaper_applied = True
+        _add_display(dm, _DEVICE_A)  # hotplugged patch
+        dm.remove_display(_DEVICE_A)  # pops the display
+        dm.update_canvas(_DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10)))
 
 
 @pytest.mark.usefixtures("_config_store_with_cache")
@@ -250,9 +337,25 @@ class TestDisplayManagerPlotCanvas:
         mock_info.assert_not_called()
         mock_session.assert_not_called()
 
+    def test_plot_canvas_sets_wallpaper_applied(self):
+        dm = DisplayManager()
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10)))
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[_make_display(_DEVICE_A, 0, 0, 10, 10)],
+            ),
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper"),
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+        ):
+            _mock_com_session(mock_session)
+            dm.plot_canvas()
+        assert dm._wallpaper_applied is True
+
     def test_no_matching_displays_returns_early(self):
         dm = DisplayManager()
-        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, Image.new("RGB", (10, 10)))
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10)))
         unrelated = _make_display(_DEVICE_B, 0, 0, 100, 100)
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=[unrelated]),
@@ -262,9 +365,9 @@ class TestDisplayManagerPlotCanvas:
         mock_session.assert_not_called()
 
     def test_skips_composite_when_display_query_fails(self):
-        """get_display_info returning None (query failure) → composite is skipped, wallpaper untouched."""
+        """get_display_info returning None (query failure) skips the composite."""
         dm = DisplayManager()
-        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, Image.new("RGB", (10, 10)))
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10)))
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=None),
             patch("wallpaper_auto.display_manager.com_session") as mock_session,
@@ -278,8 +381,8 @@ class TestDisplayManagerPlotCanvas:
         dm = DisplayManager()
         img_a = Image.new("RGB", (50, 50), (255, 0, 0))
         img_b = Image.new("RGB", (50, 50), (0, 255, 0))
-        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, img_a)
-        dm._canvas_buffer[_DEVICE_B] = (WallpaperStyle.FILL, img_b)
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, img_a)
+        _put_canvas(dm, _DEVICE_B, WallpaperStyle.FILL, img_b)
         displays = [
             _make_display(_DEVICE_A, 0, 0, 50, 50),
             _make_display(_DEVICE_B, 50, 0, 50, 50),
@@ -300,9 +403,7 @@ class TestDisplayManagerPlotCanvas:
 
     def test_span_entry_replaces_entire_composite(self):
         dm = DisplayManager()
-        dm._canvas_buffer[_DEVICE_A] = (
-            WallpaperStyle.SPAN, Image.new("RGB", (40, 40), (10, 20, 30)),
-        )
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.SPAN, Image.new("RGB", (40, 40), (10, 20, 30)))
         with (
             patch(
                 "wallpaper_auto.display_manager.get_display_info",
@@ -321,7 +422,7 @@ class TestDisplayManagerPlotCanvas:
         dm = DisplayManager()
         full_path = ConfigStore.instance.cache_path / "span.png"
         Image.new("RGB", (40, 40), (10, 20, 30)).save(full_path)
-        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.SPAN, full_path)
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.SPAN, full_path)
         with (
             patch(
                 "wallpaper_auto.display_manager.get_display_info",
@@ -340,8 +441,8 @@ class TestDisplayManagerPlotCanvas:
         dm = DisplayManager()
         span_img = Image.new("RGB", (100, 50), (10, 20, 30))
         fill_img = Image.new("RGB", (30, 30), (255, 0, 0))
-        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.SPAN, span_img)
-        dm._canvas_buffer[_DEVICE_B] = (WallpaperStyle.FILL, fill_img)
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.SPAN, span_img)
+        _put_canvas(dm, _DEVICE_B, WallpaperStyle.FILL, fill_img)
         displays = [
             _make_display(_DEVICE_A, 0, 0, 100, 50),
             _make_display(_DEVICE_B, 100, 0, 30, 30),
@@ -360,8 +461,8 @@ class TestDisplayManagerPlotCanvas:
 
     def test_buffer_entry_with_unknown_display_is_skipped(self):
         dm = DisplayManager()
-        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, Image.new("RGB", (30, 30)))
-        dm._canvas_buffer[_DEVICE_B] = (WallpaperStyle.FILL, Image.new("RGB", (30, 30)))
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (30, 30)))
+        _put_canvas(dm, _DEVICE_B, WallpaperStyle.FILL, Image.new("RGB", (30, 30)))
         with (
             patch(
                 "wallpaper_auto.display_manager.get_display_info",
@@ -382,8 +483,8 @@ class TestDisplayManagerPlotCanvas:
         path_b = cache / "b.png"
         Image.new("RGB", (40, 40), (200, 0, 0)).save(path_a)
         Image.new("RGB", (40, 40), (0, 200, 0)).save(path_b)
-        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, path_a)
-        dm._canvas_buffer[_DEVICE_B] = (WallpaperStyle.FILL, path_b)
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, path_a)
+        _put_canvas(dm, _DEVICE_B, WallpaperStyle.FILL, path_b)
         displays = [
             _make_display(_DEVICE_A, 0, 0, 40, 40),
             _make_display(_DEVICE_B, 40, 0, 40, 40),
@@ -401,10 +502,14 @@ class TestDisplayManagerPlotCanvas:
     def test_missing_path_buffer_returns_blank_image(self):
         """Missing source file should not crash — cache returns a blank fallback."""
         dm = DisplayManager()
-        dm.init_cache(ConfigStore.instance.cache_path, resize_enabled=True,
-                      max_size_bytes=200 * 1024 * 1024, evict_ratio=0.9)
+        dm.init_cache(
+            ConfigStore.instance.cache_path,
+            resize_enabled=True,
+            max_size_bytes=200 * 1024 * 1024,
+            evict_ratio=0.9,
+        )
         missing = ConfigStore.instance.cache_path / "nonexistent.png"
-        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, missing)
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, missing)
         with (
             patch(
                 "wallpaper_auto.display_manager.get_display_info",
@@ -423,18 +528,19 @@ class TestDisplayManagerPlotCanvas:
 
         Regression test: a ResourceCycle cycling thread buffers updates while the
         worker loop composites. Without the internal lock this raced on the
-        ``_canvas_buffer`` snapshot (``RuntimeError``) and on the
-        ``_composite.png`` file (torn writes).
+        buffer snapshot (``RuntimeError``) and on the ``_composite.png`` file
+        (torn writes).
         """
         dm = DisplayManager()
         img = Image.new("RGB", (50, 50), (255, 0, 0))
-        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, img)
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, img)
+        _put_canvas(dm, _DEVICE_B, WallpaperStyle.FILL, Image.new("RGB", (10, 10)))
         displays = [_make_display(_DEVICE_A, 0, 0, 50, 50)]
 
         errors: list[BaseException] = []
 
         def buffer_updater() -> None:
-            # Insert a new buffer key concurrently with compositing snapshots.
+            # Update a buffer entry concurrently with compositing snapshots.
             for _ in range(50):
                 try:
                     dm.update_canvas(_DEVICE_B, WallpaperStyle.FILL, Image.new("RGB", (10, 10)))
@@ -462,6 +568,74 @@ class TestDisplayManagerPlotCanvas:
             threading.Thread(target=buffer_updater),
             threading.Thread(target=plotter),
             threading.Thread(target=plotter),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+        assert errors == []
+        composite = Image.open(ConfigStore.instance.cache_path / "_composite.png")
+        assert composite.size == (50, 50)
+
+    def test_concurrent_hotplug_and_plot_are_thread_safe(self):
+        """Structural mutation + compositing + canvas updates must not race.
+
+        Regression: without the unified ``_lock``, ``add_display``/``remove_display``
+        mutating ``_displays`` while ``plot_canvas`` iterates it would hit
+        "dictionary changed size during iteration", and ``update_canvas`` could
+        race ``remove_display``.
+        """
+        dm = DisplayManager()
+        dm._wallpaper_applied = True
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (50, 50), (255, 0, 0)))
+        displays = [_make_display(_DEVICE_A, 0, 0, 50, 50)]
+        errors: list[BaseException] = []
+
+        def plotter() -> None:
+            with (
+                patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
+                patch("wallpaper_auto.display_manager.com_session") as mock_session,
+                patch("wallpaper_auto.display_manager.set_wallpaper"),
+                patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+            ):
+                _mock_com_session(mock_session)
+                for _ in range(50):
+                    try:
+                        dm.plot_canvas()
+                    except Exception as exc:  # noqa: BLE001
+                        errors.append(exc)
+
+        def hotplugger() -> None:
+            for i in range(30):
+                device = f"{_DEVICE_A}#{i}"
+                try:
+                    with (
+                        patch(
+                            "wallpaper_auto.display_manager.get_wallpaper_style",
+                            return_value=WallpaperStyle.FILL,
+                        ),
+                        patch(
+                            "wallpaper_auto.display_manager.get_wallpaper",
+                            return_value=Path("C:/orig.jpg"),
+                        ),
+                    ):
+                        dm.add_display(device)
+                    dm.remove_display(device)
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(exc)
+
+        def buffer_updater() -> None:
+            for _ in range(50):
+                try:
+                    dm.update_canvas(_DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10)))
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(exc)
+
+        threads = [
+            threading.Thread(target=plotter),
+            threading.Thread(target=hotplugger),
+            threading.Thread(target=buffer_updater),
         ]
         for t in threads:
             t.start()
@@ -568,7 +742,7 @@ class TestDisplayManagerUpdateDisplay:
         ):
             result = dm.update_display()
         assert result is not None
-        assert _DEVICE_B in dm._display_resource_map
+        assert _DEVICE_B in dm._displays
         assert {d.monitor_device_path for d in result} == {_DEVICE_A, _DEVICE_B}
 
     def test_unplugged_display_is_removed(self):
@@ -586,7 +760,7 @@ class TestDisplayManagerUpdateDisplay:
             result = dm.update_display()
         assert result is not None
         # remove_display replaces the resource with a patch; the display stays in the map.
-        assert dm._display_resource_is_patch[_DEVICE_B] is True
+        assert dm._displays[_DEVICE_B].is_patch is True
         assert [d.monitor_device_path for d in result] == [_DEVICE_A]
 
     def test_no_change_returns_current_displays(self):
@@ -622,13 +796,14 @@ class TestDisplayManagerCacheIntegration:
     def test_cache_used_for_path_buffers(self, tmp_path: Path):
         """Path-based buffer entries should go through the cache."""
         dm = DisplayManager()
-        dm.init_cache(tmp_path, resize_enabled=True,
-                      max_size_bytes=200 * 1024 * 1024, evict_ratio=0.9)
+        dm.init_cache(
+            tmp_path, resize_enabled=True, max_size_bytes=200 * 1024 * 1024, evict_ratio=0.9
+        )
         cache_dir = tmp_path / "resized"
 
         src = tmp_path / "wallpaper.png"
         Image.new("RGB", (50, 50), (200, 100, 50)).save(src)
-        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, src)
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, src)
 
         displays = [_make_display(_DEVICE_A, 0, 0, 50, 50)]
         with (
@@ -685,11 +860,12 @@ class TestDisplayManagerCacheDisabled:
 
     def test_resize_cache_not_created_when_disabled(self, tmp_path: Path):
         dm = DisplayManager()
-        dm.init_cache(tmp_path, resize_enabled=False,
-                      max_size_bytes=200 * 1024 * 1024, evict_ratio=0.9)
+        dm.init_cache(
+            tmp_path, resize_enabled=False, max_size_bytes=200 * 1024 * 1024, evict_ratio=0.9
+        )
         src = tmp_path / "wallpaper.png"
         Image.new("RGB", (50, 50), (200, 100, 50)).save(src)
-        dm._canvas_buffer[_DEVICE_A] = (WallpaperStyle.FILL, src)
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, src)
 
         displays = [_make_display(_DEVICE_A, 0, 0, 50, 50)]
         with (
