@@ -4,9 +4,7 @@ import pytest
 import yaml
 
 from wallpaper_auto.config_store import ConfigStore
-from wallpaper_auto.models import ConfigModel, ResourceConfig, Rule
-
-# ── helpers ──────────────────────────────────────────────────────────────
+from wallpaper_auto.models import CacheConfig, ConfigModel, ResourceConfig, Rule
 
 
 def _make_valid_yaml(**overrides) -> str:
@@ -60,9 +58,6 @@ def _make_minimal_yaml(**overrides) -> str:
     return yaml.dump(data)
 
 
-# ── fixtures ─────────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def store() -> ConfigStore:
     return ConfigStore()
@@ -74,9 +69,6 @@ def valid_yaml(tmp_path) -> str:
     path = tmp_path / "config.yaml"
     path.write_text(_make_valid_yaml(), encoding="utf-8")
     return str(path)
-
-
-# ── load — happy path ────────────────────────────────────────────────────
 
 
 class TestLoad:
@@ -178,9 +170,6 @@ class TestLoad:
         assert inner_and.and_conditions[1].evaluator == "workday_only"
 
 
-# ── load — edge cases & error handling ───────────────────────────────────
-
-
 class TestLoadErrors:
     """Config file parsing failure scenarios."""
 
@@ -243,9 +232,6 @@ class TestLoadErrors:
         )
         with pytest.raises(ValueError, match="targets unknown resource"):
             store.load(str(path))
-
-
-# ── load — validation of structural rules ────────────────────────────────
 
 
 class TestLoadValidation:
@@ -328,9 +314,6 @@ class TestLoadValidation:
         assert [r.name for r in store.config.rule] == ["first", "second", "third"]
 
 
-# ── properties ───────────────────────────────────────────────────────────
-
-
 class TestProperties:
     """Accessor properties after config load."""
 
@@ -358,6 +341,22 @@ class TestProperties:
         assert isinstance(triggers, list)
         assert len(triggers) == 2
 
+    def test_cache(self, store: ConfigStore, valid_yaml: str):
+        """cache returns the parsed CacheConfig (defaults when the block is unset)."""
+        store.load(valid_yaml)
+        assert isinstance(store.cache, CacheConfig)
+        assert store.cache.path is None
+        assert store.cache.resize.enabled is True
+
+    def test_cache_reflects_configured_path(self, store: ConfigStore, tmp_path):
+        """cache.path reflects a configured cache block."""
+        cache_dir = tmp_path / "custom_cache"
+        yaml_str = _make_valid_yaml(cache={"path": str(cache_dir)})
+        path = tmp_path / "with_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.cache.path == str(cache_dir)
+
     def test_properties_before_load_raises(self, store: ConfigStore):
         """Accessing properties before load() should raise AssertionError."""
         with pytest.raises(AssertionError):
@@ -370,6 +369,8 @@ class TestProperties:
             _ = store.trigger
         with pytest.raises(AssertionError):
             _ = store.at_shutdown_target
+        with pytest.raises(AssertionError):
+            _ = store.cache
 
     def test_at_shutdown_target_none_by_default(self, store: ConfigStore, valid_yaml: str):
         """at_shutdown_target should be None when not in YAML."""

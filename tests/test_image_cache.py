@@ -217,6 +217,38 @@ class TestImageCompressionCacheEviction:
         # At most ~2 entries fit (limit 2000, target 1000, each ~500 bytes).
         assert len(cache._entries) < 10
 
+    def test_eviction_deletes_files_from_disk(self, tmp_path: Path):
+        """Evicted entries are physically removed from the resized directory."""
+        max_size = 2000
+        cache = ImageCompressionCache()
+        cache.init(tmp_path, max_size_bytes=max_size, evict_ratio=0.5)
+
+        # Every resized image is a 100x100 solid-color PNG (~constant size);
+        # measure one up front, then keep writing until the cumulative bytes
+        # written exceed 1.2x the limit so eviction is guaranteed to have run.
+        probe = tmp_path / "_probe.png"
+        _small_img(100, 100).save(probe, "PNG")
+        per_file = probe.stat().st_size
+        probe.unlink()
+
+        total_written = 0
+        i = 0
+        while total_written <= 1.2 * max_size:
+            s = tmp_path / f"src{i}.png"
+            _small_img(10, 10).save(s)
+            cache.put(s, 100, 100, _small_img(100, 100))
+            total_written += per_file
+            i += 1
+
+        # Eviction ran during the puts.
+        assert len(cache._entries) < i
+
+        # Every surviving entry has its .png on disk, and no evicted .png leaked.
+        files_on_disk = {
+            p.name for p in (tmp_path / "resized").iterdir() if p.suffix == ".png"
+        }
+        assert files_on_disk == set(cache._entries)
+
     def test_exclude_current_from_eviction(self, tmp_path: Path):
         """The just-saved entry should survive eviction."""
         cache = ImageCompressionCache()
@@ -384,3 +416,183 @@ class TestImageCompressionCacheEdgeCases:
         cache.put(src, 20, 20, _small_img(20, 20))
         cache.put(src, 20, 20, _small_img(20, 20))
         assert len(cache._entries) == 1
+
+
+class TestImageCompressionCacheErrorPaths:
+    """Defensive branches: I/O failures and malformed index data."""
+
+    def test_get_returns_none_when_cached_file_corrupt(self, tmp_path: Path, caplog):
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        src = tmp_path / "src.png"
+        _small_img(10, 10).save(src)
+        cache.put(src, 20, 20, _small_img(20, 20))
+        filename = next(iter(cache._entries))
+
+        # Corrupt the cached .png so PIL can't decode it.
+        (tmp_path / "resized" / filename).write_text("not an image", encoding="utf-8")
+        caplog.set_level(logging.ERROR)
+        assert cache.get(src, 20, 20) is None
+        assert "Failed to read cached image" in caplog.text
+
+    def test_put_tolerates_save_failure(self, tmp_path: Path, caplog):
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        src = tmp_path / "src.png"
+        _small_img(10, 10).save(src)
+        caplog.set_level(logging.ERROR)
+        img = _small_img(20, 20)
+        with patch.object(img, "save", side_effect=OSError()):
+            cache.put(src, 20, 20, img)
+        assert "Failed to write cached image" in caplog.text
+        assert cache._entries == {}
+
+    def test_render_returns_blank_on_resize_failure(self, tmp_path: Path):
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        src = tmp_path / "src.png"
+        _small_img(100, 100).save(src)
+        with patch("wallpaper_auto.image_cache._resize_image", side_effect=OSError()):
+            img = cache.render(src, 20, 20)
+        assert img.size == (20, 20)
+        assert img.getpixel((0, 0)) == (0, 0, 0)
+
+    def test_hash_prefix_empty_on_open_failure(self, tmp_path: Path):
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        src = tmp_path / "src.png"
+        _small_img(10, 10).save(src)
+        with patch("builtins.open", side_effect=OSError()):
+            assert cache.get(src, 20, 20) is None
+
+    def test_evict_direct_without_exclude(self, tmp_path: Path):
+        cache = ImageCompressionCache()
+        cache.init(tmp_path, max_size_bytes=50_000, evict_ratio=0.5)
+        for i in range(20):
+            s = tmp_path / f"src{i}.png"
+            _small_img(10, 10).save(s)
+            cache.put(s, 100, 100, _small_img(100, 100, r=i * 10))
+        size_before = cache._current_size_bytes
+
+        # Shrink the limit so eviction is required, then evict with no exclusion.
+        cache._max_size_bytes = 2000  # target = 1000
+        cache._evict()  # exclude defaults to None -> set()
+        assert cache._current_size_bytes < size_before
+        assert cache._current_size_bytes <= 1000
+
+    def test_remove_entry_tolerates_unlink_failure(self, tmp_path: Path, caplog):
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        src = tmp_path / "src.png"
+        _small_img(10, 10).save(src)
+        cache.put(src, 20, 20, _small_img(20, 20))
+        filename = next(iter(cache._entries))
+        caplog.set_level(logging.WARNING)
+        with patch.object(Path, "unlink", side_effect=OSError()):
+            cache._remove_entry(filename)
+        assert "Failed to remove cache file" in caplog.text
+        assert filename not in cache._entries
+
+    def test_write_index_tolerates_failure(self, tmp_path: Path, caplog):
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        caplog.set_level(logging.ERROR)
+        with patch("builtins.open", side_effect=OSError()):
+            cache._write_index()
+        assert "Failed to write cache index" in caplog.text
+
+    def test_load_index_recounts_on_non_dict_entries(self, tmp_path: Path, caplog):
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        (tmp_path / "resized" / "index.json").write_text(
+            json.dumps({"entries": "garbage"}), encoding="utf-8"
+        )
+        caplog.set_level(logging.WARNING)
+        cache2 = ImageCompressionCache()
+        cache2.init(tmp_path)
+        assert "Invalid entries" in caplog.text
+
+    def test_load_index_skips_non_dict_entry(self, tmp_path: Path):
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        src = tmp_path / "src.png"
+        _small_img(10, 10).save(src)
+        cache.put(src, 20, 20, _small_img(20, 20))
+        filename = next(iter(cache._entries))
+        meta = cache._entries[filename]
+        (tmp_path / "resized" / "index.json").write_text(
+            json.dumps({"entries": {"bad.png": "not-a-dict", filename: meta}}),
+            encoding="utf-8",
+        )
+        cache2 = ImageCompressionCache()
+        cache2.init(tmp_path)
+        assert "bad.png" not in cache2._entries
+        assert filename in cache2._entries
+
+    def test_load_index_drops_entry_with_missing_file(self, tmp_path: Path):
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        (tmp_path / "resized" / "index.json").write_text(
+            json.dumps({"entries": {"ghost.png": {"access_count": 1, "file_size": 10}}}),
+            encoding="utf-8",
+        )
+        cache2 = ImageCompressionCache()
+        cache2.init(tmp_path)
+        assert "ghost.png" not in cache2._entries
+
+    def test_load_keeps_entry_when_source_stat_fails(self, tmp_path: Path):
+        """A source that can't be stat'd is kept (no stale check possible)."""
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        src = tmp_path / "src.png"
+        _small_img(10, 10).save(src)
+        cache.put(src, 20, 20, _small_img(20, 20))
+        filename = next(iter(cache._entries))
+
+        # Path.is_file()/exists() delegate to stat(); short-circuit them so only
+        # the source's stat() call raises, reaching the "st = None" branch. All
+        # short-circuited checks are genuinely True here (index/png/source exist).
+        cache2 = ImageCompressionCache()
+        with (
+            patch.object(Path, "stat", side_effect=OSError()),
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(Path, "exists", return_value=True),
+        ):
+            cache2.init(tmp_path)
+        assert filename in cache2._entries
+
+    def test_load_index_drops_entry_when_source_changed(self, tmp_path: Path):
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        src = tmp_path / "src.png"
+        _small_img(10, 10).save(src)
+        cache.put(src, 20, 20, _small_img(20, 20))
+        filename = next(iter(cache._entries))
+
+        # Rewrite the source with a different size so the metadata no longer matches.
+        _small_img(50, 50).save(src)
+
+        cache2 = ImageCompressionCache()
+        cache2.init(tmp_path)
+        assert filename not in cache2._entries
+
+    def test_recount_missing_dir_empties_entries(self, tmp_path: Path):
+        import shutil
+
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        shutil.rmtree(tmp_path / "resized")
+        cache._recount_from_disk()
+        assert cache._entries == {}
+
+    def test_recount_skips_png_that_cannot_be_statd(self, tmp_path: Path):
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        (tmp_path / "resized" / "orphan.png").write_bytes(b"x")
+        with (
+            patch.object(Path, "stat", side_effect=OSError()),
+            # is_dir() delegates to stat(); the dir exists, so short-circuit it.
+            patch.object(Path, "is_dir", return_value=True),
+        ):
+            cache._recount_from_disk()
+        assert cache._entries == {}

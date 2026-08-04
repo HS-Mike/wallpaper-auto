@@ -125,6 +125,25 @@ class TestDisplayManager:
             dm.start()
         assert set(dm._displays.keys()) == {_DEVICE_A, _DEVICE_B}
 
+    def test_start_returns_early_when_display_query_fails(self):
+        """A transient display-query failure leaves the manager with no displays."""
+        dm = DisplayManager()
+        with patch("wallpaper_auto.display_manager.get_display_info", return_value=None):
+            dm.start()
+        assert dm._displays == {}
+
+    @pytest.mark.usefixtures("_config_store_with_cache")
+    def test_black_wallpaper_path_creates_and_reuses(self):
+        """The pure-black wallpaper is created on first use, then reused."""
+        dm = DisplayManager()
+        cache_dir = ConfigStore.instance.cache_path
+        first = dm._black_wallpaper_path()
+        assert first == cache_dir / "_black.png"
+        assert first.is_file()
+        with Image.open(first) as img:
+            assert img.size == (1, 1)
+        assert dm._black_wallpaper_path() == first
+
     def test_stop_without_displays_is_noop(self):
         dm = DisplayManager()
         with (
@@ -537,6 +556,54 @@ class TestDisplayManagerPlotCanvas:
             _mock_com_session(mock_session)
             dm.plot_canvas()
         assert (ConfigStore.instance.cache_path / "_composite.png").exists()
+
+    def test_center_style_path_buffer_loads_from_disk(self):
+        """CENTER buffers that are Paths are opened directly, bypassing the cache."""
+        dm = DisplayManager()
+        src = ConfigStore.instance.cache_path / "src.png"
+        Image.new("RGB", (20, 20), (10, 20, 30)).save(src)
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.CENTER, src)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[_make_display(_DEVICE_A, 0, 0, 40, 40)],
+            ),
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper"),
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+        ):
+            _mock_com_session(mock_session)
+            dm.plot_canvas()
+        assert (ConfigStore.instance.cache_path / "_composite.png").exists()
+
+    def test_plot_creates_cache_dir_when_missing(self, tmp_path):
+        """plot_canvas lazily creates the cache directory when it is absent."""
+        fresh_dir = tmp_path / "fresh"
+        ConfigStore.clear_instance()
+        store = ConfigStore()
+        store.config = ConfigModel(
+            resource={"a": ResourceConfig(name="static_wallpaper", config={"path": "dummy"})},
+            trigger=[],
+            rule=[],
+            fallback_target="a",
+            cache=CacheConfig(path=str(fresh_dir)),
+        )
+
+        dm = DisplayManager()
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10)))
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[_make_display(_DEVICE_A, 0, 0, 10, 10)],
+            ),
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper"),
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+        ):
+            _mock_com_session(mock_session)
+            dm.plot_canvas()
+        assert fresh_dir.exists()
+        assert (fresh_dir / "_composite.png").exists()
 
     def test_span_overrides_non_span_entries(self):
         """SPAN entry in buffer replaces all other entries."""
