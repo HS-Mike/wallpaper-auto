@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +41,9 @@ CACHE_MAX_SIZE_BYTES: int = 200 * 1024 * 1024  # 200 MB
 CACHE_EVICT_TARGET_RATIO: float = 0.9          # evict until 90 % of max
 LFU_AGING_THRESHOLD: int = 100                 # halve all counters at this ceiling
 
+_CACHE_EXTENSION = ".png"
+_PNG_FORMAT = "PNG"
+
 
 def _resize_image(img: Image.Image, w: int, h: int) -> Image.Image:
     """Resize *img* to ``(w, h)`` using high-quality LANCZOS."""
@@ -60,11 +64,10 @@ class _CacheKey:
         """Return e.g. ``a1b2c3d4e5f6a7b8_1920x1080.png``."""
         raw = (
             f"{self.source_path}\x00{self.source_size}\x00"
-            f"{self.source_mtime}\x00{self.content_prefix_hash}\x00"
-            f"{self.region_w}\x00{self.region_h}"
+            f"{self.source_mtime}\x00{self.content_prefix_hash}"
         )
         digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
-        return f"{digest}_{self.region_w}x{self.region_h}.png"
+        return f"{digest}_{self.region_w}x{self.region_h}{_CACHE_EXTENSION}"
 
 
 class ImageCompressionCache:
@@ -112,16 +115,22 @@ class ImageCompressionCache:
         return sum(e["file_size"] for e in self._entries.values())
 
     def get(
-        self, source_path: Path, region_w: int, region_h: int
+        self,
+        source_path: Path,
+        region_w: int,
+        region_h: int,
+        key: _CacheKey | None = None,
     ) -> Image.Image | None:
         """Return cached resized image or ``None`` on miss.
 
-        Increments the LFU access counter on hit.
+        Increments the LFU access counter on hit.  A precomputed *key* may be
+        passed to skip re-stat'ing and re-hashing the source.
         """
         assert self._cache_dir is not None, "init() must be called before get()"
-        key = self._compute_key(source_path, region_w, region_h)
         if key is None:
-            return None
+            key = self._compute_key(source_path, region_w, region_h)
+            if key is None:
+                return None
 
         filename = key.filename()
         with self._lock:
@@ -153,24 +162,29 @@ class ImageCompressionCache:
         region_w: int,
         region_h: int,
         resized: Image.Image,
+        key: _CacheKey | None = None,
     ) -> None:
         """Store a resized image.  Evicts LFU entries when over the size limit.
 
         If the single file itself exceeds the configured max size a warning
         is logged; the file is still saved and counted, but it is excluded
         from eviction and does not trigger an eviction pass on its own.
+
+        A precomputed *key* may be passed to skip re-stat'ing and re-hashing
+        the source.
         """
         assert self._cache_dir is not None, "init() must be called before put()"
-        key = self._compute_key(source_path, region_w, region_h)
         if key is None:
-            return
+            key = self._compute_key(source_path, region_w, region_h)
+            if key is None:
+                return
 
         filename = key.filename()
         cached_path = self._cache_dir / filename
 
         # Save to disk.
         try:
-            resized.save(cached_path, "PNG")
+            resized.save(cached_path, _PNG_FORMAT)
         except OSError:
             logger.exception("Failed to write cached image %s", cached_path)
             return
@@ -221,9 +235,15 @@ class ImageCompressionCache:
         scale = max(region_w / src_w, region_h / src_h)
         target_w, target_h = int(src_w * scale), int(src_h * scale)
 
-        cached = self.get(source_path, target_w, target_h)
-        if cached is not None:
-            return cached
+        # Compute the key once so get() and put() share the same source
+        # generation (avoids a duplicate stat+hash and a mismatch between the
+        # stored metadata and the resized pixels).
+        key = self._compute_key(source_path, target_w, target_h)
+
+        if key is not None:
+            cached = self.get(source_path, target_w, target_h, key=key)
+            if cached is not None:
+                return cached
 
         try:
             resized = _resize_image(img, target_w, target_h)
@@ -232,7 +252,8 @@ class ImageCompressionCache:
             # Return a blank image so the composite can still proceed.
             return Image.new("RGB", (region_w, region_h), (0, 0, 0))
 
-        self.put(source_path, target_w, target_h, resized)
+        if key is not None:
+            self.put(source_path, target_w, target_h, resized, key=key)
         return resized
 
     def clear(self) -> int:
@@ -245,7 +266,7 @@ class ImageCompressionCache:
             count = 0
             if self._cache_dir.is_dir():
                 for p in self._cache_dir.iterdir():
-                    if p.suffix == ".png":
+                    if p.suffix == _CACHE_EXTENSION:
                         p.unlink(missing_ok=True)
                         count += 1
                 index = self._cache_dir / self._INDEX_FILE
@@ -343,8 +364,12 @@ class ImageCompressionCache:
             "entries": self._entries,
         }
         try:
-            with open(self._index_path, "w", encoding="utf-8") as f:
+            # Write to a temp file then atomically replace so a crash mid-write
+            # cannot leave a corrupt index behind.
+            tmp_path = self._index_path.with_suffix(".tmp")
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
+            os.replace(tmp_path, self._index_path)
         except OSError:
             logger.exception("Failed to write cache index")
 
@@ -400,14 +425,19 @@ class ImageCompressionCache:
                     # Source no longer exists — orphan.
                     continue
 
-            validated[fname] = _CacheEntry(
-                access_count=int(meta.get("access_count", 0)),
-                source_path=source_path_str,
-                source_size=int(meta.get("source_size", 0)),
-                source_mtime=float(meta.get("source_mtime", 0)),
-                content_prefix_hash=str(meta.get("content_prefix_hash", "")),
-                file_size=int(meta.get("file_size", 0)),
-            )
+            try:
+                validated[fname] = _CacheEntry(
+                    access_count=int(meta.get("access_count", 0)),
+                    source_path=source_path_str,
+                    source_size=int(meta.get("source_size", 0)),
+                    source_mtime=float(meta.get("source_mtime", 0)),
+                    content_prefix_hash=str(meta.get("content_prefix_hash", "")),
+                    file_size=int(meta.get("file_size", 0)),
+                )
+            except (ValueError, TypeError):
+                # Valid JSON with wrong value types — skip the malformed entry.
+                logger.warning("Dropping malformed index entry %s", fname)
+                continue
 
         self._entries = validated
 
@@ -424,7 +454,7 @@ class ImageCompressionCache:
             return
 
         for p in sorted(self._cache_dir.iterdir()):
-            if p.suffix != ".png":
+            if p.suffix != _CACHE_EXTENSION:
                 continue
             try:
                 st = p.stat()

@@ -38,6 +38,13 @@ class TestCacheKey:
         b = _CacheKey("/a/b.jpg", 100, 1000.0, "abc", 2560, 1440).filename()
         assert a != b
 
+    def test_same_source_same_prefix_across_resolutions(self):
+        """The digest prefix fingerprints the source, not the resolution."""
+        a = _CacheKey("/a/b.jpg", 100, 1000.0, "abc", 1920, 1080).filename()
+        b = _CacheKey("/a/b.jpg", 100, 1000.0, "abc", 2560, 1440).filename()
+        assert a.split("_")[0] == b.split("_")[0]
+        assert a != b
+
     def test_different_source_different_filename(self):
         a = _CacheKey("/a.jpg", 100, 1.0, "h1", 1920, 1080).filename()
         b = _CacheKey("/b.jpg", 100, 1.0, "h1", 1920, 1080).filename()
@@ -200,6 +207,18 @@ class TestImageCompressionCacheRender:
         img = cache.render(src, 200, 200)
         assert img.size == (400, 200)
         assert round(img.size[0] / img.size[1], 3) == 2.0
+
+    def test_render_skips_cache_when_stat_fails(self, tmp_path: Path):
+        """If the source can't be stat'd, render still resizes but doesn't cache."""
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        src = tmp_path / "src.png"
+        _small_img(100, 100).save(src)
+
+        with patch.object(Path, "stat", side_effect=OSError()):
+            img = cache.render(src, 20, 20)
+        assert img.size == (20, 20)
+        assert cache._entries == {}
 
 
 class TestImageCompressionCacheEviction:
@@ -539,6 +558,21 @@ class TestImageCompressionCacheErrorPaths:
         cache2 = ImageCompressionCache()
         cache2.init(tmp_path)
         assert "ghost.png" not in cache2._entries
+
+    def test_load_index_skips_entry_with_malformed_types(self, tmp_path: Path, caplog):
+        """A valid-JSON entry with wrong value types is skipped, not a startup crash."""
+        cache = ImageCompressionCache()
+        cache.init(tmp_path)
+        (tmp_path / "resized" / "bad.png").write_bytes(b"x")
+        (tmp_path / "resized" / "index.json").write_text(
+            json.dumps({"entries": {"bad.png": {"access_count": "abc"}}}),
+            encoding="utf-8",
+        )
+        caplog.set_level(logging.WARNING)
+        cache2 = ImageCompressionCache()
+        cache2.init(tmp_path)
+        assert "bad.png" not in cache2._entries
+        assert "malformed" in caplog.text
 
     def test_load_keeps_entry_when_source_stat_fails(self, tmp_path: Path):
         """A source that can't be stat'd is kept (no stale check possible)."""
