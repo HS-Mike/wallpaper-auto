@@ -43,7 +43,7 @@ class DisplayTrigger(BaseThreadTrigger):
 
     def __init__(self) -> None:
         super().__init__()
-        self.hwnd = None
+        self.hwnd: int | None = None
         self._prev_displays: frozenset[tuple[str, str]] = frozenset()
         self._prev_monitor_dpis: frozenset[tuple[tuple[int, int, int, int], int]] = frozenset()
 

@@ -78,7 +78,7 @@ class ResourceManager:
             scene_map: dict[str, str] = ResourceManager.evaluate_scene(scene_cfg, display_info)
             res = {}
             for monitor_device_path, resource_id in scene_map.items():
-                resource_cfg: ResourceConfig = ConfigStore.instance.resource[resource_id]
+                resource_cfg = ConfigStore.instance.resource[resource_id]
                 resource_obj = ResourceManager._support_resources[resource_cfg.name](
                     **resource_cfg.config
                 )

@@ -25,7 +25,7 @@ class SingletonMeta(type):
         with meta_cls._instance_lock:
             # Re-check inside the lock (Double-checked locking)
             if meta_cls._instance is None:
-                ins = super().__call__(*args, **kwargs)
+                ins = super(SingletonMeta, meta_cls).__call__(*args, **kwargs)
                 meta_cls._instance = ins
                 return cast(T, ins)
 

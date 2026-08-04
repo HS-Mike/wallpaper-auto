@@ -5,6 +5,8 @@ Coordinates the resource manager, trigger manager, and rule engine.
 Owns the worker loop that processes mode-switch and resource-set tasks from the queue.
 """
 
+from __future__ import annotations
+
 import itertools
 import logging
 import queue
@@ -244,11 +246,11 @@ class WallpaperController:
 
 
 class ThreadSafeCounter:
-    def __init__(self, start=0):
-        self._counter = itertools.count(start)
+    def __init__(self, start: int = 0) -> None:
+        self._counter: itertools.count[int] = itertools.count(start)
         self._lock = threading.Lock()
 
-    def __iter__(self):
+    def __iter__(self) -> ThreadSafeCounter:
         return self
 
     def __next__(self) -> int:

@@ -41,7 +41,7 @@ class WindowsSessionEvent(Enum):
 class WindowsSessionTrigger(BaseThreadTrigger):
     def __init__(self) -> None:
         super().__init__()
-        self.hwnd = None
+        self.hwnd: int | None = None
         self.current_session_id = 0
         self.current_event: WindowsSessionEvent | None = None
 
@@ -64,12 +64,12 @@ class WindowsSessionTrigger(BaseThreadTrigger):
         hInstance = win32gui.GetModuleHandle(None)  # noqa: N806
 
         wc = win32gui.WNDCLASS()
-        wc.lpfnWndProc = self.wnd_proc  # type: ignore[assignment]
-        wc.lpszClassName = className  # type: ignore[assignment]
-        wc.hInstance = hInstance  # type: ignore[assignment]
+        wc.lpfnWndProc = self.wnd_proc  # type: ignore[misc]
+        wc.lpszClassName = className  # type: ignore[misc]
+        wc.hInstance = hInstance  # type: ignore[misc]
         win32gui.RegisterClass(wc)
 
-        self.hwnd = win32gui.CreateWindow(
+        hwnd = win32gui.CreateWindow(
             className,  # lpszClassName
             "SessionEventTool",  # lpszWindowName
             0,  # dwStyle
@@ -82,8 +82,9 @@ class WindowsSessionTrigger(BaseThreadTrigger):
             wc.hInstance,  # hInstance
             None,  # lpParam
         )
+        self.hwnd = hwnd
 
-        win32ts.WTSRegisterSessionNotification(self.hwnd, 1)
+        win32ts.WTSRegisterSessionNotification(hwnd, 1)
         logger.debug(f"window created in thread {threading.get_ident()} and monitor session change")
 
     def wnd_proc(self, hwnd: int, msg: int, wParam: int, lParam: int) -> int:  # noqa: N803

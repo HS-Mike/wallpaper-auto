@@ -272,8 +272,8 @@ def _get_display_info() -> list[DisplayInfo]:
             raise OSError("DISPLAYCONFIG_PATH_INFO.targetInfo.modeInfoIdx not available")
         mode = modes[target_mode_idx]
         assert mode.infoType == DISPLAYCONFIG_MODE_INFO_TYPE_TARGET
-        w: int = mode.mode.targetMode.videoSignalInfo.activeSize.cx
-        h: int = mode.mode.targetMode.videoSignalInfo.activeSize.cy
+        w = mode.mode.targetMode.videoSignalInfo.activeSize.cx
+        h = mode.mode.targetMode.videoSignalInfo.activeSize.cy
         target_resolution = (w, h)
 
         # 3. use adapterId and targetId extract monitor name and monitor device path
