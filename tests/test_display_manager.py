@@ -252,11 +252,18 @@ class TestDisplayManagerAddRemove:
         with pytest.raises(KeyError):
             dm.remove_display(_DEVICE_A)
 
-    def test_remove_already_patched_display_raises_value_error(self):
+    def test_remove_already_patched_display_is_dropped(self):
+        """A patch with a genuine restore record is dropped, not raised on.
+
+        Regression: a display added while ``_wallpaper_applied`` is False keeps
+        a restore record but never gets a resource; when such a display is
+        unplugged ``remove_display`` must drop it rather than crash.
+        """
         dm = DisplayManager()
         _add_display(dm, _DEVICE_A)
-        with pytest.raises(ValueError, match="does not have a resource"):
-            dm.remove_display(_DEVICE_A)
+        assert dm._displays[_DEVICE_A].restore is not None
+        dm.remove_display(_DEVICE_A)
+        assert _DEVICE_A not in dm._displays
 
     def test_update_swaps_active_resource(self):
         dm = DisplayManager()

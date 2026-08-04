@@ -217,25 +217,20 @@ class DisplayManager:
         Displays with no ``restore`` record (added after the app applied its
         composite) are dropped instead of patched — there is no genuine
         original to restore, and mounting a SPAN composite patch would corrupt
-        the whole canvas.
+        the whole canvas.  Patch displays are always dropped: they have no
+        active resource to demount, and a ``restore`` record is either a
+        genuine original the patch is already showing or belongs to a display
+        that was unplugged.
 
         Args:
             monitor_device_path: Unique device path of the monitor.
-
-        Raises:
-            ValueError: If the display is already a patch with a restore
-                record (no active resource to remove).
         """
         with self._lock:
             state = self._displays[monitor_device_path]
             if state.is_patch is True:
-                if state.restore is None:
-                    # Hotplugged patch: nothing to remove, nothing to restore.
-                    self._displays.pop(monitor_device_path, None)
-                    return
-                raise ValueError(
-                    f"Display (monitor_device_path: {monitor_device_path}) does not have a resource"
-                )
+                # Patch display: nothing to demount, nothing to restore.
+                self._displays.pop(monitor_device_path, None)
+                return
             resource_to_demount = state.resource
             if state.restore is None:
                 # Hotplugged display with a resource: drop it; a re-plug re-adds
