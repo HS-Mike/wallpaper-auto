@@ -20,8 +20,12 @@ def _small_img(w: int = 10, h: int = 10, r: int = 255, g: int = 0, b: int = 0) -
 class TestCacheKey:
     def test_filename_format(self):
         key = _CacheKey(
-            source_path="/a/b.jpg", source_size=100, source_mtime=1000.0,
-            content_prefix_hash="abc", region_w=1920, region_h=1080,
+            source_path="/a/b.jpg",
+            source_size=100,
+            source_mtime=1000.0,
+            content_prefix_hash="abc",
+            region_w=1920,
+            region_h=1080,
         )
         name = key.filename()
         assert name.endswith("_1920x1080.png")
@@ -29,7 +33,12 @@ class TestCacheKey:
 
     def test_deterministic(self):
         key = _CacheKey(
-            "/a/b.jpg", 100, 1000.0, "abc", 1920, 1080,
+            "/a/b.jpg",
+            100,
+            1000.0,
+            "abc",
+            1920,
+            1080,
         )
         assert key.filename() == key.filename()
 
@@ -263,9 +272,7 @@ class TestImageCompressionCacheEviction:
         assert len(cache._entries) < i
 
         # Every surviving entry has its .png on disk, and no evicted .png leaked.
-        files_on_disk = {
-            p.name for p in (tmp_path / "resized").iterdir() if p.suffix == ".png"
-        }
+        files_on_disk = {p.name for p in (tmp_path / "resized").iterdir() if p.suffix == ".png"}
         assert files_on_disk == set(cache._entries)
 
     def test_exclude_current_from_eviction(self, tmp_path: Path):
@@ -315,8 +322,7 @@ class TestImageCompressionCacheEviction:
             cache.put(s, 100, 100, _small_img(100, 100))
 
         # Frequent entry should survive; infrequent may be evicted.
-        assert cache.get(src_freq, 100, 100) is not None, \
-            "frequent entry should survive eviction"
+        assert cache.get(src_freq, 100, 100) is not None, "frequent entry should survive eviction"
 
     def test_ageing_halves_counters(self, tmp_path: Path):
         """When any entry exceeds LFU_AGING_THRESHOLD, all counters should halve."""
@@ -419,6 +425,7 @@ class TestImageCompressionCacheEdgeCases:
 
         # Manually delete the resized dir.
         import shutil
+
         shutil.rmtree(tmp_path / "resized")
 
         # New cache should start fresh.

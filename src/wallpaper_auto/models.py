@@ -22,6 +22,7 @@ class CacheResizeConfig(BaseModel):
     Defaults derive from the ``image_cache`` module constants, so an empty
     ``resize`` block enables the cache with standard tuning.
     """
+
     enabled: bool = True
     max_size_mb: int = CACHE_MAX_SIZE_BYTES // (1024 * 1024)
     evict_ratio: float = CACHE_EVICT_TARGET_RATIO
@@ -34,6 +35,7 @@ class CacheConfig(BaseModel):
     and the resized per-display images. ``resize`` configures the
     ``ImageCompressionCache`` component specifically.
     """
+
     path: str | None = None
     resize: CacheResizeConfig = CacheResizeConfig()
 

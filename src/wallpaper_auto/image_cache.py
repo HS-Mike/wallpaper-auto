@@ -26,6 +26,7 @@ from PIL import Image
 
 class _CacheEntry(TypedDict):
     """Schema for each entry in the LFU index."""
+
     access_count: int
     source_path: str
     source_size: int
@@ -33,13 +34,14 @@ class _CacheEntry(TypedDict):
     content_prefix_hash: str
     file_size: int
 
+
 logger = logging.getLogger(__name__)
 
 
-CACHE_CONTENT_HASH_BYTES: int = 65536          # 64 KB
+CACHE_CONTENT_HASH_BYTES: int = 65536  # 64 KB
 CACHE_MAX_SIZE_BYTES: int = 200 * 1024 * 1024  # 200 MB
-CACHE_EVICT_TARGET_RATIO: float = 0.9          # evict until 90 % of max
-LFU_AGING_THRESHOLD: int = 100                 # halve all counters at this ceiling
+CACHE_EVICT_TARGET_RATIO: float = 0.9  # evict until 90 % of max
+LFU_AGING_THRESHOLD: int = 100  # halve all counters at this ceiling
 
 _CACHE_EXTENSION = ".png"
 _PNG_FORMAT = "PNG"
@@ -53,6 +55,7 @@ def _resize_image(img: Image.Image, w: int, h: int) -> Image.Image:
 @dataclass(frozen=True)
 class _CacheKey:
     """Uniquely identifies a cacheable image at a target resolution."""
+
     source_path: str
     source_size: int
     source_mtime: float
@@ -193,7 +196,9 @@ class ImageCompressionCache:
         if file_size > self._max_size_bytes:
             logger.warning(
                 "Cached image %s (%d bytes) exceeds max size (%d)",
-                filename, file_size, self._max_size_bytes,
+                filename,
+                file_size,
+                self._max_size_bytes,
             )
 
         with self._lock:
@@ -212,9 +217,7 @@ class ImageCompressionCache:
                 self._evict(exclude={filename})
             self._write_index()
 
-    def render(
-        self, source_path: Path, region_w: int, region_h: int
-    ) -> Image.Image:
+    def render(self, source_path: Path, region_w: int, region_h: int) -> Image.Image:
         """Return a cached cover-resized image, or compute and cache it.
 
         The source is resized to *fill* ``(region_w, region_h)`` while
@@ -276,7 +279,10 @@ class ImageCompressionCache:
         return count
 
     def _compute_key(
-        self, source_path: Path, region_w: int, region_h: int,
+        self,
+        source_path: Path,
+        region_w: int,
+        region_h: int,
     ) -> _CacheKey | None:
         """Build a ``_CacheKey`` from ``stat()`` and a content prefix hash.
 
@@ -350,10 +356,7 @@ class ImageCompressionCache:
 
     def _age_if_needed(self) -> None:
         """Halve all LFU counters when any entry exceeds the threshold."""
-        if any(
-            meta["access_count"] > LFU_AGING_THRESHOLD
-            for meta in self._entries.values()
-        ):
+        if any(meta["access_count"] > LFU_AGING_THRESHOLD for meta in self._entries.values()):
             for meta in self._entries.values():
                 meta["access_count"] //= 2
 
