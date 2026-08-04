@@ -312,8 +312,7 @@ class ImageCompressionCache:
                     candidate = fname
                     candidate_count = ac
 
-            if candidate is None:
-                break  # only protected entries remain
+            assert candidate is not None, "no evictable entry despite loop guard"
 
             self._remove_entry(candidate)
 
