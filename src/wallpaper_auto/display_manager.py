@@ -143,17 +143,23 @@ class DisplayManager:
         Restores each display that has a genuine ``restore`` record (captured
         at ``start()``) and clears ``_wallpaper_applied`` for the next
         lifecycle.  Displays added after the app applied its SPAN composite
-        have no restore record and are simply dropped.
+        have no restore record; instead of being left on the app's composite,
+        they are filled with a pure black wallpaper.  Unplugged displays are
+        dropped by :meth:`remove_display` and never touched here.
         """
         with self._lock:
             monitors = list(self._displays)
+            black_targets = [m for m, s in self._displays.items() if s.restore is None]
         for m in monitors:
             self.remove_display(m)
         with self._lock:
             for state in self._displays.values():
                 if state.restore is not None:
-                    set_wallpaper_style(state.restore[0])
-                    set_wallpaper(state.monitor_device_path, state.restore[1])
+                    self._set_wallpaper_tolerant(
+                        state.restore[0], state.monitor_device_path, state.restore[1]
+                    )
+            for m in black_targets:
+                self._set_wallpaper_tolerant(WallpaperStyle.FILL, m, self._black_wallpaper_path())
             self._wallpaper_applied = False
 
     def update_display(self) -> list[DisplayInfo] | None:
@@ -218,9 +224,10 @@ class DisplayManager:
         composite) are dropped instead of patched — there is no genuine
         original to restore, and mounting a SPAN composite patch would corrupt
         the whole canvas.  Patch displays are always dropped: they have no
-        active resource to demount, and a ``restore`` record is either a
-        genuine original the patch is already showing or belongs to a display
-        that was unplugged.
+        active resource to demount.  A display with a genuine ``restore``
+        record is only patched and restored while it is still physically
+        connected; one that was unplugged is dropped (the composite is
+        re-applied without it and there is no screen left to restore to).
 
         Args:
             monitor_device_path: Unique device path of the monitor.
@@ -238,14 +245,69 @@ class DisplayManager:
                 self._displays.pop(monitor_device_path, None)
                 patch_to_mount = None
             else:
-                patch = StaticWallpaper(*state.restore)
-                patch._bind_monitor_device_path(monitor_device_path)
-                state.resource = patch
-                state.is_patch = True
-                patch_to_mount = patch
+                connected = self._connected_paths()
+                if connected is None or monitor_device_path in connected:
+                    # Still present (or unqueryable → conservative fallback):
+                    # restore the original wallpaper.
+                    patch = StaticWallpaper(*state.restore)
+                    patch._bind_monitor_device_path(monitor_device_path)
+                    state.resource = patch
+                    state.is_patch = True
+                    patch_to_mount = patch
+                else:
+                    # Physically unplugged: drop it — nothing to restore to.
+                    self._displays.pop(monitor_device_path, None)
+                    patch_to_mount = None
         resource_to_demount.demount()  # outside lock (may join a cycling thread)
         if patch_to_mount is not None:
             patch_to_mount.mount()  # outside lock (→ update_canvas takes the lock)
+
+    def _connected_paths(self) -> set[str] | None:
+        """Return the set of currently-connected monitor device paths.
+
+        Returns ``None`` when the display topology cannot be queried; callers
+        treat that as unknown and fall back conservatively.  Must be called
+        with ``self._lock`` held (the helper does not acquire it).
+        """
+        displays = get_display_info()
+        if displays is None:
+            return None
+        return {d.monitor_device_path for d in displays}
+
+    def _black_wallpaper_path(self) -> Path:
+        """Return a path to a pure-black wallpaper image, creating it if needed.
+
+        A 1x1 black PNG applied with :attr:`WallpaperStyle.FILL` renders as a
+        solid black desktop.
+        """
+        cache_dir = ConfigStore.instance.cache_path
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        black_path = cache_dir / "_black.png"
+        if not black_path.exists():
+            Image.new("RGB", (1, 1), (0, 0, 0)).save(black_path, "PNG")
+        return black_path
+
+    def _set_wallpaper_tolerant(
+        self,
+        style: WallpaperStyle,
+        monitor_device_path: str,
+        path: Path,
+    ) -> None:
+        """Apply a per-display wallpaper, tolerating a transient COM failure.
+
+        Used only during shutdown, when the display topology is in flux and a
+        display may have just disconnected between the last query and this COM
+        call.  Such a failure is expected/transient — log and continue rather
+        than crash ``stop()``.
+        """
+        try:
+            with com_session():
+                set_wallpaper_style(style)
+                set_wallpaper(monitor_device_path, path)
+        except OSError:
+            logger.warning(
+                "cannot set wallpaper on %s: display may be disconnected", monitor_device_path
+            )
 
     def update_resource(self, monitor_device_path: str, resource: BaseResource) -> None:
         """Replace the active resource on a display with a new one.

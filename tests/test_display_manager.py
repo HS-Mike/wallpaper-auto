@@ -127,7 +127,11 @@ class TestDisplayManager:
 
     def test_stop_without_displays_is_noop(self):
         dm = DisplayManager()
-        with patch("wallpaper_auto.display_manager.set_wallpaper") as mock_set:
+        with (
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch("wallpaper_auto.display_manager.set_wallpaper") as mock_set,
+        ):
+            _mock_com_session(mock_session)
             dm.stop()
         mock_set.assert_not_called()
 
@@ -137,10 +141,16 @@ class TestDisplayManager:
         custom = _make_resource()
         dm.update_resource(_DEVICE_A, custom)
         with (
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[_make_display(_DEVICE_A, 0, 0, 100, 100)],
+            ),
             patch("wallpaper_auto.display_manager.set_wallpaper") as mock_set_wp,
             patch("wallpaper_auto.display_manager.set_wallpaper_style") as mock_set_style,
             patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
         ):
+            _mock_com_session(mock_session)
             mock_static.return_value = _make_resource()
             dm.stop()
         mock_set_wp.assert_called_once_with(_DEVICE_A, Path("C:/orig.jpg"))
@@ -159,11 +169,15 @@ class TestDisplayManager:
     def test_stop_clears_wallpaper_applied(self):
         dm = DisplayManager()
         dm._wallpaper_applied = True
-        dm.stop()
+        with (
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+        ):
+            _mock_com_session(mock_session)
+            dm.stop()
         assert dm._wallpaper_applied is False
 
-    def test_stop_restore_skips_hotplugged_display(self):
-        """A display added after the app's composite is never restored on stop."""
+    def test_stop_restores_genuine_and_blacks_hotplugged(self):
+        """A genuine display is restored; a hotplugged display is filled black."""
         dm = DisplayManager()
         _add_display(dm, _DEVICE_A)  # startup: genuine restore record
         dm.update_resource(_DEVICE_A, _make_resource())
@@ -171,34 +185,73 @@ class TestDisplayManager:
         _add_display(dm, _DEVICE_B)  # hotplugged: no restore record
         dm.update_resource(_DEVICE_B, _make_resource())
         with (
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[
+                    _make_display(_DEVICE_A, 0, 0, 100, 100),
+                    _make_display(_DEVICE_B, 100, 0, 100, 100),
+                ],
+            ),
             patch("wallpaper_auto.display_manager.set_wallpaper") as mock_set_wp,
             patch("wallpaper_auto.display_manager.set_wallpaper_style") as mock_set_style,
             patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
+            patch.object(dm, "_black_wallpaper_path", return_value=Path("C:/black.png")),
         ):
+            _mock_com_session(mock_session)
             mock_static.return_value = _make_resource()
             dm.stop()
-        # Only A's genuine original is restored; B's fake composite is never applied.
-        assert mock_set_wp.call_count == 1
-        assert mock_set_wp.call_args.args[0] == _DEVICE_A
-        assert mock_set_style.call_args.args[0] is WallpaperStyle.FILL
+        # A's genuine original is restored; B (no restore) is filled black instead.
+        assert mock_set_wp.call_count == 2
+        assert mock_set_wp.call_args_list[0].args[0] == _DEVICE_A
+        assert mock_set_wp.call_args_list[1].args[0] == _DEVICE_B
+        assert mock_set_style.call_args_list[0].args[0] is WallpaperStyle.FILL
+        assert mock_set_style.call_args_list[1].args[0] is WallpaperStyle.FILL
 
-    def test_stop_drops_hotplugged_patch_without_restoring(self):
-        """A hotplugged patch at stop() is dropped and never restored.
+    def test_stop_blacks_hotplugged_patch(self):
+        """A hotplugged patch at stop() is dropped and filled black.
 
         A display added after the app's composite has no genuine restore record;
-        stopping must drop it (not crash) and must not re-apply anything for it.
+        stopping must drop it (not crash) and fill it with pure black instead of
+        leaving it on the app's composite.
         """
         dm = DisplayManager()
         dm._wallpaper_applied = True
         _add_display(dm, _DEVICE_A)  # hotplugged patch, never got a resource
         with (
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
             patch("wallpaper_auto.display_manager.set_wallpaper") as mock_set_wp,
             patch("wallpaper_auto.display_manager.set_wallpaper_style") as mock_set_style,
+            patch.object(dm, "_black_wallpaper_path", return_value=Path("C:/black.png")),
         ):
+            _mock_com_session(mock_session)
             dm.stop()
         assert _DEVICE_A not in dm._displays
-        mock_set_wp.assert_not_called()
-        mock_set_style.assert_not_called()
+        mock_set_wp.assert_called_once_with(_DEVICE_A, Path("C:/black.png"))
+        mock_set_style.assert_called_once_with(WallpaperStyle.FILL)
+
+    def test_stop_tolerates_wallpaper_com_failure(self):
+        """An OSError from set_wallpaper during stop() is logged, not raised."""
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        custom = _make_resource()
+        dm.update_resource(_DEVICE_A, custom)
+        with (
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[_make_display(_DEVICE_A, 0, 0, 100, 100)],
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_wallpaper",
+                side_effect=OSError("display disconnected"),
+            ) as mock_set_wp,
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+            patch("wallpaper_auto.display_manager.StaticWallpaper"),
+        ):
+            _mock_com_session(mock_session)
+            dm.stop()  # must not raise
+        assert mock_set_wp.call_count >= 1
 
 
 class TestDisplayManagerAddRemove:
@@ -239,6 +292,48 @@ class TestDisplayManagerAddRemove:
         custom = _make_resource()
         dm.update_resource(_DEVICE_A, custom)
         with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[_make_display(_DEVICE_A, 0, 0, 100, 100)],
+            ),
+            patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
+        ):
+            mock_static.return_value = _make_resource()
+            dm.remove_display(_DEVICE_A)
+        custom.demount.assert_called_once()
+        mock_static.assert_called_once()
+        assert dm._displays[_DEVICE_A].is_patch is True
+
+    def test_remove_drops_unplugged_display_and_demounts_resource(self):
+        """A display with a restore record that is no longer connected is dropped."""
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        custom = _make_resource()
+        dm.update_resource(_DEVICE_A, custom)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[],
+            ),
+            patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
+        ):
+            mock_static.return_value = _make_resource()
+            dm.remove_display(_DEVICE_A)
+        assert _DEVICE_A not in dm._displays
+        custom.demount.assert_called_once()
+        mock_static.assert_not_called()
+
+    def test_remove_keeps_patch_when_display_query_fails(self):
+        """An unqueryable topology keeps the conservative restore path."""
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        custom = _make_resource()
+        dm.update_resource(_DEVICE_A, custom)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=None,
+            ),
             patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
         ):
             mock_static.return_value = _make_resource()
@@ -766,8 +861,11 @@ class TestDisplayManagerUpdateDisplay:
             mock_static.return_value = _make_resource()
             result = dm.update_display()
         assert result is not None
-        # remove_display replaces the resource with a patch; the display stays in the map.
-        assert dm._displays[_DEVICE_B].is_patch is True
+        # An unplugged display with a resource + restore record is dropped, not
+        # kept as a patch; its resource is demounted and no patch is mounted.
+        assert _DEVICE_B not in dm._displays
+        custom.demount.assert_called_once()
+        mock_static.assert_not_called()
         assert [d.monitor_device_path for d in result] == [_DEVICE_A]
 
     def test_no_change_returns_current_displays(self):
