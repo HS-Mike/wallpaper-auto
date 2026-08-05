@@ -37,8 +37,6 @@ resource:
     config:
       path: "C:/Users/You/Pictures/office.jpg"
       style: fill               # fill | fit | stretch | center | tile
-      restore: false             # restore original wallpaper on demount (default false)
-      # cache_dir: "C:/Users/You/.cache/wallpaper_auto"  # (optional) custom cache path
 
   # Shorthand — path only; name and style are inferred
   black: "C:/Users/You/Pictures/black.jpg"
@@ -82,6 +80,10 @@ trigger:
 # Display scene entries are **auto-registered** as wallpaper resources.
 # A rule's ``target`` can reference a scene name directly — no need to
 # add a ``scene`` resource entry in the resource section above.
+#
+# Both resource IDs and scene names are valid rule ``target`` values.
+# Targets are resolved against the ``resource`` section first, then
+# ``scene``.
 # ---------------------------------------------------------------------------
 # scene:
 #   work_layout:
@@ -110,7 +112,8 @@ trigger:
 #   day_of_week_is: [0, 1, 2, 3, 4, 5, 6]  # 0=Monday ... 6=Sunday
 #   have_display: <model_name_or_regex>    # e.g. "U2719D" or "27.*"
 #
-# ``target`` can reference a resource ID or a ``scene`` name directly.
+# ``target`` can reference a resource ID or a ``scene`` name — the
+# resource section is checked first, then scene.
 # (Display scene entries are auto-registered as resources.)
 # ---------------------------------------------------------------------------
 rule:
