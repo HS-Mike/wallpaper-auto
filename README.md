@@ -14,14 +14,36 @@ The application is built around three pluggable component types:
 | **Evaluator** | Checks a single condition and returns true/false | "Is the current time between 9 AM and 6 PM?", "Am I connected to the office WiFi?" |
 | **Resource** | Applies a wallpaper (or cycles through multiple) | Set a static image, rotate through a slideshow |
 
-**The flow:** A Trigger detects a change (e.g., you connect to "OfficeWiFi") and notifies the controller. The controller runs the **Rule Engine**, which evaluates each rule's conditions using **Evaluators**. The first rule whose conditions all match determines which **Resource** to mount as the active wallpaper.
+**The flow:** A Trigger detects a change (e.g., you connect to "OfficeWiFi") and notifies the controller. The controller runs the **Rule Engine**, which evaluates each rule's conditions using **Evaluators**. The first rule whose conditions all match determines the target — a **Resource** or a **Scene** — to apply. The resource buffers an image for its monitor, and the **display manager** composites all monitors into a single spanned wallpaper and applies it.
 
 ```
-Trigger fires ---> Controller evaluates rules ---> Matching rule's resource is applied
-     |                        |                                  |
-  e.g. WiFi             AND/OR tree of                     static_wallpaper
-  changed               evaluator checks                    or cycle
+Trigger fires
+    |
+    v
+Controller + Rule Engine evaluates rules
+    |
+    v
+Target selected (resource / cycle / scene)
+    |
+    v
+Resource buffers an image for its monitor
+    |
+    v
+DisplayManager composites all monitors (SPAN)
+    |
+    v
+SPAN wallpaper applied via IDesktopWallpaper
 ```
+
+## How Wallpapers Are Applied
+
+Resources don't set wallpapers directly. Each resource buffers an image for its monitor via `update_canvas()` and requests a composite via `plot_canvas()`. The **display manager** composites every monitor's buffered image into a single spanned wallpaper canvas and applies it through the Windows COM `IDesktopWallpaper` API with `SPAN` style.
+
+The `IDesktopWallpaper` API has no true per-monitor mode: it exposes a single global wallpaper and a single global `WallpaperStyle`. Under `SPAN`, calls that pass a `monitorID` (such as `GetWallpaper`) ignore it and return the spanned composite. That's why per-display wallpapers are composited into one canvas instead of being set per monitor.
+
+This is what enables per-display wallpapers (scenes): each monitor's image is rendered into its own region of the virtual desktop, so different monitors can show different wallpapers simultaneously. Per-monitor `WallpaperStyle` (fill / fit / stretch / center / tile) is honored during compositing.
+
+The display manager also tracks each display's original wallpaper, captures it at startup, and restores it when the app stops or the display is removed. The composite canvas is cached under the configured `cache` directory.
 
 ## Features
 
@@ -34,6 +56,7 @@ Trigger fires ---> Controller evaluates rules ---> Matching rule's resource is a
   - `have_display`: Check if a display with a matching model name (exact or regex) is connected
 - **System tray control**: System tray menu for manual wallpaper switching and pause/resume auto-switching
 - **Thread-safe**: Each monitoring module runs independently without blocking others
+- **Multi-monitor scenes**: Bind different wallpapers to different displays by monitor model
 - **At-shutdown wallpaper**: Optionally apply a specific wallpaper when Windows shuts down or the user logs off
 
 ## Quick Start
@@ -85,7 +108,6 @@ resource:
     config:
       path: "C:/path/to/wallpaper.jpg"
       style: fill                         # fill / fit / stretch / center / tile
-      restore: false                      # restore original wallpaper on demount (default false)
 
   cycle:                               # Multi-image cycling wallpaper (resource cycle)
     name: cycle
@@ -110,6 +132,7 @@ trigger:
     config: {}
 
 # 3. Rules (evaluated top-to-bottom; first match wins)
+#    A rule's target can be a resource ID or a scene name — checked in that order.
 rule:
   - name: "At work"
     condition:
@@ -121,8 +144,10 @@ rule:
         - in_time_range: ["23:00", "06:00"]
         - day_of_week_is: [0, 1, 2, 3, 4] # Monday to Friday
     target: "dark_wallpaper"
-# 4. Scene bindings (optional) — per-display wallpaper for multi-monitor setups
-#    Maps scene IDs to a list of {display_model, resource} pairs
+# 4. Scenes (optional) — per-display wallpaper bindings for multi-monitor setups.
+#    display_model is a regex matched via re.search against the monitor's model
+#    name (first match wins per monitor). Scene names are auto-registered as
+#    rule targets — see "Scenes" below.
 # scene:
 #   work_layout:
 #     - display_model: "U2719D"
@@ -136,13 +161,40 @@ fallback_target: "default_wallpaper"
 # 6. (Optional) At-shutdown wallpaper — applied when Windows shuts down
 # at_shutdown: "work_wallpaper"
 
-# 6. (Optional) Cache — shared dir + resized-image cache tuning
+# 7. (Optional) Cache — shared dir + resized-image cache tuning
 # cache:
 #   path: "C:/Users/You/.cache/wallpaper_auto"
 #   resize:
 #     enabled: true           # set false to disable the resized-image cache (default true)
 #     max_size_mb: 200        # max total size of resized cache in MB (default 200)
 #     evict_ratio: 0.9        # evict down to this fraction of max (default 0.9)
+```
+
+### Scenes (per-display wallpapers)
+
+A **scene** assigns resources to specific monitors so each display can show its own wallpaper in a multi-monitor setup.
+
+```yaml
+scene:
+  work_layout:
+    - display_model: "U2719D"      # regex, matched via re.search
+      resource: "work_wallpaper"
+    - display_model: "DELL P2419H"
+      resource: "secondary_wallpaper"
+```
+
+- `display_model` is a regex pattern matched against the monitor's model name with `re.search` — partial matches count, and matching is case-sensitive. Bindings are evaluated top-to-bottom; the first match wins per monitor.
+- Scenes are **auto-registered as rule targets**: a rule can set `target: "work_layout"` without any matching entry in the `resource` section.
+- A rule's `target` can name either a **resource** or a **scene**. Config validation and target resolution accept both, checking the `resource` section first, then `scene`.
+- When a scene is applied, every connected monitor whose model matches a binding receives that binding's resource; unmatched monitors keep their current wallpaper.
+- Scenes combine naturally with the `have_display` evaluator to adapt to whatever monitors are connected:
+
+```yaml
+rule:
+  - name: "External monitor"
+    condition:
+      have_display: "U2719D"
+    target: "work_layout"
 ```
 
 ## Running
@@ -225,8 +277,8 @@ resource:
 
 | Resource | Constructor Parameters | Description |
 |----------|----------------------|-------------|
-| `static_wallpaper` | `path` (str), `style` (str), `restore` (bool, default False), `cache_dir` (str, optional) | Static image wallpaper — `restore=True` restores original wallpaper on demount. `cache_dir` overrides the auto-created temp directory. |
-| `cycle` | `resources` (list[dict]), `interval` (int, default 300), `random` (bool, default False) | Cycles through sub-resources — each sub-resource is a full resource config dict with its own `name` and `config`. |
+| `static_wallpaper` | `path` (str), `style` (str) | Static image wallpaper. Restoration of a display's original wallpaper is handled by the display manager, not the resource itself. |
+| `cycle` | `resources` (list[dict]), `interval` (int, default 300), `random` (bool, default False), `restore` (bool, default False) | Cycles through sub-resources — each sub-resource is a full resource config dict with its own `name` and `config`. |
 
 The shorthand form (`black: "C:/img.jpg"`) is expanded to `static_wallpaper` with the string as the `path`.
 
@@ -240,16 +292,6 @@ condition:
   in_time_range: ["09:00", "18:00"]         # param: [start, end]
   day_of_week_is: [5, 6]                    # param: list[int]  0=Mon ... 6=Sun
   have_display: "U2719D"                   # param: model name or regex pattern
-```
-
-### Custom Components
-
-When registering a custom component, define `__init__` parameters matching the keys you expect in the YAML `config` block:
-
-```python
-class MyTrigger(BaseThreadTrigger):
-    def __init__(self, poll_interval: int = 30, endpoint: str = "..."):
-        ...
 ```
 
 ## System Tray
@@ -309,6 +351,40 @@ class OnlineResource(BaseResource):
 run_service("config.yaml", custom_resources={"online": OnlineResource})
 ```
 
+A custom resource never sets the wallpaper directly. It buffers an image for its bound monitor and asks the system to composite it:
+
+- **`update_canvas(style, image)`** — buffer an image for the resource's monitor. `style` is a `WallpaperStyle` (e.g. `fill`, `fit`); `image` is a `Path` or a PIL `Image`. Buffering alone does **not** apply the wallpaper.
+- **`plot_canvas()`** — request a composite of the buffered canvas. In the running app this is enqueued to the controller's worker loop rather than composited synchronously, so it is safe to call from any thread.
+
+`update_canvas()` may be called any time after `mount()` and before `demount()` — not only during `mount()` — so a resource can update its wallpaper dynamically (cycling, animation). Call `plot_canvas()` after each update to apply it:
+
+```python
+def mount(self):
+    self.update_canvas(self.style, self.image_path)
+    self.plot_canvas()          # apply the buffered image
+
+def next_frame(self):
+    self.update_canvas(self.style, self.next_image)
+    self.plot_canvas()          # apply a dynamic update
+```
+
+`mount()` and `demount()` are lifecycle **notifications** — they signal that the resource has entered or left the active window. They never set the wallpaper themselves; that happens through `update_canvas()` / `plot_canvas()`.
+
+Resource instances are **not reused**. Each time a target is applied, the manager creates a fresh instance per connected display, binds it to a single monitor (`monitor_device_path`), and calls `mount()` once and `demount()` once. Expect a **different instance across each wallpaper apply session and per display**:
+
+- Initialize everything in `__init__` — do not rely on instance state surviving between mounts.
+- An instance buffers only its bound monitor's image.
+- Don't re-mount or reuse an instance; construct a new one for each apply.
+
+At runtime, a resource can inspect the display it is bound to through `self.monitor_device_path`. This is an **instance attribute**: the manager sets it on each instance when it binds that instance to a monitor (before `mount()`), so every instance tracks its own bound display — unlike the class-wide `update_canvas()` / `plot_canvas()` callbacks, which are uniform across all instances.
+
+```python
+def mount(self):
+    # self.monitor_device_path identifies the display this instance is bound to
+    self.update_canvas(self.style, self.image_path)
+    self.plot_canvas()
+```
+
 ```yaml
 resource:
   daily:
@@ -317,6 +393,8 @@ resource:
       query: "mountain"
       style: fill
 ```
+
+The keys under `config` are unpacked as keyword arguments to the resource's `__init__` when the manager constructs the instance. In the example above, `query: "mountain"` and `style: fill` become `OnlineResource(query="mountain", style="fill")`. Define `__init__` parameters to match the config keys you expect — a default value makes each key optional.
 
 ### Custom Trigger
 
@@ -422,9 +500,9 @@ run_service("config.yaml")
 - PyYAML — config file parsing
 - Pydantic >=2.0 — config validation & data models
 - PySide6 — system tray UI
-- pywin32 — Windows wallpaper API (SystemParametersInfo) & session monitoring
-- wmi — WMI queries for display information
-- Pillow — image resize/compress for wallpaper caching
+- pywin32 — Windows session & display event monitoring (lock/unlock/logon/logoff, monitor plug/unplug), shutdown detection, and display info
+- wmi — WMI queries for WiFi/network SSID detection
+- Pillow — image resizing & caching for wallpaper compositing
 
 ## License
 
