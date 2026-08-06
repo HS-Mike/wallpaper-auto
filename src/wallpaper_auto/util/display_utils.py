@@ -188,6 +188,8 @@ class DisplayInfo:
     target_resolution: tuple[int, int]
     scale: float = 1.0
     monitor_device_path: str = ""  # IDesktopWallpaper monitorDevicePath
+    adapter_id: LUID | None = None
+    target_id: int = 0
 
 
 def get_display_info(raise_error: bool = False) -> list[DisplayInfo] | None:
@@ -329,6 +331,8 @@ def _get_display_info() -> list[DisplayInfo]:
                 target_resolution=target_resolution,
                 scale=scale,
                 monitor_device_path=monitor_device_path,
+                adapter_id=p.targetInfo.adapterId,
+                target_id=p.targetInfo.id,
             )
         )
 
