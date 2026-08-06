@@ -75,6 +75,7 @@ _DEVICE_A = r"\\?\DISPLAY#DELA#{...}"
 _SNAPSHOT_A = frozenset([(_DEVICE_A, "U2719D")])
 
 _DISPLAY_INFO_A = DisplayInfo(
+    device_name="\\\\.\\DISPLAY1",
     model="U2719D",
     source_resolution=(1920, 1080),
     position=(0, 0),

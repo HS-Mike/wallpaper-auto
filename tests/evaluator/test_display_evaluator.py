@@ -17,6 +17,7 @@ def evaluator():
 
 _SINGLE = [
     DisplayInfo(
+        device_name="\\\\.\\DISPLAY1",
         model="U2719D",
         source_resolution=(1920, 1080),
         position=(0, 0),
@@ -26,6 +27,7 @@ _SINGLE = [
 ]
 _DUAL = [
     DisplayInfo(
+        device_name="\\\\.\\DISPLAY1",
         model="U2719D",
         source_resolution=(1920, 1080),
         position=(0, 0),
@@ -33,6 +35,7 @@ _DUAL = [
         scale=1.0,
     ),
     DisplayInfo(
+        device_name="\\\\.\\DISPLAY2",
         model="XL2730",
         source_resolution=(2560, 1440),
         position=(1920, 0),
@@ -72,6 +75,7 @@ class TestHaveDisplayEvaluator:
             f"{_MOD}.get_display_info",
             return_value=[
                 DisplayInfo(
+                    device_name="\\\\.\\DISPLAY1",
                     model=None,
                     source_resolution=(1920, 1080),
                     position=(0, 0),

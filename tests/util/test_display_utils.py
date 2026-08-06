@@ -343,15 +343,15 @@ class TestIsRemoteSession:
     """Tests for is_remote_session()"""
 
     def test_returns_false_for_local_session(self, monkeypatch):
-        """Local session: GetSystemMetrics(4096) returns 0"""
-        mock_win32api = MagicMock()
-        mock_win32api.GetSystemMetrics.return_value = 0
-        monkeypatch.setattr(display_utils, "win32api", mock_win32api)
+        """Local session: GetSystemMetrics(SM_REMOTESESSION) returns 0"""
+        mock_user32 = MagicMock()
+        mock_user32.GetSystemMetrics.return_value = 0
+        monkeypatch.setattr(display_utils, "user32", mock_user32)
         assert is_remote_session() is False
 
     def test_returns_true_for_remote_session(self, monkeypatch):
-        """Remote session: GetSystemMetrics(4096) returns non-zero"""
-        mock_win32api = MagicMock()
-        mock_win32api.GetSystemMetrics.return_value = 1
-        monkeypatch.setattr(display_utils, "win32api", mock_win32api)
+        """Remote session: GetSystemMetrics(SM_REMOTESESSION) returns non-zero"""
+        mock_user32 = MagicMock()
+        mock_user32.GetSystemMetrics.return_value = 1
+        monkeypatch.setattr(display_utils, "user32", mock_user32)
         assert is_remote_session() is True

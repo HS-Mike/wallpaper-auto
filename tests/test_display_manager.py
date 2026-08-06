@@ -36,6 +36,7 @@ def _config_store_with_cache(tmp_path: Path):
 
 def _make_display(device_path: str, x: int, y: int, w: int, h: int) -> DisplayInfo:
     return DisplayInfo(
+        device_name="\\\\.\\DISPLAY1",
         model="test",
         source_resolution=(w, h),
         position=(x, y),

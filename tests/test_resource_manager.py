@@ -17,6 +17,7 @@ def _make_display_info(
 ) -> DisplayInfo:
     """Create a DisplayInfo with sensible defaults for testing."""
     return DisplayInfo(
+        device_name="\\\\.\\DISPLAY1",
         monitor_device_path=device_path,
         model=model,
         source_resolution=(1920, 1080),

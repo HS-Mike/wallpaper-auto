@@ -21,16 +21,6 @@ class RemoteSessionEnvironmentError(OSError):
     pass
 
 
-@dataclass(frozen=True)
-class DisplayInfo:
-    model: str | None
-    source_resolution: tuple[int, int]
-    position: tuple[int, int]
-    target_resolution: tuple[int, int]
-    scale: float = 1.0
-    monitor_device_path: str = ""
-
-
 ERROR_SUCCESS = 0
 ERROR_ACCESS_DENIED = 5
 ERROR_NOT_SUPPORTED = 50
@@ -42,7 +32,10 @@ DISPLAYCONFIG_PATH_MODE_IDX_INVALID = 0xFFFFFFFF
 DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE = 1
 DISPLAYCONFIG_MODE_INFO_TYPE_TARGET = 2
 
+DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME = 1
 DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME = 2
+
+SM_REMOTESESSION = 0x1000  # 4096
 
 
 class LUID(ctypes.Structure):
@@ -58,6 +51,13 @@ class DISPLAYCONFIG_DEVICE_INFO_HEADER(ctypes.Structure):  # noqa: N801
     ]
 
 
+class DISPLAYCONFIG_SOURCE_DEVICE_NAME(ctypes.Structure):  # noqa: N801
+    _fields_ = [
+        ("header", DISPLAYCONFIG_DEVICE_INFO_HEADER),
+        ("viewGdiDeviceName", wintypes.WCHAR * 32),
+    ]
+
+
 class DISPLAYCONFIG_TARGET_DEVICE_NAME(ctypes.Structure):  # noqa: N801
     _fields_ = [
         ("header", DISPLAYCONFIG_DEVICE_INFO_HEADER),
@@ -66,14 +66,8 @@ class DISPLAYCONFIG_TARGET_DEVICE_NAME(ctypes.Structure):  # noqa: N801
         ("edidManufactureId", wintypes.USHORT),
         ("edidProductCodeId", wintypes.USHORT),
         ("connectorInstance", wintypes.UINT),
-        (
-            "monitorFriendlyDeviceName",
-            wintypes.WCHAR * 64,
-        ),
-        (
-            "monitorDevicePath",
-            wintypes.WCHAR * 128,
-        ),
+        ("monitorFriendlyDeviceName", wintypes.WCHAR * 64),
+        ("monitorDevicePath", wintypes.WCHAR * 128),
     ]
 
 
@@ -180,16 +174,24 @@ shcore.GetDpiForMonitor.argtypes = [
 shcore.GetDpiForMonitor.restype = wintypes.LONG
 
 
+def is_remote_session() -> bool:
+    """Check if current process is running under an RDP or Remote Desktop session."""
+    return bool(user32.GetSystemMetrics(SM_REMOTESESSION))
+
+
+@dataclass(frozen=True)
+class DisplayInfo:
+    device_name: str  # GDI device path, e.g. \\.\DISPLAY1
+    model: str | None
+    source_resolution: tuple[int, int]
+    position: tuple[int, int]
+    target_resolution: tuple[int, int]
+    scale: float = 1.0
+    monitor_device_path: str = ""  # IDesktopWallpaper monitorDevicePath
+
+
 def get_display_info(raise_error: bool = False) -> list[DisplayInfo] | None:
-    """Return the list of connected displays.
-
-    Tolerant by default: on failure, logs a warning and returns ``None``.
-    Pass ``raise_error=True`` to raise the underlying typed error instead
-    (``DisplayTopologyTransientError``, ``RemoteSessionEnvironmentError``,
-    or ``OSError``).
-
-    ``[]`` means there are genuinely no active display paths.
-    """
+    """Return the list of connected displays."""
     try:
         return _get_display_info()
     except OSError as e:
@@ -250,10 +252,8 @@ def _get_display_info() -> list[DisplayInfo]:
     for i in range(num_paths.value):
         p = paths[i]
 
-        # 1. extract soruce mode resolution and display position in canvas
+        # 1. extract source mode resolution and display position in canvas
         source_mode_idx = p.sourceInfo.modeInfoIdx
-        source_resolution = None
-        position = None
         if source_mode_idx == DISPLAYCONFIG_PATH_MODE_IDX_INVALID:
             raise OSError("DISPLAYCONFIG_PATH_INFO.sourceInfo.modeInfoIdx not available")
         mode = modes[source_mode_idx]
@@ -267,7 +267,6 @@ def _get_display_info() -> list[DisplayInfo]:
 
         # 2. extract target mode resolution
         target_mode_idx = p.targetInfo.modeInfoIdx
-        target_resolution = None
         if target_mode_idx == DISPLAYCONFIG_PATH_MODE_IDX_INVALID:
             raise OSError("DISPLAYCONFIG_PATH_INFO.targetInfo.modeInfoIdx not available")
         mode = modes[target_mode_idx]
@@ -276,20 +275,34 @@ def _get_display_info() -> list[DisplayInfo]:
         h = mode.mode.targetMode.videoSignalInfo.activeSize.cy
         target_resolution = (w, h)
 
-        # 3. use adapterId and targetId extract monitor name and monitor device path
-        device_name_info = DISPLAYCONFIG_TARGET_DEVICE_NAME()
-        device_name_info.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME
-        device_name_info.header.size = ctypes.sizeof(DISPLAYCONFIG_TARGET_DEVICE_NAME)
-        device_name_info.header.adapterId = p.targetInfo.adapterId
-        device_name_info.header.id = p.targetInfo.id
+        # 3.1 get the Source device name (i.e. the GDI device name, e.g. \\.\DISPLAY1)
+        source_name_info = DISPLAYCONFIG_SOURCE_DEVICE_NAME()
+        source_name_info.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME
+        source_name_info.header.size = ctypes.sizeof(DISPLAYCONFIG_SOURCE_DEVICE_NAME)
+        source_name_info.header.adapterId = p.sourceInfo.adapterId
+        source_name_info.header.id = p.sourceInfo.id
 
-        res = user32.DisplayConfigGetDeviceInfo(ctypes.byref(device_name_info.header))
+        device_name = ""
+        if (
+            user32.DisplayConfigGetDeviceInfo(ctypes.byref(source_name_info.header))
+            == ERROR_SUCCESS
+        ):
+            device_name = source_name_info.viewGdiDeviceName
+
+        # 3.2 get Target friendly name and monitor device path
+        target_name_info = DISPLAYCONFIG_TARGET_DEVICE_NAME()
+        target_name_info.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME
+        target_name_info.header.size = ctypes.sizeof(DISPLAYCONFIG_TARGET_DEVICE_NAME)
+        target_name_info.header.adapterId = p.targetInfo.adapterId
+        target_name_info.header.id = p.targetInfo.id
+
+        friendly_name = None
+        monitor_device_path = ""
+        res = user32.DisplayConfigGetDeviceInfo(ctypes.byref(target_name_info.header))
 
         if res == ERROR_SUCCESS:
-            friendly_name = device_name_info.monitorFriendlyDeviceName
-            if friendly_name == "":
-                friendly_name = None
-            monitor_device_path = device_name_info.monitorDevicePath
+            friendly_name = target_name_info.monitorFriendlyDeviceName or None
+            monitor_device_path = target_name_info.monitorDevicePath
         elif res == ERROR_NOT_SUPPORTED:
             raise DisplayTopologyTransientError(
                 "Windows QueryDisplayConfig returned 50: Not Supported."
@@ -297,7 +310,7 @@ def _get_display_info() -> list[DisplayInfo]:
         else:
             raise OSError(f"DisplayConfigGetDeviceInfo error return: {res}")
 
-        # 4. compute per-monitor DPI scale factor via position-based HMONITOR lookup
+        # 4. compute per-monitor DPI scale factor
         pt = POINTL(pos_x, pos_y)
         h_monitor = user32.MonitorFromPoint(pt, 2)  # MONITOR_DEFAULTTONEAREST
         scale = 1.0
@@ -309,6 +322,7 @@ def _get_display_info() -> list[DisplayInfo]:
 
         res_display_info.append(
             DisplayInfo(
+                device_name=device_name,
                 model=friendly_name,
                 source_resolution=source_resolution,
                 position=position,
@@ -319,11 +333,6 @@ def _get_display_info() -> list[DisplayInfo]:
         )
 
     return res_display_info
-
-
-def is_remote_session() -> bool:
-    """Check if the current process is running under an RDP or virtual remote session."""
-    return win32api.GetSystemMetrics(4096) != 0
 
 
 MDT_EFFECTIVE_DPI = 0
