@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 import win32con
 
+from wallpaper_auto.trigger.base_trigger import BaseTrigger
 from wallpaper_auto.trigger.display_trigger import DisplayTrigger
 from wallpaper_auto.util.display_utils import (
     DisplayInfo,
@@ -80,7 +81,7 @@ _DISPLAY_INFO_A = DisplayInfo(
     source_resolution=(1920, 1080),
     position=(0, 0),
     target_resolution=(1920, 1080),
-    scale=1.0,
+    scale=100,
     monitor_device_path=_DEVICE_A,
 )
 
@@ -316,7 +317,7 @@ class TestDisplayTriggerDpi:
 
         callback_called = []
 
-        def on_trigger(t: DisplayTrigger) -> None:
+        def on_trigger(t: BaseTrigger) -> None:
             callback_called.append(True)
 
         trigger.add_callback(on_trigger)

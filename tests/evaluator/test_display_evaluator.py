@@ -22,7 +22,7 @@ _SINGLE = [
         source_resolution=(1920, 1080),
         position=(0, 0),
         target_resolution=(1920, 1080),
-        scale=1.0,
+        scale=100,
     ),
 ]
 _DUAL = [
@@ -32,7 +32,7 @@ _DUAL = [
         source_resolution=(1920, 1080),
         position=(0, 0),
         target_resolution=(1920, 1080),
-        scale=1.0,
+        scale=100,
     ),
     DisplayInfo(
         device_name="\\\\.\\DISPLAY2",
@@ -40,7 +40,7 @@ _DUAL = [
         source_resolution=(2560, 1440),
         position=(1920, 0),
         target_resolution=(2560, 1440),
-        scale=1.0,
+        scale=100,
     ),
 ]
 
@@ -80,7 +80,7 @@ class TestHaveDisplayEvaluator:
                     source_resolution=(1920, 1080),
                     position=(0, 0),
                     target_resolution=(1920, 1080),
-                    scale=1.0,
+                    scale=100,
                 ),
             ],
         ):

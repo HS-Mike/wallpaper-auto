@@ -41,7 +41,7 @@ def _make_display(device_path: str, x: int, y: int, w: int, h: int) -> DisplayIn
         source_resolution=(w, h),
         position=(x, y),
         target_resolution=(w, h),
-        scale=1.0,
+        scale=100,
         monitor_device_path=device_path,
     )
 
