@@ -353,6 +353,51 @@ class DisplayInfo:
     def __post_init__(self) -> None:
         object.__setattr__(self, "display_id", _make_display_id(self))
 
+    def __eq__(self, other: object) -> bool:
+        """Compare displays by value, including the adapter LUID's parts.
+
+        Args:
+            other: The object to compare against.
+
+        Returns:
+            True when every field matches; ``NotImplemented`` when ``other``
+            is not a ``DisplayInfo``.
+        """
+        if not isinstance(other, DisplayInfo):
+            return NotImplemented
+        return (
+            self.device_name == other.device_name
+            and self.monitor_device_path == other.monitor_device_path
+            and self.model == other.model
+            and self.source_resolution == other.source_resolution
+            and self.position == other.position
+            and self.target_resolution == other.target_resolution
+            and (self.adapter_id.LowPart, self.adapter_id.HighPart)
+            == (other.adapter_id.LowPart, other.adapter_id.HighPart)
+            and self.source_id == other.source_id
+            and self.scale == other.scale
+        )
+
+    def __hash__(self) -> int:
+        """Hash by the same fields as :meth:`__eq__` (LUID by its parts).
+
+        Returns:
+            A stable hash consistent with value equality.
+        """
+        return hash(
+            (
+                self.device_name,
+                self.monitor_device_path,
+                self.model,
+                self.source_resolution,
+                self.position,
+                self.target_resolution,
+                (self.adapter_id.LowPart, self.adapter_id.HighPart),
+                self.source_id,
+                self.scale,
+            )
+        )
+
 
 def _make_display_id(display_info: DisplayInfo) -> DisplayId:
     """Opaque id for a display, hashing its stable system-API identifier fields.

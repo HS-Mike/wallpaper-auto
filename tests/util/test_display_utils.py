@@ -683,3 +683,43 @@ class TestMakeDisplayId:
         # Resolution/scale/position changes must not invalidate the id.
         volatile = self._info(source_resolution=(1280, 720), scale=150, position=(100, 0))
         assert volatile.display_id == self._info().display_id
+
+
+class TestDisplayInfoEquality:
+    """Tests for DisplayInfo value equality and hashing."""
+
+    def _info(self, **overrides) -> display_utils.DisplayInfo:
+        defaults: dict[str, Any] = dict(
+            device_name=r"\\.\DISPLAY1",
+            model="test",
+            source_resolution=(1920, 1080),
+            position=(0, 0),
+            target_resolution=(1920, 1080),
+            scale=100,
+            monitor_device_path=r"\\?\DISPLAY#TEST#1",
+            adapter_id=display_utils.LUID(1, 2),
+            source_id=3,
+        )
+        defaults.update(overrides)
+        return display_utils.DisplayInfo(**defaults)
+
+    def test_equal_for_identical_values_across_instances(self):
+        # LUID is compared by value, not identity — separate objects with the
+        # same parts must compare equal.
+        assert self._info() == self._info()
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"scale": 125},
+            {"source_resolution": (2560, 1440)},
+            {"position": (100, 0)},
+            {"adapter_id": display_utils.LUID(9, 9)},
+        ],
+    )
+    def test_unequal_when_snapshot_field_changes(self, override):
+        assert self._info(**override) != self._info()
+
+    def test_hash_consistent_with_equality(self):
+        assert hash(self._info()) == hash(self._info())
+        assert len({self._info(), self._info()}) == 1
