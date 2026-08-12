@@ -23,7 +23,7 @@ import ctypes
 import logging
 import time
 from ctypes import wintypes
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import win32api
 
@@ -67,6 +67,8 @@ ENUM_CURRENT_SETTINGS = -1
 CDS_UPDATEREGISTRY = 0x00000001
 
 SM_REMOTESESSION = 0x1000  # 4096
+
+MDT_EFFECTIVE_DPI = 0
 
 
 class LUID(ctypes.Structure):
@@ -298,8 +300,9 @@ user32.SetProcessDpiAwarenessContext.restype = wintypes.BOOL
 def set_process_dpi_aware() -> bool:
     """Declare Per-Monitor DPI Aware V2 so display APIs return physical pixels.
 
-    Returns True if the process DPI awareness was set, False if it was already
-    set by someone else (e.g. Qt's ``QApplication``) or the call failed.
+    Returns:
+        True if the process DPI awareness was set, False if it was already set
+        by someone else (e.g. Qt's ``QApplication``) or the call failed.
     """
     # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4
     return bool(user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4)))
@@ -311,27 +314,90 @@ def is_remote_session() -> bool:
 
 
 @dataclass(frozen=True)
+class DisplayId:
+    """Opaque id for a display, wrapping the hash of its system-API identifiers.
+
+    A standalone class (not an ``int`` alias or subclass) so the type is
+    visible to debuggers and ``isinstance``, and it cannot be silently
+    confused with a raw integer (e.g. ``source_id``) at the type-checker
+    level.  Equality/hash derive from :attr:`value`, so instances remain valid
+    dictionary keys.
+    """
+
+    value: int
+
+    def __repr__(self) -> str:
+        return f"DisplayId({self.value})"
+
+
+@dataclass(frozen=True)
 class DisplayInfo:
-    device_name: str  # GDI device path, e.g. \\.\DISPLAY1
+    """Point-in-time snapshot of a connected display's topology and identity.
+
+    Every field is dynamic and can change at runtime (monitor plug/unplug,
+    resolution/scale changes, RDP, driver reset); re-query
+    :func:`get_display_info` before acting on a snapshot held across a
+    topology change.
+    """
+    device_name: str                            # GDI device path, e.g. \\.\DISPLAY1
+    monitor_device_path: str                    # IDesktopWallpaper monitorDevicePath
     model: str | None
     source_resolution: tuple[int, int]
     position: tuple[int, int]
     target_resolution: tuple[int, int]
-    scale: int = 100  # scale percentage (e.g. 175)
-    monitor_device_path: str = ""  # IDesktopWallpaper monitorDevicePath
-    adapter_id: LUID | None = None
-    source_id: int = 0
+    adapter_id: LUID                            # source adapter LUID
+    source_id: int
+    scale: int | None                           # scale percentage (e.g. 175)
+    display_id: DisplayId = field(init=False)   # opaque id, derived from the fields above
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "display_id", _make_display_id(self))
+
+
+def _make_display_id(display_info: DisplayInfo) -> DisplayId:
+    """Opaque id for a display, hashing its stable system-API identifier fields.
+
+    The hash includes only fields that identify the physical monitor, so the
+    id stays identical across resolution/scale changes.  It changes only when
+    the monitor's identity changes (replug / topology shift) — the manager
+    then re-adds the display with fresh identifiers, capability, and originals.
+    Volatile snapshot fields (``source_resolution``, ``scale``, ``position``)
+    are excluded deliberately.
+    """
+    return DisplayId(
+        hash(
+            (
+                display_info.device_name,
+                display_info.monitor_device_path,
+                display_info.model,
+                display_info.target_resolution,
+                (display_info.adapter_id.LowPart, display_info.adapter_id.HighPart),
+                display_info.source_id,
+            )
+        )
+    )
 
 
 @dataclass(frozen=True)
 class DisplayCapability:
+    """Supported scale percentages and resolutions for a single display."""
+
     scale: tuple[int, ...]  # supported scale percentages, ascending
     reference_scale: int  # monitor's recommended scale percentage
     resolution: tuple[tuple[int, int], ...]  # supported resolutions, descending
 
 
 def get_display_info(raise_error: bool = False) -> list[DisplayInfo] | None:
-    """Return the list of connected displays."""
+    """Return the list of connected displays.
+
+    Args:
+        raise_error: When True, propagate the ``OSError`` on query failure
+            instead of returning None.
+
+    Returns:
+        The list of connected :class:`DisplayInfo`, or None (logged) when the
+        query fails during a topology transition.
+    """
     try:
         return _get_display_info()
     except OSError as e:
@@ -342,6 +408,17 @@ def get_display_info(raise_error: bool = False) -> list[DisplayInfo] | None:
 
 
 def _get_display_info() -> list[DisplayInfo]:
+    """Query display topology and build a :class:`DisplayInfo` per active path.
+
+    Returns:
+        List of connected displays' current topology snapshots.
+
+    Raises:
+        OSError: When the topology query fails or returns data violating the
+            Windows API contract (e.g. invalid mode info index).
+        DisplayTopologyTransientError: When the system is mid-transition.
+        RemoteSessionEnvironmentError: When querying under a remote session.
+    """
     num_paths = wintypes.UINT(0)
     num_modes = wintypes.UINT(0)
 
@@ -449,79 +526,119 @@ def _get_display_info() -> list[DisplayInfo]:
             raise OSError(f"DisplayConfigGetDeviceInfo error return: {res}")
 
         # 4. compute per-monitor DPI scale percentage (snapped to supported steps)
-        pt = POINTL(pos_x + w // 2, pos_y + h // 2)
-        h_monitor = user32.MonitorFromPoint(pt, 2)  # MONITOR_DEFAULTTONEAREST
-        scale = 100
-        if h_monitor:
-            dpi_x = wintypes.UINT(0)
-            dpi_y = wintypes.UINT(0)
-            if shcore.GetDpiForMonitor(h_monitor, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y)) == 0:
-                scale = min(_SCALE_PERCENTS, key=lambda p: abs(p - round(dpi_x.value / 96.0 * 100)))
+        scale = get_display_scale(device_name)
 
         res_display_info.append(
             DisplayInfo(
                 device_name=device_name,
+                monitor_device_path=monitor_device_path,
                 model=friendly_name,
                 source_resolution=source_resolution,
                 position=position,
                 target_resolution=target_resolution,
-                scale=scale,
-                monitor_device_path=monitor_device_path,
                 adapter_id=p.sourceInfo.adapterId,
                 source_id=p.sourceInfo.id,
+                scale=scale,
             )
         )
 
     return res_display_info
 
 
-MDT_EFFECTIVE_DPI = 0
+def get_display_capability(
+    device_name: str,
+    adapter_id: LUID,
+    source_id: int,
+    raise_error: bool = False,
+) -> DisplayCapability | None:
+    """Return the display's supported scale percentages and resolutions.
 
+    Args:
+        device_name: GDI device name, e.g. ``\\\\.\\DISPLAY1``.
+        adapter_id: The display path's source adapter LUID (see :attr:`DisplayInfo.adapter_id`).
+        source_id: The display path's source id (see :attr:`DisplayInfo.source_id`).
+        raise_error: When True, raise the ``OSError`` on API failure instead of returning None.
 
-def get_all_monitors_dpi_snapshot() -> frozenset[tuple[tuple[int, int, int, int], int]]:
-    """Return a frozenset of (bounding_rect, dpi) tuples for all active monitors."""
-    dpi_snapshot: list[tuple[tuple[int, int, int, int], int]] = []
-    try:
-        for hmonitor, _hdc, rect in win32api.EnumDisplayMonitors():
-            rect_tuple = (rect[0], rect[1], rect[2], rect[3])
-            dpi_x = wintypes.UINT(0)
-            dpi_y = wintypes.UINT(0)
-            # int(hmonitor) is required — win32api.EnumDisplayMonitors()
-            # returns PyHANDLE wrappers, not primitive ints.  ctypes can't
-            # auto-convert PyHANDLE and raises a silent ArgumentError.
-            hr = shcore.GetDpiForMonitor(
-                int(hmonitor),
-                MDT_EFFECTIVE_DPI,
-                ctypes.byref(dpi_x),
-                ctypes.byref(dpi_y),
-            )
-            if hr == 0:
-                dpi_snapshot.append((rect_tuple, dpi_x.value))
-    except Exception as e:
-        logger.error(f"Failed to query all monitors DPI: {e}")
-    return frozenset(dpi_snapshot)
-
-
-def get_hmonitor_by_device_name(device_name: str) -> int | None:
-    """Return the HMONITOR handle for a GDI device name, or ``None``.
-
-    Enumerates active monitors via ``win32api`` and matches ``GetMonitorInfo``'s
-    ``Device`` string against *device_name*.
+    Returns:
+        A :class:`DisplayCapability`, or None (logged) if the capability cannot be
+        queried (e.g. topology transition, monitor not found).
     """
-    for h_monitor, _, _ in win32api.EnumDisplayMonitors():
-        info = win32api.GetMonitorInfo(int(h_monitor))
-        if info.get("Device") == device_name:
-            return int(h_monitor)
-    return None
+    get_dpi = DISPLAYCONFIG_GET_DPI_SCALING()
+    get_dpi.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_DPI_SCALING
+    get_dpi.header.size = ctypes.sizeof(DISPLAYCONFIG_GET_DPI_SCALING)
+    get_dpi.header.adapterId = adapter_id
+    get_dpi.header.id = source_id
 
+    if user32.DisplayConfigGetDeviceInfo(ctypes.byref(get_dpi.header)) != ERROR_SUCCESS:
+        logger.error(f"cannot query DPI scaling for {device_name}")
+        if raise_error:
+            raise OSError(f"cannot query DPI scaling for {device_name}")
+        return None
+
+    current_pct = get_display_scale(device_name)
+    if current_pct is None:
+        return None
+
+    current_index = min(
+        range(len(_SCALE_PERCENTS)), key=lambda i: abs(_SCALE_PERCENTS[i] - current_pct)
+    )
+    reference_index = current_index - get_dpi.curScaleRel
+    if not (0 <= reference_index < len(_SCALE_PERCENTS)):
+        raise ValueError(f"reference_index {reference_index} out of bounds")
+    reference_scale = _SCALE_PERCENTS[reference_index]
+    min_idx = max(0, reference_index + get_dpi.minScaleRel)
+    max_idx = min(len(_SCALE_PERCENTS) - 1, reference_index + get_dpi.maxScaleRel)
+    supported_scales = _SCALE_PERCENTS[min_idx : max_idx + 1]
+
+    resolutions_set: set[tuple[int, int]] = set()
+    devmode = DEVMODEW()
+    devmode.dmSize = ctypes.sizeof(DEVMODEW)
+    i = 0
+    while user32.EnumDisplaySettingsW(device_name, i, ctypes.byref(devmode)):
+        resolutions_set.add((devmode.dmPelsWidth, devmode.dmPelsHeight))
+        i += 1
+    resolutions = tuple(sorted(resolutions_set, key=lambda r: (r[0], r[1]), reverse=True))
+
+    return DisplayCapability(
+        scale=supported_scales, reference_scale=reference_scale, resolution=resolutions
+    )
+
+
+def get_display_resolution(device_name: str) -> tuple[int, int] | None:
+    """Return the monitor's current display resolution.
+
+    Args:
+        device_name: GDI device name, e.g. ``\\\\.\\DISPLAY1``.
+
+    Returns:
+        The current resolution as ``(width, height)``, or None (logged) if it
+        cannot be read.
+    """
+    devmode = DEVMODEW()
+    devmode.dmSize = ctypes.sizeof(DEVMODEW)
+
+    if not user32.EnumDisplaySettingsW(
+        device_name, ENUM_CURRENT_SETTINGS, ctypes.byref(devmode)
+    ):
+        logger.error(f"cannot read current display resolution for {device_name}")
+        return None
+
+    return (devmode.dmPelsWidth, devmode.dmPelsHeight)
 
 def resolve_target_resolution(
     target_resolution: tuple[int, int], support_resolutions: list[tuple[int, int]]
 ) -> tuple[int, int]:
-    """Return the supported resolution closest to *target_resolution*.
+    """Return the supported resolution closest to ``target_resolution``.
 
     Minimizes the summed relative difference of width and height, so both
     dimensions are weighted equally regardless of absolute size.
+
+    Args:
+        target_resolution: Desired ``(width, height)`` resolution.
+        support_resolutions: Resolutions the display supports.
+
+    Returns:
+        The supported resolution nearest ``target_resolution``.
     """
     return min(
         support_resolutions,
@@ -533,17 +650,14 @@ def set_display_resolution(
     device_name: str,
     width: int,
     height: int,
-    refresh_rate: int | None = None,
-    persistent: bool = True,
+  
 ) -> bool:
-    """Set the display's resolution, optionally changing the refresh rate.
+    """Set the display's resolution, persisting the change to the registry.
 
     Args:
         device_name: GDI device name, e.g. ``\\\\.\\DISPLAY1``.
         width: New pixel width.
         height: New pixel height.
-        refresh_rate: Refresh rate in Hz; ``None`` keeps the current value.
-        persistent: When True, writes the change to the registry.
 
     Returns:
         True on success; False (logged) on failure.
@@ -559,29 +673,80 @@ def set_display_resolution(
     devmode.dmPelsHeight = height
     devmode.dmFields |= DM_PELSWIDTH | DM_PELSHEIGHT
 
-    if refresh_rate is not None:
-        devmode.dmDisplayFrequency = refresh_rate
-        devmode.dmFields |= DM_DISPLAYFREQUENCY
 
-    flags = CDS_UPDATEREGISTRY if persistent else 0
+    flags = CDS_UPDATEREGISTRY
     res = user32.ChangeDisplaySettingsExW(device_name, ctypes.byref(devmode), None, flags, None)
     if res != ERROR_SUCCESS:
         logger.error(f"cannot change display settings for {device_name}: code {res}")
         return False
-    suffix = f" @ {refresh_rate}Hz" if refresh_rate else ""
-    logger.info(f"[{device_name}] resolution set to {width}x{height}{suffix}")
     return True
 
 
-def resolve_target_scale_step(
-    reference_scale: int, target_scale: int, support_scales: list[int]
-) -> int:
-    """Return the relative step from the *reference_scale* to *target_scale*.
+def _get_hmonitor_by_device_name(device_name: str) -> int | None:
+    """Return the HMONITOR handle for a GDI device name, or ``None``.
 
-    The result is a ``scaleRel`` value suitable for :func:`set_display_scale`: an
-    offset from the monitor's reference scale within *support_scales*.
-    *reference_scale* comes from :attr:`DisplayCapability.reference_scale`; the
-    target is snapped to the nearest supported entry.
+    Args:
+        device_name: GDI device name, e.g. ``\\\\.\\DISPLAY1``.
+
+    Returns:
+        The HMONITOR handle, or ``None`` if no active monitor matches.
+
+    Enumerates active monitors via ``win32api`` and matches ``GetMonitorInfo``'s
+    ``Device`` string against ``device_name``.
+    """
+    for h_monitor, _, _ in win32api.EnumDisplayMonitors():
+        info = win32api.GetMonitorInfo(int(h_monitor))
+        if info.get("Device") == device_name:
+            return int(h_monitor)
+    return None
+
+
+# Discrete Windows DPI scale steps, ascending (percentages). Relative
+# DISPLAYCONFIG scale steps (``scaleRel``) are deltas from the recommended
+# step's index into this table.
+_SCALE_PERCENTS: tuple[int, ...] = (100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500)
+
+
+def get_display_scale(device_name: str) -> int | None:
+    """Return the monitor's current effective DPI scale as a percentage.
+
+    Args:
+        device_name: GDI device name, e.g. ``\\\\.\\DISPLAY1``.
+
+    Returns:
+        The scale percentage (e.g. ``175``), or None (logged) if the monitor
+        handle or DPI value cannot be obtained.
+    """
+    h_monitor = _get_hmonitor_by_device_name(device_name)
+    if not h_monitor:
+        logger.error(f"cannot find monitor handle for {device_name}")
+        return None
+    dpi_x = wintypes.UINT(0)
+    dpi_y = wintypes.UINT(0)
+    res = shcore.GetDpiForMonitor(
+        h_monitor, MDT_EFFECTIVE_DPI, ctypes.byref(dpi_x), ctypes.byref(dpi_y)
+    )
+    if res != ERROR_SUCCESS:
+        return None
+    return min(_SCALE_PERCENTS, key=lambda p: abs(p - round(dpi_x.value / 96.0 * 100)))
+
+
+
+def resolve_target_scale_step(    reference_scale: int, target_scale: int, support_scales: list[int] | tuple[int, ...]
+) -> int:
+    """Return the relative step from ``reference_scale`` to ``target_scale``.
+
+    The result is the ``scaleRel`` value Windows' system API expects — the
+    field of ``DISPLAYCONFIG_SET_DPI_SCALING`` used by :func:`set_display_scale`,
+    expressed as a delta from the monitor's recommended scale step.
+
+    Args:
+        reference_scale: The monitor's recommended scale percentage.
+        target_scale: Desired scale percentage.
+        support_scales: Scales the display supports, ascending.
+
+    Returns:
+        The relative ``scaleRel`` step to reach ``target_scale``.
     """
     idx_reference = support_scales.index(reference_scale)
     idx_target = min(
@@ -644,84 +809,3 @@ def set_display_scale(
         return False
     logger.info(f"[{device_name}] DPI scale step set to {scale_rel}")
     return True
-
-
-# Discrete Windows DPI scale steps, ascending (percentages). Relative
-# DISPLAYCONFIG scale steps (``scaleRel``) are deltas from the recommended
-# step's index into this table.
-_SCALE_PERCENTS: tuple[int, ...] = (100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500)
-
-
-def get_monitor_current_scale(device_name: str) -> int | None:
-    """Return the monitor's current effective DPI scale as a percentage, or ``None``."""
-    h_monitor = get_hmonitor_by_device_name(device_name)
-    if not h_monitor:
-        logger.error(f"cannot find monitor handle for {device_name}")
-        return None
-    dpi_x = wintypes.UINT(0)
-    dpi_y = wintypes.UINT(0)
-    res = shcore.GetDpiForMonitor(
-        h_monitor, MDT_EFFECTIVE_DPI, ctypes.byref(dpi_x), ctypes.byref(dpi_y)
-    )
-    if res != ERROR_SUCCESS:
-        return None
-    return min(_SCALE_PERCENTS, key=lambda p: abs(p - round(dpi_x.value / 96.0 * 100)))
-
-
-def get_display_capability(
-    device_name: str,
-    adapter_id: LUID,
-    source_id: int,
-    raise_error: bool = False,
-) -> DisplayCapability | None:
-    """Return the display's supported scale percentages and resolutions.
-
-    Args:
-        device_name: GDI device name, e.g. ``\\\\.\\DISPLAY1``.
-        adapter_id: The display path's source adapter LUID (see :attr:`DisplayInfo.adapter_id`).
-        source_id: The display path's source id (see :attr:`DisplayInfo.source_id`).
-        raise_error: When True, raise the ``OSError`` on API failure instead of returning None.
-
-    Returns:
-        A :class:`DisplayCapability`, or None (logged) if the capability cannot be
-        queried (e.g. topology transition, monitor not found).
-    """
-    get_dpi = DISPLAYCONFIG_GET_DPI_SCALING()
-    get_dpi.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_DPI_SCALING
-    get_dpi.header.size = ctypes.sizeof(DISPLAYCONFIG_GET_DPI_SCALING)
-    get_dpi.header.adapterId = adapter_id
-    get_dpi.header.id = source_id
-
-    if user32.DisplayConfigGetDeviceInfo(ctypes.byref(get_dpi.header)) != ERROR_SUCCESS:
-        logger.error(f"cannot query DPI scaling for {device_name}")
-        if raise_error:
-            raise OSError(f"cannot query DPI scaling for {device_name}")
-        return None
-
-    current_pct = get_monitor_current_scale(device_name)
-    if current_pct is None:
-        return None
-
-    current_index = min(
-        range(len(_SCALE_PERCENTS)), key=lambda i: abs(_SCALE_PERCENTS[i] - current_pct)
-    )
-    reference_index = current_index - get_dpi.curScaleRel
-    if not (0 <= reference_index < len(_SCALE_PERCENTS)):
-        raise ValueError(f"reference_index {reference_index} out of bounds")
-    reference_scale = _SCALE_PERCENTS[reference_index]
-    min_idx = max(0, reference_index + get_dpi.minScaleRel)
-    max_idx = min(len(_SCALE_PERCENTS) - 1, reference_index + get_dpi.maxScaleRel)
-    supported_scales = _SCALE_PERCENTS[min_idx : max_idx + 1]
-
-    resolutions_set: set[tuple[int, int]] = set()
-    devmode = DEVMODEW()
-    devmode.dmSize = ctypes.sizeof(DEVMODEW)
-    i = 0
-    while user32.EnumDisplaySettingsW(device_name, i, ctypes.byref(devmode)):
-        resolutions_set.add((devmode.dmPelsWidth, devmode.dmPelsHeight))
-        i += 1
-    resolutions = tuple(sorted(resolutions_set, key=lambda r: (r[0], r[1]), reverse=True))
-
-    return DisplayCapability(
-        scale=supported_scales, reference_scale=reference_scale, resolution=resolutions
-    )

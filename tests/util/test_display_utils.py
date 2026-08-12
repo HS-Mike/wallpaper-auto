@@ -2,6 +2,7 @@
 
 import ctypes
 import logging
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -17,11 +18,11 @@ from wallpaper_auto.util.display_utils import (
     ERROR_SUCCESS,
     DisplayTopologyTransientError,
     RemoteSessionEnvironmentError,
-    get_all_monitors_dpi_snapshot,
     get_display_capability,
     get_display_info,
-    get_hmonitor_by_device_name,
-    get_monitor_current_scale,
+    get_display_resolution,
+    _get_hmonitor_by_device_name,
+    get_display_scale,
     is_remote_session,
     resolve_target_resolution,
     resolve_target_scale_step,
@@ -260,8 +261,10 @@ class TestGetDisplayInfoDeviceInfoErrors:
         _install_user32(monkeypatch, num_paths=1, num_modes=2)
         _stub_paths_and_modes(monkeypatch, source_idx=0, target_idx=1)
 
-        # make MonitorFromPoint return a valid non-zero handle
-        monkeypatch.setattr(ctypes.windll.user32, "MonitorFromPoint", lambda *_a, **_kw: 12345)
+        # make the monitor-handle lookup return a valid non-zero handle
+        monkeypatch.setattr(
+            display_utils, "_get_hmonitor_by_device_name", lambda _device_name: 12345
+        )
 
         # Mock GetDpiForMonitor to write 144 DPI into the C pointer
         # 144 / 96.0 = 150% scale
@@ -296,84 +299,6 @@ class TestGetDisplayInfoTolerantDefault:
     def test_query_config_not_supported_returns_none(self, monkeypatch):
         _install_user32(monkeypatch, query_result=ERROR_NOT_SUPPORTED)
         assert get_display_info() is None
-
-
-class TestGetAllMonitorsDpiSnapshot:
-    def test_success_multiple_monitors(self, monkeypatch):
-        """Normal multi-monitor flow: successfully get coordinates and DPI for all monitors."""
-        # 1. Mock win32api.EnumDisplayMonitors to return two monitors
-        # Use plain integer handles (12345 and 67890) so int(hmonitor)
-        # works without PyHANDLE complexity.
-        mock_monitors = [
-            (12345, None, (0, 0, 1920, 1080)),
-            (67890, None, (1920, 0, 2560, 1440)),
-        ]
-        mock_win32api = MagicMock()
-        mock_win32api.EnumDisplayMonitors.return_value = mock_monitors
-        monkeypatch.setattr(display_utils, "win32api", mock_win32api)
-
-        # 2. Mock shcore.GetDpiForMonitor to write data into C pointers
-        # Build a mapping from handles to expected DPI values
-        dpi_map = {12345: 96, 67890: 144}
-
-        def _mock_get_dpi(hmonitor, dpi_type, dpi_x_ptr, dpi_y_ptr):
-            dpi = dpi_map.get(hmonitor, 96)
-            # Write test data into the provided UINT pointer via ctypes.cast
-            ctypes.cast(dpi_x_ptr, ctypes.POINTER(ctypes.c_uint))[0] = dpi
-            ctypes.cast(dpi_y_ptr, ctypes.POINTER(ctypes.c_uint))[0] = dpi
-            return 0  # S_OK (success)
-
-        mock_shcore = MagicMock()
-        mock_shcore.GetDpiForMonitor = _mock_get_dpi
-        monkeypatch.setattr(display_utils, "shcore", mock_shcore)
-
-        # 3. Call the target function and assert
-        result = get_all_monitors_dpi_snapshot()
-
-        expected = frozenset([((0, 0, 1920, 1080), 96), ((1920, 0, 2560, 1440), 144)])
-        assert result == expected
-
-    def test_get_dpi_partially_fails(self, monkeypatch):
-        """Partial failure flow: one monitor fails to get DPI, that monitor should be skipped."""
-        mock_monitors = [
-            (12345, None, (0, 0, 1920, 1080)),
-            (67890, None, (1920, 0, 2560, 1440)),
-        ]
-        mock_win32api = MagicMock()
-        mock_win32api.EnumDisplayMonitors.return_value = mock_monitors
-        monkeypatch.setattr(display_utils, "win32api", mock_win32api)
-
-        def _mock_get_dpi(hmonitor, dpi_type, dpi_x_ptr, dpi_y_ptr):
-            if hmonitor == 67890:
-                return 0x80004005  # Simulate Win32 error code E_FAIL
-
-            ctypes.cast(dpi_x_ptr, ctypes.POINTER(ctypes.c_uint))[0] = 96
-            return 0
-
-        mock_shcore = MagicMock()
-        mock_shcore.GetDpiForMonitor = _mock_get_dpi
-        monkeypatch.setattr(display_utils, "shcore", mock_shcore)
-
-        # Execute: 67890 should be filtered out, leaving only 12345
-        result = get_all_monitors_dpi_snapshot()
-
-        expected = frozenset([((0, 0, 1920, 1080), 96)])
-        assert result == expected
-
-    def test_enum_monitors_exception_returns_empty(self, monkeypatch, caplog):
-        """Exception: when win32api raises, the function catches, logs, and returns an empty set."""
-        mock_win32api = MagicMock()
-        # Force the iterator to raise an exception
-        mock_win32api.EnumDisplayMonitors.side_effect = Exception("OS driver detached")
-        monkeypatch.setattr(display_utils, "win32api", mock_win32api)
-
-        # Use caplog to capture log output
-        with caplog.at_level(logging.ERROR):
-            result = get_all_monitors_dpi_snapshot()
-
-        # Assert result is an empty set with expected error message in the log
-        assert result == frozenset()
-        assert "Failed to query all monitors DPI" in caplog.text
 
 
 class TestIsRemoteSession:
@@ -419,7 +344,7 @@ class TestSetProcessDpiAware:
 
 
 class TestGetHMonitorByDeviceName:
-    """Tests for get_hmonitor_by_device_name()."""
+    """Tests for _get_hmonitor_by_device_name()."""
 
     @staticmethod
     def _install(monkeypatch, device_name_to_write: str):
@@ -430,15 +355,15 @@ class TestGetHMonitorByDeviceName:
 
     def test_found_returns_handle(self, monkeypatch):
         self._install(monkeypatch, r"\\.\DISPLAY1")
-        assert get_hmonitor_by_device_name(r"\\.\DISPLAY1") == 12345
+        assert _get_hmonitor_by_device_name(r"\\.\DISPLAY1") == 12345
 
     def test_not_found_returns_none(self, monkeypatch):
         self._install(monkeypatch, r"\\.\DISPLAY2")
-        assert get_hmonitor_by_device_name(r"\\.\DISPLAY1") is None
+        assert _get_hmonitor_by_device_name(r"\\.\DISPLAY1") is None
 
 
 class TestGetMonitorCurrentScale:
-    """Tests for get_monitor_current_scale()."""
+    """Tests for get_display_scale()."""
 
     @staticmethod
     def _install_shcore(monkeypatch, dpi: int, result: int = 0):
@@ -453,24 +378,24 @@ class TestGetMonitorCurrentScale:
         monkeypatch.setattr(display_utils, "shcore", mock_shcore)
 
     def test_returns_percent(self, monkeypatch):
-        monkeypatch.setattr(display_utils, "get_hmonitor_by_device_name", lambda _d: 12345)
+        monkeypatch.setattr(display_utils, "_get_hmonitor_by_device_name", lambda _d: 12345)
         self._install_shcore(monkeypatch, dpi=120)
-        assert get_monitor_current_scale(r"\\.\DISPLAY1") == 125
+        assert get_display_scale(r"\\.\DISPLAY1") == 125
 
     def test_snaps_to_nearest_supported_scale(self, monkeypatch):
         # 140 DPI -> 145.8% -> nearest supported step is 150
-        monkeypatch.setattr(display_utils, "get_hmonitor_by_device_name", lambda _d: 12345)
+        monkeypatch.setattr(display_utils, "_get_hmonitor_by_device_name", lambda _d: 12345)
         self._install_shcore(monkeypatch, dpi=140)
-        assert get_monitor_current_scale(r"\\.\DISPLAY1") == 150
+        assert get_display_scale(r"\\.\DISPLAY1") == 150
 
     def test_no_handle_returns_none(self, monkeypatch):
-        monkeypatch.setattr(display_utils, "get_hmonitor_by_device_name", lambda _d: None)
-        assert get_monitor_current_scale(r"\\.\DISPLAY1") is None
+        monkeypatch.setattr(display_utils, "_get_hmonitor_by_device_name", lambda _d: None)
+        assert get_display_scale(r"\\.\DISPLAY1") is None
 
     def test_dpi_query_failure_returns_none(self, monkeypatch):
-        monkeypatch.setattr(display_utils, "get_hmonitor_by_device_name", lambda _d: 12345)
+        monkeypatch.setattr(display_utils, "_get_hmonitor_by_device_name", lambda _d: 12345)
         self._install_shcore(monkeypatch, dpi=96, result=0x80004005)
-        assert get_monitor_current_scale(r"\\.\DISPLAY1") is None
+        assert get_display_scale(r"\\.\DISPLAY1") is None
 
 
 class TestSetDisplayResolution:
@@ -489,14 +414,6 @@ class TestSetDisplayResolution:
         assert set_display_resolution(r"\\.\DISPLAY1", 1920, 1080) is True
         assert mock.ChangeDisplaySettingsExW.call_args.args[3] == CDS_UPDATEREGISTRY
 
-    def test_success_with_refresh_rate_non_persistent(self, monkeypatch):
-        mock = self._mock_user32(monkeypatch)
-        assert (
-            set_display_resolution(r"\\.\DISPLAY1", 1920, 1080, refresh_rate=60, persistent=False)
-            is True
-        )
-        assert mock.ChangeDisplaySettingsExW.call_args.args[3] == 0
-
     def test_enum_read_failure_returns_false(self, monkeypatch):
         self._mock_user32(monkeypatch, enum_result=0)
         assert set_display_resolution(r"\\.\DISPLAY1", 1920, 1080) is False
@@ -504,6 +421,36 @@ class TestSetDisplayResolution:
     def test_change_failure_returns_false(self, monkeypatch):
         self._mock_user32(monkeypatch, change_result=ERROR_ACCESS_DENIED)
         assert set_display_resolution(r"\\.\DISPLAY1", 1920, 1080) is False
+
+
+class TestGetDisplayResolution:
+    """Tests for get_display_resolution()."""
+
+    @staticmethod
+    def _mock_user32(monkeypatch, enum_result=1, width=1920, height=1080):
+        mock_user32 = MagicMock()
+
+        def _enum_settings(_name, _idx, devmode_ptr):
+            if not enum_result:
+                return False
+            devmode = ctypes.cast(devmode_ptr, ctypes.POINTER(display_utils.DEVMODEW))[0]
+            devmode.dmPelsWidth = width
+            devmode.dmPelsHeight = height
+            return True
+
+        mock_user32.EnumDisplaySettingsW.side_effect = _enum_settings
+        monkeypatch.setattr(display_utils, "user32", mock_user32)
+        return mock_user32
+
+    def test_success_returns_resolution(self, monkeypatch):
+        self._mock_user32(monkeypatch, width=2560, height=1440)
+        assert get_display_resolution(r"\\.\DISPLAY1") == (2560, 1440)
+
+    def test_read_failure_returns_none(self, monkeypatch, caplog):
+        self._mock_user32(monkeypatch, enum_result=0)
+        with caplog.at_level(logging.ERROR, logger="wallpaper_auto.util.display_utils"):
+            assert get_display_resolution(r"\\.\DISPLAY1") is None
+        assert "cannot read current display resolution" in caplog.text
 
 
 class TestSetDisplayScale:
@@ -561,7 +508,7 @@ class TestGetDisplayCapability:
 
     @staticmethod
     def _mock_current_factor(monkeypatch, current_pct):
-        monkeypatch.setattr(display_utils, "get_monitor_current_scale", lambda _d: current_pct)
+        monkeypatch.setattr(display_utils, "get_display_scale", lambda _d: current_pct)
 
     @staticmethod
     def _mock_user32(
@@ -598,6 +545,10 @@ class TestGetDisplayCapability:
         assert cap.scale == (100, 125, 150)
         assert cap.reference_scale == 100
         assert cap.resolution == ((2560, 1440), (1920, 1080))
+
+    def test_remote_session_returns_none(self, monkeypatch):
+        # Empty GDI device name (no physical monitor) — not queryable.
+        assert get_display_capability("", display_utils.LUID(1, 2), 1) is None
 
     def test_dpi_query_failure_returns_none(self, monkeypatch):
         self._mock_current_factor(monkeypatch, 100)
@@ -658,6 +609,8 @@ class TestResolveTargetScaleStep:
             (125, 100, [100, 125, 150], -1),  # target below reference
             (125, 140, [100, 125, 150], 1),  # 140 is closer to 150 than to 125
             (100, 400, [100, 125, 150], 2),  # out of range snaps to end
+            (125, 150, (100, 125, 150), 1),  # tuple input, target directly supported
+            (125, 140, (100, 125, 150), 1),  # tuple input, non-supported snaps
         ],
     )
     def test_resolves_step(self, reference_scale, target_scale, support_scales, expected):
@@ -677,3 +630,56 @@ class TestResolveTargetResolution:
     )
     def test_resolves_resolution(self, target_resolution, support_resolutions, expected):
         assert resolve_target_resolution(target_resolution, support_resolutions) == expected
+
+
+class TestDisplayId:
+    """Tests for DisplayId — a standalone, opaque display identity type."""
+
+    def test_is_a_standalone_runtime_type(self):
+        did = display_utils.DisplayId(42)
+        # A real class, not an int alias/subclass — visible to isinstance/the debugger.
+        assert isinstance(did, display_utils.DisplayId)
+        assert not isinstance(did, int)
+        assert repr(did) == "DisplayId(42)"
+        # Still usable as a dictionary key.
+        assert {did: "value"}[did] == "value"
+        assert did == display_utils.DisplayId(42)
+
+
+class TestMakeDisplayId:
+    """Tests for make_display_id() — stability, change detection, volatility."""
+
+    def _info(self, **overrides) -> display_utils.DisplayInfo:
+        defaults: dict[str, Any] = dict(
+            device_name=r"\\.\DISPLAY1",
+            model="test",
+            source_resolution=(1920, 1080),
+            position=(0, 0),
+            target_resolution=(1920, 1080),
+            scale=100,
+            monitor_device_path=r"\\?\DISPLAY#TEST#1",
+            adapter_id=display_utils.LUID(1, 2),
+            source_id=3,
+        )
+        defaults.update(overrides)
+        return display_utils.DisplayInfo(**defaults)
+
+    def test_stable_for_identical_identifiers(self):
+        assert self._info().display_id == self._info().display_id
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"monitor_device_path": r"\\?\DISPLAY#TEST#2"},
+            {"device_name": r"\\.\DISPLAY2"},
+            {"adapter_id": display_utils.LUID(9, 9)},
+            {"source_id": 7},
+        ],
+    )
+    def test_changes_when_identifier_field_changes(self, override):
+        assert self._info(**override).display_id != self._info().display_id
+
+    def test_ignores_volatile_snapshot_fields(self):
+        # Resolution/scale/position changes must not invalidate the id.
+        volatile = self._info(source_resolution=(1280, 720), scale=150, position=(100, 0))
+        assert volatile.display_id == self._info().display_id
