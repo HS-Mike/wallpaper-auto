@@ -11,11 +11,15 @@ In case of BaseThreadTrigger, subclass must override run method and manage a loo
 Exit loop according to self.stop_event.
 """
 
+import logging
 import threading
 from abc import ABC, abstractmethod
-from typing import override
+from typing import Any, override
 
 from ..util import callback_register
+
+
+logger = logging.getLogger(__name__)
 
 
 class BaseTrigger(callback_register.CallbackRegister[["BaseTrigger"], None], ABC):
@@ -23,11 +27,22 @@ class BaseTrigger(callback_register.CallbackRegister[["BaseTrigger"], None], ABC
         super().__init__()
 
     def trigger(self) -> None:
+        logger.debug(f"trigger called on {self.__class__.__name__}")
         self.trigger_callback(self)
 
     def start(self) -> None: ...
 
     def stop(self) -> None: ...
+
+    def _format_identity(self):
+        return f"{self.__class__.__name__} (id: {id(self)})"
+
+    def __getattribute__(self, name: str) -> Any:
+        if name == "start":
+            logger.debug(f"trigger lifecycle start called on {self._format_identity()}")
+        if name == "stop":
+            logger.debug(f"trigger lifecycle stop called on {self._format_identity()}")
+        return super().__getattribute__(name)
 
 
 class BaseThreadTrigger(BaseTrigger):
@@ -37,12 +52,11 @@ class BaseThreadTrigger(BaseTrigger):
         # Set by stop() / _request_stop().  Subclasses should check
         # self.stop_event.is_set() in their run() loop and exit when set.
         self.stop_event = threading.Event()
-        self.daemon = True
 
     @override
     def start(self) -> None:
         self.stop_event.clear()
-        self._thread = threading.Thread(target=self.run, daemon=self.daemon)
+        self._thread = threading.Thread(target=self.run, daemon=True)
         self._thread.start()
 
     @override
