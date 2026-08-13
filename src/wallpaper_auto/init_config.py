@@ -11,22 +11,33 @@ _TEMPLATE = """\
 # =============================================================================
 # Wallpaper Auto — Configuration Template
 # =============================================================================
-# This file defines wallpapers, triggers, and rules for automatic wallpaper
-# switching.  Rules are evaluated in order; the first matching rule's target
-# is applied.  If no rule matches, the fallback is used.
+# This file defines wallpapers, triggers, rules, and scenes for automatic
+# wallpaper switching.  Rules are evaluated in order; the first matching
+# rule's target is applied.  If no rule matches, the fallback is used.
+#
+# Top-level sections:
+#   resource         named resources (static, cycle, or custom)
+#   trigger          events that trigger re-evaluation
+#   rule             ordered condition → target mappings, first match wins
+#   scene            per-display bindings, auto-registered as targets
+#   fallback_target  resource applied when no rule matches
+#   at_shutdown      optional target applied on shutdown/logoff
+#   cache            cache dir and resized-image tuning; if omitted, uses
+#                    %LOCALAPPDATA%\wallpaper-auto\cache
 # =============================================================================
 
 
 # ---------------------------------------------------------------------------
-# Resources  (wallpaper pool)
+# Resources  (resource pool)
 # ---------------------------------------------------------------------------
-# Each key is a logical name you can reference in rules.
+# Each key is a name you can reference in rules.
 # Two forms are accepted:
 #
 #   Full form  — dict with ``name`` (component type) and ``config``:
 #   shortcut: { name: static_wallpaper, config: { path: "...", style: fill } }
 #
-#   Shorthand  — a plain string that is treated as the image path:
+#   Shorthand  — a plain string treated as the image path; coerced into a
+#   ``static_wallpaper`` resource with ``style: fill``:
 #   shortcut: "C:/path/to/image.jpg"
 # ---------------------------------------------------------------------------
 resource:
@@ -38,7 +49,8 @@ resource:
       path: "C:/Users/You/Pictures/office.jpg"
       style: fill               # fill | fit | stretch | center | tile
 
-  # Shorthand — path only; name and style are inferred
+  # Shorthand — bare path string; coerced to a ``static_wallpaper`` resource
+  # with ``style: fill``
   black: "C:/Users/You/Pictures/black.jpg"
 
   # ── Resource cycle (cycles through multiple sub-resources) ─────────────
@@ -57,6 +69,9 @@ resource:
 # ---------------------------------------------------------------------------
 # Triggers  (what events cause re-evaluation)
 # ---------------------------------------------------------------------------
+# Each entry uses the general component format — a ``name`` (the component
+# type) plus an optional ``config`` dict of parameters.
+# ---------------------------------------------------------------------------
 trigger:
   - name: network              # Fires when WiFi SSID changes
   - name: time                 # Fires on a polling interval to check time rules
@@ -73,9 +88,16 @@ trigger:
 # Display Scenes  (per-display wallpaper bindings — auto-registered as
 #                  resources)
 # ---------------------------------------------------------------------------
-# Each entry defines how to assign resources to specific monitors by model.
-# ``display_model`` is matched via ``re.search`` against the monitor's model
-# name (case-sensitive, partial match allowed); first match wins per monitor.
+# Each entry assigns a resource to monitors whose model matches. Bindings are
+# checked in order; the first that matches a monitor wins. Two match styles:
+#   - ``display_model``        — exact, case-sensitive model name
+#   - ``match_display_model``  — regular expression pattern (re.search)
+# Exactly one of the two must be given per binding.
+#
+# Optional per-binding display controls:
+#   - ``resolution``  — target display resolution, e.g. "1920x1080" or
+#                       [1920, 1080]; snapped to a supported mode
+#   - ``scale``       — target display scale, e.g. 1.5 (= 150%) or 150
 #
 # Display scene entries are **auto-registered** as wallpaper resources.
 # A rule's ``target`` can reference a scene name directly — no need to
@@ -91,8 +113,12 @@ trigger:
 #       resource: "office_view"
 #     - display_model: "internal"
 #       resource: "black"
+#     - match_display_model: "27.*"      # regex: any 27-inch monitor
+#       resource: "office_view"
+#       resolution: "1920x1080"
+#       scale: 1.5
 #   mobile:
-#     - display_model: ".*"
+#     - match_display_model: ".*"        # regex catch-all
 #       resource: "black"
 
 
@@ -182,7 +208,8 @@ fallback_target: "office_view"
 # ---------------------------------------------------------------------------
 # Controls the wallpaper cache directory and the resized-image cache.
 # ``path`` is the shared cache dir used for both the composited wallpaper
-# and the resized per-display images.  ``resize`` tunes the resized-image
+# and the resized per-display images.  If ``path`` is omitted, it defaults
+# to %LOCALAPPDATA%\wallpaper-auto\cache.  ``resize`` tunes the resized-image
 # cache component:
 #   - enabled:        set to false to disable the resized-image cache entirely
 #                     (default true; when disabled each composite loads and
