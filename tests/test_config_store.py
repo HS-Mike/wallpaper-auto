@@ -264,7 +264,7 @@ class TestLoadValidation:
             ),
             encoding="utf-8",
         )
-        with pytest.raises(ValueError, match="only one key"):
+        with pytest.raises(ValueError, match="empty node"):
             store.load(str(path))
 
     def test_trigger_with_config(self, store: ConfigStore, tmp_path):

@@ -57,7 +57,15 @@ class TestConditionNodeValidation:
 
     def test_empty_node_raises(self):
         with pytest.raises(ValueError, match="empty node"):
+            ConditionNode.model_validate({})
+
+    def test_null_and_raises(self):
+        with pytest.raises(ValueError, match="'and' must not be null"):
             ConditionNode.model_validate({"and": None})
+
+    def test_null_or_raises(self):
+        with pytest.raises(ValueError, match="'or' must not be null"):
+            ConditionNode.model_validate({"or": None})
 
     def test_empty_and_raises(self):
         with pytest.raises(ValueError, match="'and' must have at least one element"):

@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .image_cache import CACHE_EVICT_TARGET_RATIO, CACHE_MAX_SIZE_BYTES
 from .util.wallpaper_util import WallpaperStyle
@@ -83,8 +83,13 @@ class ConditionNode(BaseModel):
     def validate_single_key(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
+        if not data:
+            raise ValueError("empty node")
         if len(data) != 1:
             raise ValueError("must provide only one key")
+        key, value = next(iter(data.items()))
+        if key in ("and", "or") and value is None:
+            raise ValueError(f"'{key}' must not be null")
         return data
 
     @model_validator(mode="after")
@@ -95,8 +100,6 @@ class ConditionNode(BaseModel):
         elif self.is_or:
             if not self.or_conditions:
                 raise ValueError("'or' must have at least one element")
-        elif not self.model_extra:
-            raise ValueError("empty node")
         return self
 
     @property
@@ -119,6 +122,7 @@ class ConditionNode(BaseModel):
             raise ValueError("and/or node invalid access")
         return next(iter(self.model_extra.values()))  # type: ignore
 
+
 class SceneBinding(BaseModel):
     """A single display-scene binding: which display model → which resource."""
 
@@ -127,7 +131,6 @@ class SceneBinding(BaseModel):
     resource: str
     resolution: tuple[int, int] | None = None
     scale: int | None = None
-
 
     @model_validator(mode="after")
     def check_display_model(self) -> "SceneBinding":
@@ -151,7 +154,7 @@ class SceneBinding(BaseModel):
         Returns:
             Integer percent for decimal input; otherwise the value unchanged.
         """
-        if isinstance(v, float) and  0.99 < v < 5.01:
+        if isinstance(v, float) and 0.99 < v < 5.01:
             return int(round(v * 100, 0))
         return v
 
@@ -207,7 +210,9 @@ class ConfigModel(BaseModel):
 
     @field_validator("scene")
     @classmethod
-    def validate_scenes(cls, scenes: dict[str, list[SceneBinding]] | None) -> dict[str, list[SceneBinding]] | None:
+    def validate_scenes(
+        cls, scenes: dict[str, list[SceneBinding]] | None
+    ) -> dict[str, list[SceneBinding]] | None:
         if not scenes:
             return scenes
 
@@ -218,12 +223,18 @@ class ConfigModel(BaseModel):
             for item in bindings:
                 if item.display_model:
                     if item.display_model in seen_display:
-                        raise ValueError(f"Scene '{scene_name}' has duplicate display_model: '{item.display_model}'")
+                        raise ValueError(
+                            f"Scene '{scene_name}' has duplicate display_model: "
+                            f"'{item.display_model}'"
+                        )
                     seen_display.add(item.display_model)
 
                 if item.match_display_model:
                     if item.match_display_model in seen_match:
-                        raise ValueError(f"Scene '{scene_name}' has duplicate match_display_model: '{item.match_display_model}'")
+                        raise ValueError(
+                            f"Scene '{scene_name}' has duplicate match_display_model: "
+                            f"'{item.match_display_model}'"
+                        )
                     seen_match.add(item.match_display_model)
 
         return scenes
