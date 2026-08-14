@@ -1,5 +1,6 @@
 """Tests for time_trigger.py — interval and fixed-time scheduling."""
 
+import logging
 import threading
 from datetime import datetime as dt
 from datetime import time, timedelta
@@ -198,9 +199,16 @@ class TestLifecycle:
         assert trigger._thread is None
 
 
+class TestLogStatus:
+    def test_log_status_reports_interval(self, trigger, caplog):
+        trigger.set_interval(timedelta(minutes=30), reference_time=dt(2024, 1, 1, 8, 0, 0))
+        with caplog.at_level(logging.INFO):
+            trigger._log_status()
+        assert "interval: 1800.0s (reference time 2024-01-01 08:00:00)" in caplog.text
+
+
 class TestRunLoop:
     def test_run_exits_immediately_when_already_stopped(self):
-        """Thread exits on first iteration when already stopped."""
         trigger = TimeTrigger()
         trigger._request_stop()
         trigger._update_event.set()
@@ -211,7 +219,6 @@ class TestRunLoop:
         assert not t.is_alive()
 
     def test_run_calls_trigger_on_timeout(self):
-        """Natural timeout -> trigger() invoked."""
         trigger = TimeTrigger()
         target = dt(2024, 1, 1, 10, 0, 0)
         with patch.object(trigger, "_get_next_wait_time", return_value=(0.02, target)):
@@ -225,7 +232,6 @@ class TestRunLoop:
                 mock_trigger.assert_called()
 
     def test_run_skips_trigger_on_interrupt(self):
-        """Event set before timeout -> trigger() NOT called."""
         trigger = TimeTrigger()
         target = dt(2024, 1, 1, 10, 0, 10)
         with patch.object(trigger, "_get_next_wait_time", return_value=(10, target)):
@@ -241,7 +247,6 @@ class TestRunLoop:
                 mock_trigger.assert_not_called()
 
     def test_run_waits_indefinitely_when_no_next_time(self):
-        """None wait -> blocks on _update_event -> interrupt exits loop."""
         trigger = TimeTrigger()
         with patch.object(trigger, "_get_next_wait_time", return_value=None):
             with patch.object(trigger, "trigger") as mock_trigger:
@@ -253,3 +258,46 @@ class TestRunLoop:
                 t.join(timeout=0.5)
                 assert not t.is_alive()
                 mock_trigger.assert_not_called()
+
+    def test_run_logs_status_when_schedule_added_while_idle(self):
+        trigger = TimeTrigger()
+        target = dt(2024, 1, 1, 10, 0, 0)
+        calls = {"n": 0}
+
+        def get_next():
+            calls["n"] += 1
+            return None if calls["n"] == 1 else (0.02, target)
+
+        with patch.object(trigger, "_get_next_wait_time", side_effect=get_next):
+            with patch.object(trigger, "_log_status") as mock_log:
+                t = threading.Thread(target=trigger.run, daemon=True)
+                t.start()
+                threading.Event().wait(0.1)
+                trigger._update_event.set()
+                threading.Event().wait(0.1)
+                trigger._request_stop()
+                trigger._update_event.set()
+                t.join(timeout=0.5)
+                assert not t.is_alive()
+                assert mock_log.call_count == 2
+
+    def test_run_skips_status_when_idle_wake_has_no_schedule(self):
+        trigger = TimeTrigger()
+        calls = {"n": 0}
+
+        def get_next():
+            calls["n"] += 1
+            return None
+
+        with patch.object(trigger, "_get_next_wait_time", side_effect=get_next):
+            with patch.object(trigger, "_log_status") as mock_log:
+                t = threading.Thread(target=trigger.run, daemon=True)
+                t.start()
+                threading.Event().wait(0.1)
+                trigger._update_event.set()
+                threading.Event().wait(0.1)
+                trigger._request_stop()
+                trigger._update_event.set()
+                t.join(timeout=0.5)
+                assert not t.is_alive()
+                assert mock_log.call_count == 1
