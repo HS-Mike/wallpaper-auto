@@ -6,34 +6,39 @@ This module defines the abstract base class for all wallpaper resource types.
 All resource classes must inherit from :class:`BaseResource` and implement
 the :meth:`~BaseResource.mount` / :meth:`~BaseResource.demount` lifecycle.
 
-Each resource is bound to a monitor (via :meth:`_bind_monitor_device_path`) and
+Each resource is bound to a monitor (via :meth:`_bind_display`) and
 buffers wallpaper through a class-wide :class:`UpdateCanvasProtocol` callback
 (:meth:`update_canvas`).  Dynamic resources request a composite through the
 class-wide :class:`PlotCanvasProtocol` callback (:meth:`plot_canvas`); both
 callbacks are registered once by the ``WallpaperController``.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from PIL import Image
 
+from ..task import CanvasPlotTask
+from ..util.display_utils import DisplayId, DisplayInfo
 from ..util.wallpaper_util import WallpaperStyle
+
+logger = logging.getLogger(__name__)
 
 
 class UpdateCanvasProtocol(Protocol):
     """Callable that buffers a wallpaper image on a specific monitor.
 
     Args:
-        monitor_device_path: Unique device path of the target monitor.
+        display_id: Opaque id of the target display.
         style: Wallpaper fit/style (fill, fit, stretch, etc.).
         image: The image path or PIL image to display.
     """
 
     def __call__(
         self,
-        monitor_device_path: str,
+        display_id: DisplayId,
         style: WallpaperStyle,
         image: Path | Image.Image,
     ) -> None: ...
@@ -42,7 +47,7 @@ class UpdateCanvasProtocol(Protocol):
 class PlotCanvasProtocol(Protocol):
     """Callable that requests a composite of the buffered canvas."""
 
-    def __call__(self) -> object: ...
+    def __call__(self) -> CanvasPlotTask: ...
 
 
 class BaseResource(ABC):
@@ -92,7 +97,7 @@ class BaseResource(ABC):
         """Register the class-wide composite-request callback.
 
         The callback is the same for every resource (it enqueues a
-        ``PlotCanvasTask`` on the controller's worker loop), so it is bound
+        ``CanvasPlotTask`` on the controller's worker loop), so it is bound
         once at class level rather than per instance.
 
         Pass a bound method or callable object — a plain function stored as a
@@ -101,12 +106,10 @@ class BaseResource(ABC):
         cls._plot_canvas = plot_canvas
 
     def __init__(self) -> None:
-        self.monitor_device_path: str | None = None
+        self.display: DisplayInfo | None = None
 
-    def _bind_monitor_device_path(self, monitor_device_path: str) -> None:
-        if self.monitor_device_path is not None:
-            raise RuntimeError("monitor_device_path already bound")
-        self.monitor_device_path = monitor_device_path
+    def _bind_display(self, display: DisplayInfo) -> None:
+        self.display = display
 
     def update_canvas(
         self,
@@ -122,9 +125,9 @@ class BaseResource(ABC):
         """
         if self._update_canvas is None:
             raise RuntimeError("update_canvas not bound")
-        if self.monitor_device_path is None:
-            raise RuntimeError("monitor_device_path not bound")
-        self._update_canvas(self.monitor_device_path, style, image)
+        if self.display is None:
+            raise RuntimeError("display not bound")
+        self._update_canvas(self.display.display_id, style, image)
 
     def plot_canvas(self) -> None:
         """Ask the wallpaper system to composite the buffered canvas.
@@ -171,3 +174,17 @@ class BaseResource(ABC):
         after mount(), even if an error occurs during wallpaper application.
         """
         ...
+
+    def _format_identity(self) -> str:
+        return f"{self.__class__.__name__} (id: {id(self)})"
+
+    def __getattribute__(self, name: str) -> Any:
+        if name == "mount":
+            logger.debug("resource lifecycle mount on %s", self._format_identity())
+        elif name == "demount":
+            logger.debug("resource lifecycle demount on %s", self._format_identity())
+        elif name == "update_canvas":
+            logger.debug("resource update canvas request called on %s", self._format_identity())
+        elif name == "plot_canvas":
+            logger.debug("resource plot canvas request called on %s", self._format_identity())
+        return super().__getattribute__(name)
