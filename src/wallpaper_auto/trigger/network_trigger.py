@@ -97,18 +97,15 @@ class NetworkTrigger(BaseThreadTrigger):
                         self.trigger()
                         self.current_ssid = None
                 elif result == 1:
-                    logger.debug("Exit signal received, stopping")
                     break
         finally:
             KERNEL32.CloseHandle(net_event)
-            logger.info("NetworkTrigger thread exited safely")
 
     def start(self) -> None:
         if self._exit_event:
             raise RuntimeError(f"{type(self).__name__} is already started")
         self._exit_event = KERNEL32.CreateEventW(None, False, False, None)
         super().start()
-        logger.debug(f"{self.__class__.__name__} start")
 
     def stop(self) -> None:
         if self._exit_event:
@@ -117,4 +114,3 @@ class NetworkTrigger(BaseThreadTrigger):
         if self._exit_event:
             KERNEL32.CloseHandle(self._exit_event)
             self._exit_event = None
-        logger.debug(f"{self.__class__.__name__} stop")
