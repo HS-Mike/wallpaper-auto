@@ -7,13 +7,14 @@ Handles registration of built-in and custom resource types.
 
 import logging
 import re
+from dataclasses import dataclass
 
 from .config_store import ConfigStore
 from .models import ResourceConfig, SceneBinding
 from .resource.base_resource import BaseResource
 from .resource.resource_cycle import ResourceCycle
 from .resource.static_wallpaper import StaticWallpaper
-from .util.display_utils import DisplayInfo, get_display_info
+from .util.display_utils import DisplayId, DisplayInfo
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,22 @@ _BUILTIN_RESOURCES: dict[str, type[BaseResource]] = {
 }
 
 
+@dataclass
+class DisplayScene:
+    """What is intended to apply to a single display.
+
+    Bundles the target ``display_id`` with the resolved ``resource`` (an
+    instance bound to that display) and the optional display
+    ``resolution``/``scale`` the scene binding requested. ``None``
+    resolution/scale means "leave the display at its original value".
+    """
+
+    display_id: DisplayId
+    resource: BaseResource
+    resolution: tuple[int, int] | None
+    scale: int | None
+
+
 class ResourceManager:
     """Resource initializer — resolves config targets into per-display resource instances."""
 
@@ -31,85 +48,95 @@ class ResourceManager:
 
     @classmethod
     def register_resource(cls, resource_name: str, resource: type[BaseResource]) -> None:
-        """
-        Register a custom resource class.
-        Register the subclass before starting the controller.
-        """
         if not issubclass(resource, BaseResource):
             raise ValueError("resource cls must inherit from BaseResource")
         cls._support_resources[resource_name] = resource
 
     @staticmethod
-    def evaluate_target(target: str) -> dict[str, BaseResource] | None:
+    def evaluate_target(target: str, display_info: list[DisplayInfo]) -> list[DisplayScene]:
         """
-        Resolve a target (resource or scene name) into per-display resource objects.
+        Resolve a target (resource or scene name) into per-display DisplayScene objects.
 
-        Looks up *target* in the config: if it is a resource, every connected
-        display gets its own instance of that resource. If it is a scene, the
-        :meth:`evaluate_scene` mapping determines which resource each display gets.
+        If *target* is a resource, every connected display gets its own instance
+        of that resource. If it is a scene, :meth:`evaluate_scene` determines
+        which resource each display gets, and the matched binding's
+        ``resolution``/``scale`` (if any) are carried on the DisplayScene.
 
         Args:
             target: Resource or scene name from the config.
 
         Returns:
-            A dict mapping each monitor device path to its ``BaseResource``
-            instance, or ``None`` if displays cannot be queried
-            (``get_display_info()`` returned ``None``). ``{}`` is returned
-            when displays are connected but none match the target.
+            A list of ``DisplayScene`` objects — one per display the target
+            matches (its ``BaseResource`` plus optional target resolution and
+            scale). An empty list is returned when displays are connected but
+            none match the target.
 
         Raises:
             ValueError: *target* is neither a resource nor a scene in the config.
         """
-        display_info = get_display_info()
-        if display_info is None:
-            return None
+        res: list[DisplayScene] = []
         if target in ConfigStore.instance.resource:
-            resource_cfg: ResourceConfig = ConfigStore.instance.resource[target]
-            res = {}
             for i in display_info:
-                resource_obj = ResourceManager._support_resources[resource_cfg.name](
-                    **resource_cfg.config
+                res.append(
+                    DisplayScene(
+                        display_id=i.display_id,
+                        resource=ResourceManager._create_resource(target, i),
+                        resolution=None,
+                        scale=None,
+                    )
                 )
-                resource_obj._bind_monitor_device_path(i.monitor_device_path)
-                res[i.monitor_device_path] = resource_obj
             return res
-        elif target in ConfigStore.instance.scene:
-            scene_cfg: list[SceneBinding] = ConfigStore.instance.scene[target]
-            scene_map: dict[str, str] = ResourceManager.evaluate_scene(scene_cfg, display_info)
-            res = {}
-            for monitor_device_path, resource_id in scene_map.items():
-                resource_cfg = ConfigStore.instance.resource[resource_id]
-                resource_obj = ResourceManager._support_resources[resource_cfg.name](
-                    **resource_cfg.config
+        if target in ConfigStore.instance.scene:
+            display_by_id = {i.display_id: i for i in display_info}
+            for display_id, binding in ResourceManager.evaluate_scene(
+                ConfigStore.instance.scene[target], display_info
+            ).items():
+                res.append(
+                    DisplayScene(
+                        display_id=display_id,
+                        resource=ResourceManager._create_resource(
+                            binding.resource, display_by_id[display_id]
+                        ),
+                        resolution=binding.resolution,
+                        scale=binding.scale,
+                    )
                 )
-                resource_obj._bind_monitor_device_path(monitor_device_path)
-                res[monitor_device_path] = resource_obj
             return res
-        else:
-            raise ValueError(f"target {target} not found in resource or scene config")
+        raise ValueError(f"target {target} not found in resource or scene config")
+
+    @staticmethod
+    def _create_resource(resource_id: str, display: DisplayInfo) -> BaseResource:
+        resource_cfg: ResourceConfig = ConfigStore.instance.resource[resource_id]
+        resource_obj = ResourceManager._support_resources[resource_cfg.name](**resource_cfg.config)
+        resource_obj._bind_display(display)
+        return resource_obj
 
     @staticmethod
     def evaluate_scene(
         scene: list[SceneBinding], display_info: list[DisplayInfo]
-    ) -> dict[str, str]:
+    ) -> dict[DisplayId, SceneBinding]:
         """
-        Evaluate a scene and return a mapping of monitor device path to resource ID.
+        Map each display to the first scene binding that matches its model.
 
-        ``binding.display_model`` is interpreted as a regular expression pattern
-        matched against the display model name via :func:`re.search`.
+        ``display_model`` matches exactly; ``match_display_model`` is a regular
+        expression pattern matched via :func:`re.search`.
 
         Args:
             scene: List of SceneBinding objects defining the scene.
             display_info: List of DisplayInfo objects representing connected displays.
 
         Returns:
-            A dictionary mapping monitor device paths to resource IDs.
+            A dict mapping display ids to the SceneBinding that matched them.
         """
-        result = {}
+        result: dict[DisplayId, SceneBinding] = {}
         for binding in scene:
-            pattern = re.compile(binding.display_model)
             for display in display_info:
-                if display.model and pattern.search(display.model):
-                    result[display.monitor_device_path] = binding.resource
+                if display.model is None:
+                    continue
+                if binding.display_model == display.model or (
+                    binding.match_display_model
+                    and re.search(binding.match_display_model, display.model)
+                ):
+                    result[display.display_id] = binding
                     break
         return result
