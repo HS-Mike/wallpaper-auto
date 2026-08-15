@@ -8,8 +8,24 @@ from PIL import Image
 
 from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
 from wallpaper_auto.resource.static_wallpaper import WallpaperStyle as SWWallpaperStyle
+from wallpaper_auto.util.display_utils import LUID, DisplayInfo
 
 _DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
+
+
+def _make_display() -> DisplayInfo:
+    """DisplayInfo with a stable identity for resource binding."""
+    return DisplayInfo(
+        device_name="\\\\.\\DISPLAY1",
+        model="U2719D",
+        source_resolution=(1920, 1080),
+        position=(0, 0),
+        target_resolution=(1920, 1080),
+        adapter_id=LUID(1, 2),
+        source_id=3,
+        scale=100,
+        monitor_device_path=_DEVICE_PATH,
+    )
 
 
 class TestStaticWallpaperInit:
@@ -32,20 +48,21 @@ class TestStaticWallpaperMount:
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), style=SWWallpaperStyle.FILL)
-        wp._bind_monitor_device_path(_DEVICE_PATH)
+        display = _make_display()
+        wp._bind_display(display)
         mock_plot = MagicMock()
         wp._update_canvas = mock_plot
 
         wp.mount()
 
-        mock_plot.assert_called_once_with(_DEVICE_PATH, SWWallpaperStyle.FILL, Path(img_path))
+        mock_plot.assert_called_once_with(display.display_id, SWWallpaperStyle.FILL, Path(img_path))
 
     def test_mount_raises_when_canvas_unbound(self, tmp_path, monkeypatch):
         monkeypatch.setattr(StaticWallpaper, "_update_canvas", None)
         img_path = tmp_path / "test.png"
         Image.new("RGB", (100, 100)).save(img_path)
         wp = StaticWallpaper(path=str(img_path), style=SWWallpaperStyle.FILL)
-        wp._bind_monitor_device_path(_DEVICE_PATH)
+        wp._bind_display(_make_display())
 
         with pytest.raises(RuntimeError, match="update_canvas not bound"):
             wp.mount()

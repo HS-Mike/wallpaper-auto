@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from wallpaper_auto.evaluator.display_evaluator import HaveDisplayEvaluator
-from wallpaper_auto.util.display_utils import DisplayInfo
+from wallpaper_auto.util.display_utils import LUID, DisplayInfo
 
 _MOD = "wallpaper_auto.evaluator.display_evaluator"
 
@@ -22,7 +22,10 @@ _SINGLE = [
         source_resolution=(1920, 1080),
         position=(0, 0),
         target_resolution=(1920, 1080),
+        adapter_id=LUID(1, 2),
         scale=100,
+        source_id=0,
+        monitor_device_path=r"\\?\DISPLAY#U2719D#{...}",
     ),
 ]
 _DUAL = [
@@ -32,7 +35,10 @@ _DUAL = [
         source_resolution=(1920, 1080),
         position=(0, 0),
         target_resolution=(1920, 1080),
+        adapter_id=LUID(1, 2),
         scale=100,
+        source_id=0,
+        monitor_device_path=r"\\?\DISPLAY#U2719D#{...}",
     ),
     DisplayInfo(
         device_name="\\\\.\\DISPLAY2",
@@ -40,7 +46,10 @@ _DUAL = [
         source_resolution=(2560, 1440),
         position=(1920, 0),
         target_resolution=(2560, 1440),
+        adapter_id=LUID(2, 3),
         scale=100,
+        source_id=1,
+        monitor_device_path=r"\\?\DISPLAY#XL2730#{...}",
     ),
 ]
 
@@ -80,7 +89,10 @@ class TestHaveDisplayEvaluator:
                     source_resolution=(1920, 1080),
                     position=(0, 0),
                     target_resolution=(1920, 1080),
+                    adapter_id=LUID(1, 2),
                     scale=100,
+                    source_id=0,
+                    monitor_device_path=r"\\?\DISPLAY#UNKNOWN#{...}",
                 ),
             ],
         ):
