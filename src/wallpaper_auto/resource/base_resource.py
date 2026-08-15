@@ -20,7 +20,7 @@ from typing import Any, Protocol
 
 from PIL import Image
 
-from ..task import CanvasPlotTask
+from ..task import ApplySceneTask
 from ..util.display_utils import DisplayId, DisplayInfo
 from ..util.wallpaper_util import WallpaperStyle
 
@@ -47,7 +47,7 @@ class UpdateCanvasProtocol(Protocol):
 class PlotCanvasProtocol(Protocol):
     """Callable that requests a composite of the buffered canvas."""
 
-    def __call__(self) -> CanvasPlotTask: ...
+    def __call__(self) -> ApplySceneTask: ...
 
 
 class BaseResource(ABC):
@@ -97,7 +97,7 @@ class BaseResource(ABC):
         """Register the class-wide composite-request callback.
 
         The callback is the same for every resource (it enqueues a
-        ``CanvasPlotTask`` on the controller's worker loop), so it is bound
+        ``ApplySceneTask`` on the controller's worker loop), so it is bound
         once at class level rather than per instance.
 
         Pass a bound method or callable object — a plain function stored as a

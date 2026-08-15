@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from wallpaper_auto.resource.base_resource import BaseResource
-from wallpaper_auto.task import CanvasPlotTask
+from wallpaper_auto.task import ApplySceneTask
 from wallpaper_auto.util.display_utils import LUID, DisplayId, DisplayInfo
 from wallpaper_auto.util.wallpaper_util import WallpaperStyle
 
@@ -150,7 +150,7 @@ class TestPlotCanvas:
         monkeypatch.setattr(
             BaseResource,
             "_plot_canvas",
-            staticmethod(lambda: (called.append(True), CanvasPlotTask())[1]),
+            staticmethod(lambda: (called.append(True), ApplySceneTask())[1]),
         )
         MockResource().plot_canvas()
         assert called == [True]
@@ -166,11 +166,11 @@ class TestPlotCanvas:
         monkeypatch.setattr(
             BaseResource,
             "_plot_canvas",
-            lambda: (class_calls.append("class"), CanvasPlotTask())[1],
+            lambda: (class_calls.append("class"), ApplySceneTask())[1],
         )
         r = MockResource()
         instance_calls: list[str] = []
-        r._plot_canvas = lambda: (instance_calls.append("instance"), CanvasPlotTask())[1]
+        r._plot_canvas = lambda: (instance_calls.append("instance"), ApplySceneTask())[1]
         r.plot_canvas()
         assert class_calls == []
         assert instance_calls == ["instance"]
