@@ -20,9 +20,7 @@ _LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
 class TestSetupLogging:
-    """``_setup_logging()`` configures the root logger."""
-
-    def test_uses_basicConfig(self) -> None:  # noqa: N802
+    def test_configures_root_logger(self) -> None:
         with patch("wallpaper_auto.service.logging.basicConfig") as mock_bc:
             _setup_logging("INFO")
         mock_bc.assert_called_once()
@@ -72,9 +70,7 @@ class TestSetupLogging:
 
 
 class TestBuildParser:
-    """``_build_parser()`` creates the CLI argument parser."""
-
-    def test_prog_name(self) -> None:
+    def test_program_name(self) -> None:
         parser = _build_parser()
         assert parser.prog == "wallpaper-auto"
 
@@ -153,7 +149,7 @@ class TestRunServiceCLIMode:
             pytest.param(["wp", "-c", "prod.yaml", "-l", "INFO"], "prod.yaml", id="custom"),
         ],
     )
-    def test_cli_basic(
+    def test_cli_forwards_config_to_impl(
         self,
         sys_argv: list[str],
         expected_config: str,
@@ -207,7 +203,6 @@ class TestRunServiceCLIMode:
         mock_impl.assert_not_called()
 
     def test_cli_custom_triggers_forwarded(self) -> None:
-        """Custom component registrations are forwarded to _run_service_impl."""
         t_cls: Any = MagicMock()
         r_cls: Any = MagicMock()
         e_inst: Any = MagicMock()
@@ -241,8 +236,6 @@ class TestRunServiceCLIMode:
 
 
 class TestRunServiceCLIErrors:
-    """Error paths in CLI mode."""
-
     def test_init_config_file_exists_exits(self) -> None:
         with (
             patch("sys.argv", ["wp", "init-config", "out.yaml"]),
@@ -269,7 +262,6 @@ class TestRunServiceCLIErrors:
         assert exc_info.value.code == 1
 
     def test_non_runtime_error_propagates(self) -> None:
-        """Non-``RuntimeError`` exceptions from ``_run_service_impl`` propagate."""
         with (
             patch("sys.argv", ["wp"]),
             patch("wallpaper_auto.process_mutex.ProcessMutex"),
@@ -304,8 +296,6 @@ class _FakeEvaluator(BaseEvaluator):  # type: ignore[misc]
 
 
 class TestRunServiceImpl:
-    """``_run_service_impl()`` startup logic."""
-
     @pytest.mark.parametrize(
         ("kwarg_name", "registry", "name", "value"),
         [
@@ -339,7 +329,6 @@ class TestRunServiceImpl:
         name: str,
         value: Any,
     ) -> None:
-        """A custom component is registered with the manager."""
         with (
             patch("wallpaper_auto.service.WallpaperController"),
             patch("wallpaper_auto.service.WallpaperSwitchSystemTray"),

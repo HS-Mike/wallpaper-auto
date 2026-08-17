@@ -53,13 +53,18 @@ _LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 _LOG_FORMAT = "%(asctime)s  %(module)-25s  %(levelname)-7s  %(thread)-6d  %(message)s"
 
 
-def _setup_logging(level: _LogLevel, log_file: Optional[str] = None) -> None:  # noqa: UP045
+def _setup_logging(level: _LogLevel, log_file: Optional[str] = None) -> None:
     """Configure the root logger for the CLI.
 
-    Writes to the console (default stream handler) and, when *log_file* is
-    given, to that file.  The file handler is thread-safe:
-    ``logging.Handler.emit()`` is serialized by an internal lock, so
-    concurrent log calls from the app's threads do not interleave writes.
+    Writes to the console (default stream handler) and, when given, to a log
+    file.  The file handler is thread-safe: ``logging.Handler.emit()`` is
+    serialized by an internal lock, so concurrent log calls from the app's
+    threads do not interleave writes.
+
+    Args:
+        level: Logging level name (``"DEBUG"``, ``"INFO"``, ``"WARNING"``,
+            or ``"ERROR"``).
+        log_file: Path to the log file; ``None`` logs to the console only.
     """
     logging.basicConfig(level=getattr(logging, level), format=_LOG_FORMAT)
     if log_file is not None:
@@ -70,8 +75,6 @@ def _setup_logging(level: _LogLevel, log_file: Optional[str] = None) -> None:  #
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser."""
-
     parser = argparse.ArgumentParser(prog="wallpaper-auto")
     parser.add_argument("-c", "--config", default="config.yaml", help="Path to config file")
     parser.add_argument(
@@ -110,11 +113,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def run_service(
-    config_path: Optional[str] = None,  # noqa: UP045
+    config_path: Optional[str] = None,
     log_level: _LogLevel = "DEBUG",
-    custom_triggers: Optional[dict[str, type[BaseTrigger]]] = None,  # noqa: UP045
-    custom_resources: Optional[dict[str, type[BaseResource]]] = None,  # noqa: UP045
-    custom_evaluators: Optional[dict[str, BaseEvaluator]] = None,  # noqa: UP045
+    custom_triggers: Optional[dict[str, type[BaseTrigger]]] = None,
+    custom_resources: Optional[dict[str, type[BaseResource]]] = None,
+    custom_evaluators: Optional[dict[str, BaseEvaluator]] = None,
 ) -> None:
     """Start the wallpaper auto service.
 
@@ -127,26 +130,21 @@ def run_service(
     pure programmatic API — no argument parsing, no mutex — and the caller
     is responsible for any singleton enforcement.
 
-    Parameters
-    ----------
-    config_path:
-        Path to the YAML configuration file.  When ``None`` the function
-        parses ``sys.argv`` to determine the config path, log level, and
-        optional subcommand.
-    log_level:
-        Logging level string (``"DEBUG"``, ``"INFO"``, ``"WARNING"``,
-        ``"ERROR"``).  Only used when *config_path* is ``None`` (CLI
-        mode), or when set programmatically.  If a CLI ``-l`` flag is
-        present it takes precedence.
-    custom_triggers:
-        Optional mapping of trigger names to trigger classes to register
-        before loading the configuration.
-    custom_resources:
-        Optional mapping of resource names to resource classes to register
-        before loading the configuration.
-    custom_evaluators:
-        Optional mapping of evaluator names to evaluator instances to
-        register before loading the configuration.
+    Args:
+        config_path: Path to the YAML configuration file.  When ``None``
+            the function parses ``sys.argv`` to determine the config path,
+            log level, and optional subcommand.
+        log_level: Logging level string (``"DEBUG"``, ``"INFO"``,
+            ``"WARNING"``, ``"ERROR"``).  Only used when *config_path* is
+            ``None`` (CLI mode), or when set programmatically.  If a CLI
+            ``-l`` flag is present it takes precedence.
+        custom_triggers: Optional mapping of trigger names to trigger
+            classes to register before loading the configuration.
+        custom_resources: Optional mapping of resource names to resource
+            classes to register before loading the configuration.
+        custom_evaluators: Optional mapping of evaluator names to
+            evaluator instances to register before loading the
+            configuration.
     """
     if config_path is None:
         from .init_config import generate_template  # noqa: PLC0415
@@ -197,8 +195,6 @@ def _run_service_impl(
     custom_resources: dict[str, type[BaseResource]] | None = None,
     custom_evaluators: dict[str, BaseEvaluator] | None = None,
 ) -> None:
-    """Shared startup logic used by both CLI and programmatic modes."""
-
     if custom_triggers is not None:
         for name, trigger_cls in custom_triggers.items():
             TriggerManager.register_trigger(name, trigger_cls)
