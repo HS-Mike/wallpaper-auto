@@ -608,3 +608,11 @@ class TestSceneValidation:
         }
         with pytest.raises(ValueError, match="duplicate match_display_model"):
             ConfigModel(**data)
+
+    @pytest.mark.parametrize("scene", [None, {}])
+    def test_scene_empty_passes(self, scene):
+        """An empty scene (None or {}) is accepted and preserved as-is."""
+        data = dict(_MINIMAL)
+        data["scene"] = scene
+        model = ConfigModel(**data)
+        assert model.scene == scene
