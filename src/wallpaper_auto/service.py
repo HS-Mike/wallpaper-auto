@@ -1,46 +1,44 @@
 """
-Service entry point for the wallpaper auto.
+Per-subcommand service entry functions for the wallpaper auto.
 
-Provides :func:`run_service` which orchestrates the full startup sequence
-(controller creation, config loading, system tray setup, worker loop, signal
-handling) and accepts optional custom component registrations.
+Each CLI subcommand has a dedicated entry function here:
 
-When called without ``config_path`` (the default), ``run_service`` parses
-``sys.argv`` for CLI arguments, including subcommands such as
-``init-config``.  When called with an explicit ``config_path`` it behaves
-as a purely programmatic API.
+- :func:`init_config` — the ``init-config`` subcommand: generate a starter
+  YAML config.
+- :func:`run` — the ``run`` subcommand and the programmatic API:
+  configure logging, register optional custom components, then boot the
+  controller and system tray.
 
-Usage (CLI)::
-
-    python -m wallpaper_auto -c config.yaml -l INFO
-
-    python -m wallpaper_auto init-config my_config.yaml
+The CLI entry point that dispatches to these lives in
+:mod:`wallpaper_auto.cli`.
 
 Usage (programmatic)::
 
-    from wallpaper_auto import run_service
+    from wallpaper_auto import run
 
     # With built-in components only
-    run_service("config.yaml")
+    run("config.yaml")
 
-    # With custom components
-    run_service(
+    # With custom components and logging
+    run(
         "config.yaml",
+        log_level="INFO",
+        log_file="app.log",
         custom_triggers={"my_trigger": MyTrigger},
         custom_resources={"my_resource": MyResource},
         custom_evaluators={"my_evaluator": MyEvaluator()},
     )
-
 """
 
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
-from typing import Literal, Optional
+
+import yaml
 
 from .evaluator.base_evaluator import BaseEvaluator
+from .models import LoggingConfig, LogLevel
 from .resource.base_resource import BaseResource
 from .resource_manager import ResourceManager
 from .rule_engine import RuleEngine
@@ -49,12 +47,11 @@ from .trigger.base_trigger import BaseTrigger
 from .trigger_manager import TriggerManager
 from .wallpaper_controller import WallpaperController
 
-_LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 _LOG_FORMAT = "%(asctime)s  %(module)-25s  %(levelname)-7s  %(thread)-6d  %(message)s"
 
 
-def _setup_logging(level: _LogLevel, log_file: Optional[str] = None) -> None:
-    """Configure the root logger for the CLI.
+def _setup_logging(level: LogLevel, log_file: str | None = None) -> None:
+    """Configure the root logger for the service.
 
     Writes to the console (default stream handler) and, when given, to a log
     file.  The file handler is thread-safe: ``logging.Handler.emit()`` is
@@ -74,70 +71,77 @@ def _setup_logging(level: _LogLevel, log_file: Optional[str] = None) -> None:
         logging.getLogger().addHandler(file_handler)
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="wallpaper-auto")
-    parser.add_argument("-c", "--config", default="config.yaml", help="Path to config file")
-    parser.add_argument(
-        "-l",
-        "--log-level",
-        default="DEBUG",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Logging level",
-    )
-    parser.add_argument(
-        "--log-file",
-        default=None,
-        help="Path to log file (console-only logging if omitted)",
-    )
+def _read_logging_config(config_path: str) -> LoggingConfig:
+    """Read only the ``logging`` section from the config file.
 
-    subparsers = parser.add_subparsers(dest="subcommand")
+    A minimal pre-parse that runs before the controller exists so logging
+    can be configured at the very start of the program.  The authoritative
+    full-config parse is still performed later by ``ConfigStore.load``.
 
-    init_parser = subparsers.add_parser(
-        "init-config",
-        help="Generate a starter YAML config file",
-    )
-    init_parser.add_argument(
-        "output",
-        nargs="?",
-        default="config.yaml",
-        help="Output path for the generated config (default: config.yaml)",
-    )
-    init_parser.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Overwrite existing file without prompting",
-    )
+    Args:
+        config_path: Path to the YAML configuration file.
 
-    return parser
+    Returns:
+        The logging settings, defaulting when the block is absent.
+    """
+    with open(config_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    if not isinstance(data, dict):
+        return LoggingConfig()
+    logging_data = data.get("logging")
+    if not isinstance(logging_data, dict):
+        return LoggingConfig()
+    return LoggingConfig(**logging_data)
 
 
-def run_service(
-    config_path: Optional[str] = None,
-    log_level: _LogLevel = "DEBUG",
-    custom_triggers: Optional[dict[str, type[BaseTrigger]]] = None,
-    custom_resources: Optional[dict[str, type[BaseResource]]] = None,
-    custom_evaluators: Optional[dict[str, BaseEvaluator]] = None,
+def init_config(output: str, force: bool = False) -> None:
+    """Handle the ``init-config`` subcommand.
+
+    Generates a starter config template at *output*, exiting with code 1 when
+    the file already exists and *force* is not set.
+
+    Args:
+        output: Output path for the generated config.
+        force: Whether to overwrite an existing file.
+    """
+    from .init_config import generate_template
+
+    try:
+        generate_template(output, force=force)
+    except FileExistsError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def run(
+    config_path: str,
+    log_level: LogLevel | None = None,
+    log_file: str | None = None,
+    custom_triggers: dict[str, type[BaseTrigger]] | None = None,
+    custom_resources: dict[str, type[BaseResource]] | None = None,
+    custom_evaluators: dict[str, BaseEvaluator] | None = None,
 ) -> None:
     """Start the wallpaper auto service.
 
-    When *config_path* is ``None`` (the default), the function enters CLI
-    mode: it parses ``sys.argv``, handles subcommands like ``init-config``,
-    wraps the service lifetime in a ``ProcessMutex``, and exits with a
-    non-zero return code on errors.
+    Configures logging first from the ``logging`` section of the config
+    file — before any component work — so no early startup log line is
+    dropped.  Then registers any custom components, boots the controller
+    (which owns the :class:`~wallpaper_auto.config_store.ConfigStore` and
+    loads the configuration), and runs the system tray.  This is the
+    dedicated entry function for the ``run`` subcommand and the
+    programmatic API.
 
-    When *config_path* is provided explicitly the function operates as a
-    pure programmatic API — no argument parsing, no mutex — and the caller
-    is responsible for any singleton enforcement.
+    The *log_level* and *log_file* arguments take precedence over the
+    ``logging`` section of the config file; values omitted here fall back
+    to the config file, then to ``"DEBUG"`` / console-only respectively.
 
     Args:
-        config_path: Path to the YAML configuration file.  When ``None``
-            the function parses ``sys.argv`` to determine the config path,
-            log level, and optional subcommand.
-        log_level: Logging level string (``"DEBUG"``, ``"INFO"``,
-            ``"WARNING"``, ``"ERROR"``).  Only used when *config_path* is
-            ``None`` (CLI mode), or when set programmatically.  If a CLI
-            ``-l`` flag is present it takes precedence.
+        config_path: Path to the YAML configuration file.
+        log_level: Logging level name (``"DEBUG"``, ``"INFO"``,
+            ``"WARNING"``, or ``"ERROR"``).  ``None`` falls back to the
+            config file's ``logging.level``, then ``"DEBUG"``.
+        log_file: Path to the log file.  ``None`` falls back to the config
+            file's ``logging.file``, then console-only logging.
         custom_triggers: Optional mapping of trigger names to trigger
             classes to register before loading the configuration.
         custom_resources: Optional mapping of resource names to resource
@@ -146,55 +150,11 @@ def run_service(
             evaluator instances to register before loading the
             configuration.
     """
-    if config_path is None:
-        from .init_config import generate_template  # noqa: PLC0415
-        from .process_mutex import ProcessMutex  # noqa: PLC0415
+    logging_cfg = _read_logging_config(config_path)
+    effective_level = log_level if log_level is not None else logging_cfg.level
+    effective_file = log_file if log_file is not None else logging_cfg.file
+    _setup_logging(effective_level, effective_file)
 
-        parser = _build_parser()
-        args = parser.parse_args()
-
-        # Subcommand: init-config
-        if args.subcommand == "init-config":
-            _setup_logging(args.log_level, args.log_file)
-            try:
-                generate_template(args.output, force=args.force)
-            except FileExistsError as e:
-                print(f"Error: {e}", file=sys.stderr)
-                sys.exit(1)
-            return
-
-        log_level = args.log_level
-
-        _setup_logging(log_level, args.log_file)
-
-        # Normal run: wrap in process mutex
-        try:
-            with ProcessMutex("wallpaper_auto"):
-                _run_service_impl(
-                    args.config,
-                    custom_triggers,
-                    custom_resources,
-                    custom_evaluators,
-                )
-        except RuntimeError:
-            print("Another instance is already running.", file=sys.stderr)
-            sys.exit(1)
-        return
-
-    _run_service_impl(
-        config_path,
-        custom_triggers,
-        custom_resources,
-        custom_evaluators,
-    )
-
-
-def _run_service_impl(
-    config_path: str,
-    custom_triggers: dict[str, type[BaseTrigger]] | None = None,
-    custom_resources: dict[str, type[BaseResource]] | None = None,
-    custom_evaluators: dict[str, BaseEvaluator] | None = None,
-) -> None:
     if custom_triggers is not None:
         for name, trigger_cls in custom_triggers.items():
             TriggerManager.register_trigger(name, trigger_cls)

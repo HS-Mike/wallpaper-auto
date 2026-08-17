@@ -7,7 +7,7 @@ and the top-level config. Validates that all rule targets reference existing res
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -15,6 +15,8 @@ from .image_cache import CACHE_EVICT_TARGET_RATIO, CACHE_MAX_SIZE_BYTES
 from .util.wallpaper_util import WallpaperStyle
 
 DEFAULT_CACHE_DIR = Path.home() / "AppData" / "Local" / "wallpaper-auto" / "cache"
+
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
 class CacheResizeConfig(BaseModel):
@@ -39,6 +41,17 @@ class CacheConfig(BaseModel):
 
     path: str | None = None
     resize: CacheResizeConfig = CacheResizeConfig()
+
+
+class LoggingConfig(BaseModel):
+    """Logging settings read from the config file.
+
+    ``run()``/``run_service()`` arguments take precedence over these values,
+    which in turn override the built-in ``"DEBUG"`` / console-only defaults.
+    """
+
+    level: LogLevel = "DEBUG"
+    file: str | None = None
 
 
 class TriggerConfig(BaseModel):
@@ -183,6 +196,7 @@ class ConfigModel(BaseModel):
     fallback_target: str
     at_shutdown: str | None = None
     cache: CacheConfig = CacheConfig()
+    logging: LoggingConfig = LoggingConfig()
 
     @property
     def cache_path(self) -> Path:

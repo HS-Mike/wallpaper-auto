@@ -23,7 +23,8 @@ _TEMPLATE = """\
 #   fallback_target  resource applied when no rule matches
 #   at_shutdown      optional target applied on shutdown/logoff
 #   cache            cache dir and resized-image tuning; if omitted, uses
-#                    %LOCALAPPDATA%\wallpaper-auto\cache
+#                    %LOCALAPPDATA%/wallpaper-auto/cache
+#   logging          optional log level and log file
 # =============================================================================
 
 
@@ -209,7 +210,7 @@ fallback_target: "office_view"
 # Controls the wallpaper cache directory and the resized-image cache.
 # ``path`` is the shared cache dir used for both the composited wallpaper
 # and the resized per-display images.  If ``path`` is omitted, it defaults
-# to %LOCALAPPDATA%\wallpaper-auto\cache.  ``resize`` tunes the resized-image
+# to %LOCALAPPDATA%/wallpaper-auto/cache.  ``resize`` tunes the resized-image
 # cache component:
 #   - enabled:        set to false to disable the resized-image cache entirely
 #                     (default true; when disabled each composite loads and
@@ -225,24 +226,33 @@ fallback_target: "office_view"
 #     enabled: true
 #     max_size_mb: 200
 #     evict_ratio: 0.9
+
+
+# ---------------------------------------------------------------------------
+# Logging  (optional)
+# ---------------------------------------------------------------------------
+# Controls log verbosity and destination.
+#   - level:  DEBUG | INFO | WARNING | ERROR (default DEBUG)
+#   - file:   optional log file path; console-only logging if omitted
+# The ``-l``/``--log-level`` and ``--log-file`` flags and
+# ``run()``/``run_service()`` arguments take precedence over these values.
+# ---------------------------------------------------------------------------
+# logging:
+#   level: INFO
+#   file: "C:/Users/You/wallpaper-auto.log"
 """
 
 
 def generate_template(output_path: str, force: bool = False) -> None:
     """Write the starter config template to *output_path*.
 
-    Parameters
-    ----------
-    output_path:
-        Filesystem path for the generated config file.
-    force:
-        If ``False`` (the default) and *output_path* already exists, raise
-        :class:`FileExistsError`.
+    Args:
+        output_path: Filesystem path for the generated config file.
+        force: If ``False`` (the default) and *output_path* already exists,
+            raise :class:`FileExistsError`.
 
-    Raises
-    ------
-    FileExistsError
-        If *output_path* exists and *force* is ``False``.
+    Raises:
+        FileExistsError: If *output_path* exists and *force* is ``False``.
     """
     resolved = os.path.realpath(output_path)
 

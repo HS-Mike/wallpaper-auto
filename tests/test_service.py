@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any, Literal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from wallpaper_auto.evaluator.base_evaluator import BaseEvaluator
+from wallpaper_auto.models import LoggingConfig
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource_manager import ResourceManager
 from wallpaper_auto.rule_engine import RuleEngine
-from wallpaper_auto.service import _build_parser, _setup_logging, run_service
+from wallpaper_auto.service import _read_logging_config, _setup_logging, init_config, run
 from wallpaper_auto.trigger.base_trigger import BaseTrigger
 from wallpaper_auto.trigger_manager import TriggerManager
 
@@ -69,209 +71,28 @@ class TestSetupLogging:
         handler.setFormatter.assert_called_once()
 
 
-class TestBuildParser:
-    def test_program_name(self) -> None:
-        parser = _build_parser()
-        assert parser.prog == "wallpaper-auto"
+class TestReadLoggingConfig:
+    """``_read_logging_config()`` parses the ``logging`` section of a config file."""
 
-    @pytest.mark.parametrize(
-        ("cli_args", "expected_config"),
-        [
-            pytest.param([], "config.yaml", id="default"),
-            pytest.param(["-c", "my_config.yaml"], "my_config.yaml", id="short_opt"),
-            pytest.param(["--config", "prod.yaml"], "prod.yaml", id="long_opt"),
-        ],
-    )
-    def test_config_path(self, cli_args: list[str], expected_config: str) -> None:
-        parser = _build_parser()
-        args = parser.parse_args(cli_args)
-        assert args.config == expected_config
+    def test_reads_logging_section(self, tmp_path: Path) -> None:
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("logging:\n  level: WARNING\n  file: app.log\n", encoding="utf-8")
+        assert _read_logging_config(str(cfg)) == LoggingConfig(level="WARNING", file="app.log")
 
-    @pytest.mark.parametrize(
-        ("cli_args", "expected_level"),
-        [
-            pytest.param([], "DEBUG", id="default"),
-            pytest.param(["-l", "INFO"], "INFO", id="custom"),
-            pytest.param(["-l", "DEBUG"], "DEBUG", id="choice_debug"),
-            pytest.param(["-l", "WARNING"], "WARNING", id="choice_warning"),
-            pytest.param(["-l", "ERROR"], "ERROR", id="choice_error"),
-        ],
-    )
-    def test_log_level(self, cli_args: list[str], expected_level: str) -> None:
-        parser = _build_parser()
-        args = parser.parse_args(cli_args)
-        assert args.log_level == expected_level
+    def test_returns_defaults_when_logging_section_missing(self, tmp_path: Path) -> None:
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("resource:\n  black: path.jpg\n", encoding="utf-8")
+        assert _read_logging_config(str(cfg)) == LoggingConfig()
 
-    @pytest.mark.parametrize(
-        ("cli_args", "expected_log_file"),
-        [
-            pytest.param([], None, id="default"),
-            pytest.param(["--log-file", "app.log"], "app.log", id="long_opt"),
-        ],
-    )
-    def test_log_file(self, cli_args: list[str], expected_log_file: str | None) -> None:
-        parser = _build_parser()
-        args = parser.parse_args(cli_args)
-        assert args.log_file == expected_log_file
+    def test_returns_defaults_when_root_is_not_dict(self, tmp_path: Path) -> None:
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("- a\n- b\n", encoding="utf-8")
+        assert _read_logging_config(str(cfg)) == LoggingConfig()
 
-    def test_init_config_subcommand(self) -> None:
-        parser = _build_parser()
-        args = parser.parse_args(["init-config", "out.yaml"])
-        assert args.subcommand == "init-config"
-        assert args.output == "out.yaml"
-
-    def test_init_config_default_output(self) -> None:
-        parser = _build_parser()
-        args = parser.parse_args(["init-config"])
-        assert args.output == "config.yaml"
-
-    @pytest.mark.parametrize(
-        ("cli_args", "expected_force"),
-        [
-            pytest.param(["init-config", "out.yaml"], False, id="without_force"),
-            pytest.param(["init-config", "out.yaml", "-f"], True, id="with_short"),
-            pytest.param(["init-config", "out.yaml", "--force"], True, id="with_long"),
-        ],
-    )
-    def test_init_config_force(self, cli_args: list[str], expected_force: bool) -> None:
-        parser = _build_parser()
-        args = parser.parse_args(cli_args)
-        assert args.force == expected_force
-
-
-class TestRunServiceCLIMode:
-    """``run_service()`` with ``config_path=None`` enters CLI mode."""
-
-    @pytest.mark.parametrize(
-        ("sys_argv", "expected_config"),
-        [
-            pytest.param(["wallpaper-auto"], "config.yaml", id="defaults"),
-            pytest.param(["wp", "-c", "prod.yaml", "-l", "INFO"], "prod.yaml", id="custom"),
-        ],
-    )
-    def test_cli_forwards_config_to_impl(
-        self,
-        sys_argv: list[str],
-        expected_config: str,
-    ) -> None:
-        with (
-            patch("sys.argv", sys_argv),
-            patch("wallpaper_auto.process_mutex.ProcessMutex"),
-            patch("wallpaper_auto.service._run_service_impl") as mock_impl,
-        ):
-            run_service()
-
-        mock_impl.assert_called_once_with(
-            expected_config,
-            None,
-            None,
-            None,
-        )
-
-    @pytest.mark.parametrize(
-        ("sys_argv", "expected_output", "expected_force"),
-        [
-            pytest.param(
-                ["wp", "init-config", "out.yaml"],
-                "out.yaml",
-                False,
-                id="with_output",
-            ),
-            pytest.param(["wp", "init-config"], "config.yaml", False, id="default_output"),
-            pytest.param(
-                ["wp", "init-config", "out.yaml", "-f"],
-                "out.yaml",
-                True,
-                id="with_force",
-            ),
-        ],
-    )
-    def test_cli_init_config(
-        self,
-        sys_argv: list[str],
-        expected_output: str,
-        expected_force: bool,
-    ) -> None:
-        with (
-            patch("sys.argv", sys_argv),
-            patch("wallpaper_auto.init_config.generate_template") as mock_gen,
-            patch("wallpaper_auto.service._run_service_impl") as mock_impl,
-        ):
-            run_service()
-
-        mock_gen.assert_called_once_with(expected_output, force=expected_force)
-        mock_impl.assert_not_called()
-
-    def test_cli_custom_triggers_forwarded(self) -> None:
-        t_cls: Any = MagicMock()
-        r_cls: Any = MagicMock()
-        e_inst: Any = MagicMock()
-        with (
-            patch("sys.argv", ["wp"]),
-            patch("wallpaper_auto.process_mutex.ProcessMutex"),
-            patch("wallpaper_auto.service._run_service_impl") as mock_impl,
-        ):
-            run_service(
-                custom_triggers={"t1": t_cls},
-                custom_resources={"r1": r_cls},
-                custom_evaluators={"e1": e_inst},
-            )
-
-        mock_impl.assert_called_once_with(
-            "config.yaml",
-            {"t1": t_cls},
-            {"r1": r_cls},
-            {"e1": e_inst},
-        )
-
-    def test_mutex_acquired_with_correct_name(self) -> None:
-        with (
-            patch("sys.argv", ["wp"]),
-            patch("wallpaper_auto.process_mutex.ProcessMutex") as mock_mutex_cls,
-            patch("wallpaper_auto.service._run_service_impl"),
-        ):
-            run_service()
-
-        mock_mutex_cls.assert_called_once_with("wallpaper_auto")
-
-
-class TestRunServiceCLIErrors:
-    def test_init_config_file_exists_exits(self) -> None:
-        with (
-            patch("sys.argv", ["wp", "init-config", "out.yaml"]),
-            patch(
-                "wallpaper_auto.init_config.generate_template",
-                side_effect=FileExistsError("already there"),
-            ),
-            pytest.raises(SystemExit) as exc_info,
-        ):
-            run_service()
-
-        assert exc_info.value.code == 1
-
-    def test_process_mutex_conflict_exits(self) -> None:
-        with (
-            patch("sys.argv", ["wp"]),
-            patch("wallpaper_auto.process_mutex.ProcessMutex") as mock_mutex_cls,
-            patch("wallpaper_auto.service._run_service_impl"),
-        ):
-            mock_mutex_cls.return_value.__enter__.side_effect = RuntimeError("conflict")
-            with pytest.raises(SystemExit) as exc_info:
-                run_service()
-
-        assert exc_info.value.code == 1
-
-    def test_non_runtime_error_propagates(self) -> None:
-        with (
-            patch("sys.argv", ["wp"]),
-            patch("wallpaper_auto.process_mutex.ProcessMutex"),
-            patch(
-                "wallpaper_auto.service._run_service_impl",
-                side_effect=ValueError("something went wrong"),
-            ),
-            pytest.raises(ValueError, match="something went wrong"),
-        ):
-            run_service()
+    def test_returns_defaults_when_logging_is_not_dict(self, tmp_path: Path) -> None:
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("logging: INFO\n", encoding="utf-8")
+        assert _read_logging_config(str(cfg)) == LoggingConfig()
 
 
 class _FakeTrigger(BaseTrigger):  # type: ignore[misc]
@@ -295,7 +116,9 @@ class _FakeEvaluator(BaseEvaluator):  # type: ignore[misc]
         return True
 
 
-class TestRunServiceImpl:
+class TestRun:
+    """``run()`` registers custom components, then boots the controller."""
+
     @pytest.mark.parametrize(
         ("kwarg_name", "registry", "name", "value"),
         [
@@ -332,9 +155,14 @@ class TestRunServiceImpl:
         with (
             patch("wallpaper_auto.service.WallpaperController"),
             patch("wallpaper_auto.service.WallpaperSwitchSystemTray"),
+            patch(
+                "wallpaper_auto.service._read_logging_config",
+                return_value=LoggingConfig(),
+            ),
+            patch("wallpaper_auto.service._setup_logging"),
         ):
             run_kwargs: Any = {kwarg_name: {name: value}}
-            run_service("cfg.yaml", **run_kwargs)
+            run("cfg.yaml", **run_kwargs)
 
         try:
             assert registry[name] is value
@@ -355,3 +183,22 @@ class TestRunServiceImpl:
         invalid_instance: Any = object
         with pytest.raises(ValueError, match="must be an instance"):
             RuleEngine.register_evaluator("bad", invalid_instance)
+
+
+class TestInitConfig:
+    """``init_config()`` writes a starter config, exiting when the file exists."""
+
+    def test_generates_template(self) -> None:
+        with patch("wallpaper_auto.init_config.generate_template") as mock_gen:
+            init_config("out.yaml", force=True)
+        mock_gen.assert_called_once_with("out.yaml", force=True)
+
+    def test_exits_with_error_when_file_exists(self, capsys: pytest.CaptureFixture[str]) -> None:
+        error = FileExistsError("out.yaml already exists. Use -f/--force to overwrite.")
+        with (
+            patch("wallpaper_auto.init_config.generate_template", side_effect=error),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            init_config("out.yaml")
+        assert exc_info.value.code == 1
+        assert str(error) in capsys.readouterr().err

@@ -17,24 +17,19 @@ logger = logging.getLogger(__name__)
 
 
 class ProcessMutex:
-    """
-    A Windows-specific mutual exclusion (mutex) lock.
+    """A Windows-specific mutual exclusion (mutex) lock.
 
     Supports both context manager (``with``) and traditional
     ``lock()`` / ``unlock()`` methods.
 
-    Parameters
-    ----------
-    name:
-        Identifier for the lock file (``{name}.lock``). Use a different
-        name for each application you want to guard.
-    lock_dir:
-        Directory for the lock file. Defaults to the system temporary
-        directory.
-    raise_error:
-        When True (the default), a contended lock raises
-        ``RuntimeError``. When False, the process exits with status
-        code 1 instead.
+    Args:
+        name: Identifier for the lock file (``{name}.lock``). Use a different
+            name for each application you want to guard.
+        lock_dir: Directory for the lock file. Defaults to the system
+            temporary directory.
+        raise_error: When True (the default), a contended lock raises
+            ``RuntimeError``. When False, the process exits with status code
+            1 instead.
     """
 
     def __init__(self, name: str, lock_dir: str | None = None, raise_error: bool = True) -> None:

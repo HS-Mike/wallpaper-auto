@@ -1,10 +1,10 @@
 """
 Entry point for the wallpaper auto CLI.
 
-Thin wrapper that delegates to :func:`wallpaper_auto.service.run_service`.
+Thin wrapper that delegates to :func:`wallpaper_auto.cli.cli`.
 """
 
-from .service import run_service
+from .cli import cli
 
 if __name__ == "__main__":
-    run_service()
+    cli()

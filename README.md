@@ -96,7 +96,7 @@ Or specify a custom path and force-overwrite an existing file:
 wallpaper-auto init-config myconfig.yaml -f
 ```
 
-See `wallpaper-auto init-config --help` for all options. You can also create a `config.yaml` file manually (or specify the path via `-c`).
+See `wallpaper-auto init-config --help` for all options. You can also create a `config.yaml` file manually (or specify the path via `run -c`).
 
 ### Configuration Structure
 
@@ -168,7 +168,14 @@ fallback_target: "default_wallpaper"
 #     enabled: true           # set false to disable the resized-image cache (default true)
 #     max_size_mb: 200        # max total size of resized cache in MB (default 200)
 #     evict_ratio: 0.9        # evict down to this fraction of max (default 0.9)
+
+# 8. (Optional) Logging — log level and optional log file.
+# logging:
+#   level: INFO            # DEBUG | INFO | WARNING | ERROR (default DEBUG)
+#   file: "app.log"        # optional; console-only logging if omitted
 ```
+
+Logging resolves by precedence: `run()`/`run_service()` arguments (including the `-l`/`--log-file` flags) override the `logging` section above, which in turn overrides the built-in defaults (`DEBUG`, console-only).
 
 ### Scenes (per-display wallpapers)
 
@@ -203,18 +210,22 @@ rule:
 # Generate a starter config file
 wallpaper-auto init-config
 
-# Use default config.yaml
-wallpaper-auto
+# Start the service with the default config.yaml
+wallpaper-auto run
 
 # Specify config file
-wallpaper-auto -c /path/to/config.yaml
+wallpaper-auto run -c /path/to/config.yaml
 
 # Set log level
-wallpaper-auto -l INFO
+wallpaper-auto run -l INFO
 
 # Log to a file (console-only by default)
-wallpaper-auto --log-file /path/to/log.txt
+wallpaper-auto run --log-file /path/to/log.txt
 ```
+
+The `run` command enforces a single instance: if another `wallpaper-auto`
+process is already running, the new process logs the conflict and exits
+with code 1.
 
 Or start programmatically from Python:
 
@@ -228,7 +239,7 @@ run_service("config.yaml")
 To launch automatically at logon, create a **Task Scheduler** task with an **At log on** trigger. Use `pythonw.exe` to hide the console window:
 
 ```bash
-pythonw.exe -m wallpaper_auto -c config.yaml
+pythonw.exe -m wallpaper_auto run -c config.yaml
 ```
 
 ## How Config Parameters Flow to Components
