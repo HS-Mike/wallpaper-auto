@@ -24,6 +24,14 @@ class TestInit:
         mutex = ProcessMutex(name="test", lock_dir=str(tmp_path))
         assert mutex.lock_path == os.path.join(str(tmp_path), "test.lock")
 
+    def test_raise_error_defaults_to_true(self):
+        mutex = ProcessMutex(name="test")
+        assert mutex.raise_error is True
+
+    def test_raise_error_false(self):
+        mutex = ProcessMutex(name="test", raise_error=False)
+        assert mutex.raise_error is False
+
 
 class TestLock:
     """ProcessMutex.lock() — acquiring the lock."""
@@ -53,6 +61,19 @@ class TestLock:
             mutex = ProcessMutex(name="test")
             with pytest.raises(RuntimeError, match="already running"):
                 mutex.lock()
+            assert mutex.handle is None
+
+    def test_contended_exits_when_raise_error_false(self):
+        with (
+            patch(
+                "wallpaper_auto.process_mutex.msvcrt.locking",
+                side_effect=OSError(32, "Lock violation"),
+            ),
+            patch("wallpaper_auto.process_mutex.sys.exit") as mock_exit,
+        ):
+            mutex = ProcessMutex(name="test", raise_error=False)
+            mutex.lock()
+            mock_exit.assert_called_once_with(1)
             assert mutex.handle is None
 
 
@@ -113,6 +134,11 @@ def _child_try_lock(
         result_queue.put("denied")
 
 
+def _child_try_lock_exit(name: str, lock_dir: str) -> None:
+    """Run in a subprocess: contend with raise_error=False; exit code 1 if denied."""
+    ProcessMutex(name, lock_dir, raise_error=False).lock()
+
+
 class TestMultiProcess:
     """Cross-process mutex integration tests using real ``msvcrt.locking``."""
 
@@ -167,5 +193,22 @@ class TestMultiProcess:
         finally:
             parent_mutex.unlock()
             p.join(timeout=5)
+            if p.is_alive():
+                p.terminate()
+
+    def test_child_exits_code_1_when_raise_error_false(self, tmp_path):
+        name = "integ_test"
+        lock_dir = str(tmp_path)
+
+        parent_mutex = ProcessMutex(name, lock_dir)
+        parent_mutex.lock()
+
+        p = multiprocessing.Process(target=_child_try_lock_exit, args=(name, lock_dir))
+        p.start()
+        try:
+            p.join(timeout=5)
+            assert p.exitcode == 1
+        finally:
+            parent_mutex.unlock()
             if p.is_alive():
                 p.terminate()

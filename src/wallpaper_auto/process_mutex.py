@@ -8,6 +8,7 @@ lock files on disk are harmless.
 
 import logging
 import msvcrt
+import sys
 import os
 import tempfile
 from typing import IO, Any
@@ -30,19 +31,25 @@ class ProcessMutex:
     lock_dir:
         Directory for the lock file. Defaults to the system temporary
         directory.
+    raise_error:
+        When True (the default), a contended lock raises
+        ``RuntimeError``. When False, the process exits with status
+        code 1 instead.
     """
 
-    def __init__(self, name: str, lock_dir: str | None = None) -> None:
+    def __init__(self, name: str, lock_dir: str | None = None, raise_error: bool = True) -> None:
         base_dir = lock_dir or tempfile.gettempdir()
         self.lock_path: str = os.path.join(base_dir, f"{name}.lock")
         self.handle: IO[Any] | None = None
+        self.raise_error = raise_error
 
     def lock(self) -> None:
         """
         Acquire the lock.
 
-        Raises RuntimeError if the lock is already held by this instance
-        or by another process.
+        If the lock is already held by this instance or by another
+        process, raises ``RuntimeError`` when ``raise_error`` is True
+        (the default), or calls ``sys.exit(1)`` when it is False.
         """
         if self.handle is not None:
             raise RuntimeError("lock() called twice without calling unlock()")
@@ -56,7 +63,10 @@ class ProcessMutex:
             self.handle.close()
             self.handle = None
             logger.error("Process mutex is already held for '%s'.", self.lock_path)
-            raise RuntimeError(f"Another instance is already running (mutex: {self.lock_path})")
+            if self.raise_error is True:
+                raise RuntimeError(f"Another instance is already running (mutex: {self.lock_path})")
+            else:
+                sys.exit(1)
 
     def unlock(self) -> None:
         """Release the lock."""
