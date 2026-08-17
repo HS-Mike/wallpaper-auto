@@ -9,8 +9,24 @@ import pytest
 
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource.resource_cycle import ResourceCycle
+from wallpaper_auto.util.display_utils import LUID, DisplayInfo
 
 _DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
+
+
+def _make_display() -> DisplayInfo:
+    """DisplayInfo with a stable identity for resource binding."""
+    return DisplayInfo(
+        device_name="\\\\.\\DISPLAY1",
+        model="U2719D",
+        source_resolution=(1920, 1080),
+        position=(0, 0),
+        target_resolution=(1920, 1080),
+        adapter_id=LUID(1, 2),
+        source_id=3,
+        scale=100,
+        monitor_device_path=_DEVICE_PATH,
+    )
 
 
 @pytest.fixture
@@ -81,18 +97,16 @@ class TestResourceCycleLifecycle:
     """Mount lifecycle."""
 
     def test_mount_demount_lifecycle(self, mock_sub_resources):
-        """mount starts background thread, mounts the first sub-resource, demount stops it."""
+        """mount starts background thread, mounts a sub-resource, demount stops it."""
         cycle = ResourceCycle(resources=mock_sub_resources)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
+        cycle._bind_display(_make_display())
         cycle._plot_canvas = MagicMock()
         cycle.mount()
         assert cycle._cycling_thread is not None
         assert cycle._cycling_thread.is_alive()
 
-        deadline = time.monotonic() + 5.0
-        while mock_sub_resources[0].mount.call_count < 1 and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert mock_sub_resources[0].mount.call_count >= 1, "mount not called within 5s timeout"
+        # mount() advances past index 0, so resources[1] is mounted synchronously
+        mock_sub_resources[1].mount.assert_called_once()
 
         cycle.demount()
         assert cycle._cycling_thread is None
@@ -100,7 +114,7 @@ class TestResourceCycleLifecycle:
     def test_mount_random_starts_at_random_index(self, mock_sub_resources):
         """With random=True, a different starting index may be selected."""
         cycle = ResourceCycle(resources=mock_sub_resources, random=True)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
+        cycle._bind_display(_make_display())
         cycle._plot_canvas = MagicMock()
         cycle.mount()
 
@@ -115,15 +129,11 @@ class TestResourceCycleLifecycle:
         assert 0 <= cycle._index < 3
         cycle.demount()
 
-    @pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
     def test_mount_raises_when_device_not_bound(self, mock_sub_resources):
-        """mount starts thread that fails if monitor_device_path is not bound."""
+        """mount raises if the display is not bound."""
         cycle = ResourceCycle(resources=mock_sub_resources)
-        cycle.mount()
-        # Thread will crash due to missing bindings — give it time to start
-        assert cycle._cycling_thread is not None
-        cycle._cycling_thread.join(timeout=5.0)
-        assert not cycle._cycling_thread.is_alive()
+        with pytest.raises(AssertionError):
+            cycle.mount()
 
 
 class TestResourceCycleCycling:
@@ -155,7 +165,7 @@ class TestResourceCycleCycling:
     def test_cycling_thread_demounts_then_mounts(self, mock_sub_resources):
         """Cycling thread demounts current and mounts next after ~interval."""
         cycle = ResourceCycle(resources=mock_sub_resources, interval=0.05)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
+        cycle._bind_display(_make_display())
         cycle._plot_canvas = MagicMock()
         cycle.mount()
 
@@ -171,7 +181,7 @@ class TestResourceCycleCycling:
     def test_stop_event_stops_thread_quickly(self, mock_sub_resources):
         """Setting stop event causes thread to exit before next interval."""
         cycle = ResourceCycle(resources=mock_sub_resources, interval=10)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
+        cycle._bind_display(_make_display())
         cycle._plot_canvas = MagicMock()
         cycle.mount()
         assert cycle._cycling_thread is not None and cycle._cycling_thread.is_alive()
@@ -197,7 +207,7 @@ class TestResourceCycleEdgeCases:
         """Single resource — cycling thread runs but _advance_index loops on same index."""
         single = [mock_sub_resources[0]]
         cycle = ResourceCycle(resources=single, interval=0.05)
-        cycle._bind_monitor_device_path(_DEVICE_PATH)
+        cycle._bind_display(_make_display())
         cycle._plot_canvas = MagicMock()
         cycle.mount()
         assert cycle._index == 0

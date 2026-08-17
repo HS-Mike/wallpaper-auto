@@ -1,15 +1,21 @@
 """Tests for system_tray.py — SystemTrayBridge and WallpaperSwitchSystemTray."""
 
+import signal
+import sys
+from collections.abc import Callable
+from types import FrameType
+
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from wallpaper_auto.models import ConditionNode, Rule
-from wallpaper_auto.system_tray import SystemTrayBridge, WallpaperSwitchSystemTray
+from wallpaper_auto.system_tray import SystemTrayBridge, WallpaperSwitchSystemTray, get_color
 from wallpaper_auto.task import Mode
 
 
 @pytest.fixture
 def bridge() -> SystemTrayBridge:
+    """Create a SystemTrayBridge with no handlers registered."""
     return SystemTrayBridge()
 
 
@@ -81,7 +87,7 @@ class TestHandlerLifecycle:
         assert results == [values[0]]
 
     @pytest.mark.parametrize("hid,values", _VALUE_HANDLERS)
-    def test_multiple_values(
+    def test_request_delivers_each_value_in_order(
         self,
         bridge: SystemTrayBridge,
         hid: str,
@@ -182,7 +188,7 @@ class TestBridgeInitialState:
 class TestBridgeSignals:
     """Tests for SystemTrayBridge signal emission and delivery."""
 
-    def test_bridge_signals(self, qtbot):
+    def test_update_ui_emits_update_ui_signal(self, qtbot):
         tray = _make_tray()
         tray.show()
         try:
@@ -246,7 +252,7 @@ class TestBridgeUpdateUiSignal:
             pytest.param([], Mode.MANUAL, None, "", id="no_rule"),
         ],
     )
-    def test_emit_signal(  # type: ignore[no-untyped-def]
+    def test_update_ui_emits_signal_with_payload(  # type: ignore[no-untyped-def]
         self,
         bridge: SystemTrayBridge,
         qtbot,
@@ -308,7 +314,6 @@ class TestMenuRendering:
     """Tests for AUTO and MANUAL mode menu rendering and action state."""
 
     def test_menu_rendering_auto_mode(self, tray_app, qtbot):
-        """Test AUTO mode menu rendering logic."""
         available_targets = ["wallpaper1", "wallpaper2"]
         active_target = "wallpaper1"
 
@@ -336,7 +341,6 @@ class TestMenuRendering:
         assert wp1_action.isEnabled()
 
     def test_menu_rendering_manual_mode_with_active_target(self, tray_app, qtbot):
-        """MANUAL mode renders with active target highlighted."""
         tray_app.bridge.update_ui(["res1", "res2"], Mode.MANUAL, None, "res1")
 
         actions = tray_app._menu.actions()
@@ -355,7 +359,6 @@ class TestCallbacks:
     """Tests for UI-to-logic callbacks and bridge handler registration."""
 
     def test_ui_to_logic_callbacks(self, tray_app, qtbot):
-        """Test menu item clicks trigger logic-layer callbacks."""
         mock_called: dict[str, Mode | str | bool | None] = {
             "mode": None,
             "target": None,
@@ -384,7 +387,6 @@ class TestCallbacks:
         assert mock_called["quit"]
 
     def test_bridge_request_update_ui(self, tray_app):
-        """Register and invoke update_ui handler through bridge."""
         called = False
 
         def handler():
@@ -399,10 +401,7 @@ class TestCallbacks:
 class TestUtilityFunctions:
     """Tests for standalone helper/utility functions in system_tray."""
 
-    def test_utility_functions(self):
-        """Test helper functions."""
-        from wallpaper_auto.system_tray import get_color
-
+    def test_get_color_moves_alpha_to_front(self):
         color = get_color("#112233FF")  # FF moved to front -> #FF112233
         assert color.alpha() == 255
         assert color.red() == 0x11
@@ -412,16 +411,10 @@ class TestEdgeCases:
     """Tests for edge cases and error handling in system tray operations."""
 
     def test_on_tray_activated_when_tray_or_menu_none(self):
-        """_on_tray_activated handles None _tray/_menu gracefully."""
-        from PySide6.QtWidgets import QSystemTrayIcon
-
         tray = _make_tray()
         tray._on_tray_activated(QSystemTrayIcon.ActivationReason.Trigger)
 
-    def test_on_tray_activated(self, monkeypatch, tray_app):
-        """_on_tray_activated Trigger and DoubleClick both show menu."""
-        from PySide6.QtWidgets import QSystemTrayIcon
-
+    def test_on_tray_activated_trigger_and_double_click_show_menu(self, monkeypatch, tray_app):
         exec_called = []
         monkeypatch.setattr(tray_app._menu, "exec", lambda pos: exec_called.append(True))
 
@@ -432,15 +425,11 @@ class TestEdgeCases:
         assert len(exec_called) == 2
 
     def test_update_menu_runtime_error(self):
-        """update_menu raises RuntimeError before show()."""
         tray = _make_tray()
         with pytest.raises(RuntimeError, match="menu not initialized"):
             tray.update_menu([], Mode.AUTO, None, "")
 
     def test_exec_starts_event_loop(self, monkeypatch):
-        """exec() creates QTimer and calls _app.exec (lines 174-177)."""
-        import sys
-
         exec_called = []
         monkeypatch.setattr(sys, "exit", lambda code: None)
 
@@ -449,3 +438,42 @@ class TestEdgeCases:
 
         tray.exec()
         assert len(exec_called) == 1
+
+    def test_exec_sigint_handler_quits_and_propagates(self, monkeypatch):
+        registered: dict[int, Callable[[int, FrameType | None], None]] = {}
+
+        def capture_signal(signum, handler):
+            registered[signum] = handler
+
+        monkeypatch.setattr("wallpaper_auto.system_tray.signal.signal", capture_signal)
+        monkeypatch.setattr(sys, "exit", lambda code: None)
+
+        tray = _make_tray()
+        quit_calls = []
+
+        class FakeQApp:
+            def __call__(self, *args):
+                return tray._app
+
+            @staticmethod
+            def quit():
+                quit_calls.append(True)
+
+        monkeypatch.setattr("wallpaper_auto.system_tray.QApplication", FakeQApp)
+        monkeypatch.setattr(tray._app, "exec", lambda: None)
+
+        tray.exec()
+
+        handler = registered[signal.SIGINT]
+        assert handler is not None
+
+        default_calls = []
+        monkeypatch.setattr(
+            "wallpaper_auto.system_tray.signal.default_int_handler",
+            lambda sig, frame: default_calls.append((sig, frame)),
+        )
+
+        handler(signal.SIGINT, None)
+
+        assert quit_calls == [True]
+        assert default_calls == [(signal.SIGINT, None)]

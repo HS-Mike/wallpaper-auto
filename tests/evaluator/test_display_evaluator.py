@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from wallpaper_auto.evaluator.display_evaluator import HaveDisplayEvaluator
-from wallpaper_auto.util.display_utils import DisplayInfo
+from wallpaper_auto.util.display_utils import LUID, DisplayInfo
 
 _MOD = "wallpaper_auto.evaluator.display_evaluator"
 
@@ -17,27 +17,39 @@ def evaluator():
 
 _SINGLE = [
     DisplayInfo(
+        device_name="\\\\.\\DISPLAY1",
         model="U2719D",
         source_resolution=(1920, 1080),
         position=(0, 0),
         target_resolution=(1920, 1080),
-        scale=1.0,
+        adapter_id=LUID(1, 2),
+        scale=100,
+        source_id=0,
+        monitor_device_path=r"\\?\DISPLAY#U2719D#{...}",
     ),
 ]
 _DUAL = [
     DisplayInfo(
+        device_name="\\\\.\\DISPLAY1",
         model="U2719D",
         source_resolution=(1920, 1080),
         position=(0, 0),
         target_resolution=(1920, 1080),
-        scale=1.0,
+        adapter_id=LUID(1, 2),
+        scale=100,
+        source_id=0,
+        monitor_device_path=r"\\?\DISPLAY#U2719D#{...}",
     ),
     DisplayInfo(
+        device_name="\\\\.\\DISPLAY2",
         model="XL2730",
         source_resolution=(2560, 1440),
         position=(1920, 0),
         target_resolution=(2560, 1440),
-        scale=1.0,
+        adapter_id=LUID(2, 3),
+        scale=100,
+        source_id=1,
+        monitor_device_path=r"\\?\DISPLAY#XL2730#{...}",
     ),
 ]
 
@@ -72,11 +84,15 @@ class TestHaveDisplayEvaluator:
             f"{_MOD}.get_display_info",
             return_value=[
                 DisplayInfo(
+                    device_name="\\\\.\\DISPLAY1",
                     model=None,
                     source_resolution=(1920, 1080),
                     position=(0, 0),
                     target_resolution=(1920, 1080),
-                    scale=1.0,
+                    adapter_id=LUID(1, 2),
+                    scale=100,
+                    source_id=0,
+                    monitor_device_path=r"\\?\DISPLAY#UNKNOWN#{...}",
                 ),
             ],
         ):

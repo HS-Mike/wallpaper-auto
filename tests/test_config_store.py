@@ -88,7 +88,6 @@ class TestLoad:
         assert len(store.config.rule) == 1
 
     def test_load_resource_string_shorthand(self, store: ConfigStore, valid_yaml: str):
-        """String shorthand resources are expanded to ResourceConfig."""
         store.load(valid_yaml)
         assert store.config is not None
         black = store.config.resource["black"]
@@ -123,12 +122,10 @@ class TestLoad:
         assert rule.condition.or_conditions[0].evaluator == "network"
 
     def test_resource_config_invalid_type_raises(self):
-        """ResourceConfig raises TypeError for non-dict, non-str input."""
         with pytest.raises(TypeError, match="ResourceConfig data must be a dict or string"):
             ResourceConfig.model_validate(42)
 
     def test_load_complex_nested_conditions(self, store: ConfigStore, tmp_path):
-        """Load a config with nested and/or condition structure."""
         yaml_str = yaml.dump(
             {
                 "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
@@ -190,7 +187,6 @@ class TestLoadErrors:
             store.load(str(path))
 
     def test_missing_fallback(self, store: ConfigStore, tmp_path):
-        """load should fail when fallback key is missing."""
         path = tmp_path / "no_fallback.yaml"
         path.write_text(_make_minimal_yaml(fallback_target=None), encoding="utf-8")
         with pytest.raises(ValueError):
@@ -238,7 +234,6 @@ class TestLoadValidation:
     """ConfigModel cross-field validation rules."""
 
     def test_condition_invalid_single_key(self, store: ConfigStore, tmp_path):
-        """A condition dict with more than one key should be rejected."""
         path = tmp_path / "bad_condition.yaml"
         path.write_text(
             _make_minimal_yaml(
@@ -256,7 +251,6 @@ class TestLoadValidation:
             store.load(str(path))
 
     def test_empty_condition_node(self, store: ConfigStore, tmp_path):
-        """An empty condition dict should be rejected."""
         path = tmp_path / "empty_cond.yaml"
         path.write_text(
             _make_minimal_yaml(
@@ -270,11 +264,10 @@ class TestLoadValidation:
             ),
             encoding="utf-8",
         )
-        with pytest.raises(ValueError, match="only one key"):
+        with pytest.raises(ValueError, match="empty node"):
             store.load(str(path))
 
     def test_trigger_with_config(self, store: ConfigStore, tmp_path):
-        """A trigger with extra config data should parse correctly."""
         yaml_str = yaml.dump(
             {
                 "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
@@ -294,7 +287,6 @@ class TestLoadValidation:
         assert t.config == {"start": "09:00", "end": "17:00"}
 
     def test_multiple_rules_evaluated_in_order(self, store: ConfigStore, tmp_path):
-        """Multiple rules should be loaded and maintain order."""
         yaml_str = yaml.dump(
             {
                 "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
@@ -341,15 +333,13 @@ class TestProperties:
         assert isinstance(triggers, list)
         assert len(triggers) == 2
 
-    def test_cache(self, store: ConfigStore, valid_yaml: str):
-        """cache returns the parsed CacheConfig (defaults when the block is unset)."""
+    def test_cache_returns_cache_config(self, store: ConfigStore, valid_yaml: str):
         store.load(valid_yaml)
         assert isinstance(store.cache, CacheConfig)
         assert store.cache.path is None
         assert store.cache.resize.enabled is True
 
     def test_cache_reflects_configured_path(self, store: ConfigStore, tmp_path):
-        """cache.path reflects a configured cache block."""
         cache_dir = tmp_path / "custom_cache"
         yaml_str = _make_valid_yaml(cache={"path": str(cache_dir)})
         path = tmp_path / "with_cache.yaml"
@@ -358,7 +348,6 @@ class TestProperties:
         assert store.cache.path == str(cache_dir)
 
     def test_properties_before_load_raises(self, store: ConfigStore):
-        """Accessing properties before load() should raise AssertionError."""
         with pytest.raises(AssertionError):
             _ = store.fallback_target
         with pytest.raises(AssertionError):
@@ -373,12 +362,10 @@ class TestProperties:
             _ = store.cache
 
     def test_at_shutdown_target_none_by_default(self, store: ConfigStore, valid_yaml: str):
-        """at_shutdown_target should be None when not in YAML."""
         store.load(valid_yaml)
         assert store.at_shutdown_target is None
 
     def test_at_shutdown_target_from_yaml(self, store: ConfigStore, tmp_path):
-        """at_shutdown_target should return the configured target."""
         yaml_str = _make_valid_yaml(at_shutdown="office_view")
         path = tmp_path / "with_atsd.yaml"
         path.write_text(yaml_str, encoding="utf-8")
@@ -386,12 +373,10 @@ class TestProperties:
         assert store.at_shutdown_target == "office_view"
 
     def test_cache_path_default_when_cache_is_none(self, store: ConfigStore, valid_yaml: str):
-        """cache_path returns the default cache dir when cache is not set."""
         store.load(valid_yaml)
         assert store.cache_path.name == "cache"
 
     def test_cache_path_with_valid_directory(self, store: ConfigStore, tmp_path):
-        """cache_path returns the user-configured path when it exists and is a directory."""
         cache_dir = tmp_path / "my_cache"
         cache_dir.mkdir()
         yaml_str = _make_valid_yaml(cache={"path": str(cache_dir)})
@@ -401,7 +386,6 @@ class TestProperties:
         assert store.cache_path == cache_dir
 
     def test_cache_path_allows_missing_directory(self, store: ConfigStore, tmp_path):
-        """A configured cache path that does not exist yet is returned; callers create it."""
         missing = tmp_path / "does_not_exist"
         yaml_str = _make_valid_yaml(cache={"path": str(missing)})
         path = tmp_path / "missing_cache.yaml"
@@ -410,7 +394,6 @@ class TestProperties:
         assert store.cache_path == missing
 
     def test_cache_path_raises_when_not_a_directory(self, store: ConfigStore, tmp_path):
-        """cache_path raises NotADirectoryError when the path is a file."""
         cache_file = tmp_path / "not_a_dir"
         cache_file.write_text("", encoding="utf-8")
         yaml_str = _make_valid_yaml(cache={"path": str(cache_file)})
@@ -420,18 +403,7 @@ class TestProperties:
         with pytest.raises(NotADirectoryError, match="is not a directory"):
             _ = store.cache_path
 
-    def test_cache_object_form_path(self, store: ConfigStore, tmp_path):
-        """cache as an object with a path resolves cache_path correctly."""
-        cache_dir = tmp_path / "obj_cache"
-        cache_dir.mkdir()
-        yaml_str = _make_valid_yaml(cache={"path": str(cache_dir)})
-        path = tmp_path / "obj_cache.yaml"
-        path.write_text(yaml_str, encoding="utf-8")
-        store.load(str(path))
-        assert store.cache_path == cache_dir
-
     def test_cache_defaults_without_cache_block(self, store: ConfigStore, valid_yaml: str):
-        """Without a cache block, the resize cache uses its defaults."""
         store.load(valid_yaml)
         assert store.config is not None
         assert store.config.cache.resize.enabled is True
@@ -439,7 +411,6 @@ class TestProperties:
         assert store.config.cache.resize.evict_ratio == 0.9
 
     def test_cache_max_size_mb_with_value(self, store: ConfigStore, tmp_path):
-        """max_size_mb is converted to bytes; unset fields fall back to defaults."""
         cache_dir = tmp_path / "size_cache"
         cache_dir.mkdir()
         yaml_str = _make_valid_yaml(
@@ -453,7 +424,6 @@ class TestProperties:
         assert store.config.cache.resize.evict_ratio == 0.9
 
     def test_cache_evict_ratio_with_value(self, store: ConfigStore, tmp_path):
-        """evict_ratio is surfaced as configured; unset fields fall back to defaults."""
         cache_dir = tmp_path / "ratio_cache"
         cache_dir.mkdir()
         yaml_str = _make_valid_yaml(
@@ -467,7 +437,6 @@ class TestProperties:
         assert store.config.cache.resize.max_size_mb * 1024 * 1024 == 200 * 1024 * 1024
 
     def test_cache_resize_enabled_false_when_disabled(self, store: ConfigStore, tmp_path):
-        """resize.enabled: false surfaces as cache.resize.enabled False."""
         cache_dir = tmp_path / "disable_cache"
         cache_dir.mkdir()
         yaml_str = _make_valid_yaml(
@@ -480,7 +449,6 @@ class TestProperties:
         assert store.config.cache.resize.enabled is False
 
     def test_cache_resize_enabled_true_when_explicit(self, store: ConfigStore, tmp_path):
-        """resize.enabled: true surfaces as cache.resize.enabled True."""
         cache_dir = tmp_path / "enable_cache"
         cache_dir.mkdir()
         yaml_str = _make_valid_yaml(
@@ -493,7 +461,6 @@ class TestProperties:
         assert store.config.cache.resize.enabled is True
 
     def test_scene_returns_dict_from_yaml(self, store: ConfigStore, tmp_path):
-        """scene returns the configured scene map when present."""
         yaml_str = yaml.dump(
             {
                 "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
@@ -513,8 +480,70 @@ class TestProperties:
         assert scenes["office"][0].display_model == "Dell U27"
         assert scenes["office"][0].resource == "a"
 
+    def test_scene_binding_parses_match_display_model(self, store: ConfigStore, tmp_path):
+        yaml_str = _make_valid_yaml(
+            scene={"office": [{"match_display_model": "27.*", "resource": "office_view"}]}
+        )
+        path = tmp_path / "scene_regex.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        binding = store.scene["office"][0]
+        assert binding.match_display_model == "27.*"
+        assert binding.display_model is None
+
+    def test_scene_binding_parses_resolution_string(self, store: ConfigStore, tmp_path):
+        yaml_str = _make_valid_yaml(
+            scene={
+                "office": [
+                    {
+                        "display_model": "U2719D",
+                        "resource": "office_view",
+                        "resolution": "1920x1080",
+                    }
+                ]
+            }
+        )
+        path = tmp_path / "scene_resolution.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.scene["office"][0].resolution == (1920, 1080)
+
+    def test_scene_binding_parses_resolution_list(self, store: ConfigStore, tmp_path):
+        yaml_str = _make_valid_yaml(
+            scene={
+                "office": [
+                    {
+                        "display_model": "U2719D",
+                        "resource": "office_view",
+                        "resolution": [2560, 1440],
+                    }
+                ]
+            }
+        )
+        path = tmp_path / "scene_resolution_list.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.scene["office"][0].resolution == (2560, 1440)
+
+    def test_scene_binding_normalizes_decimal_scale(self, store: ConfigStore, tmp_path):
+        yaml_str = _make_valid_yaml(
+            scene={"office": [{"display_model": "U2719D", "resource": "office_view", "scale": 1.5}]}
+        )
+        path = tmp_path / "scene_scale_decimal.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.scene["office"][0].scale == 150
+
+    def test_scene_binding_passes_through_integer_scale(self, store: ConfigStore, tmp_path):
+        yaml_str = _make_valid_yaml(
+            scene={"office": [{"display_model": "U2719D", "resource": "office_view", "scale": 150}]}
+        )
+        path = tmp_path / "scene_scale_int.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.scene["office"][0].scale == 150
+
     def test_scene_returns_empty_dict_when_unset(self, store: ConfigStore, valid_yaml: str):
-        """scene falls back to an empty dict when no scene is configured."""
         store.load(valid_yaml)
         assert store.scene == {}
 
@@ -527,15 +556,55 @@ class TestAtShutdownValidation:
     """Validation of at_shutdown target in ConfigModel."""
 
     def test_at_shutdown_target_not_found_raises(self):
-        """at_shutdown referencing a nonexistent resource should raise ValueError."""
         data = dict(_MINIMAL)
         data["at_shutdown"] = "nonexistent"
         with pytest.raises(ValueError, match="at_shutdown target.*not found"):
             ConfigModel(**data)
 
     def test_at_shutdown_target_exists_passes(self):
-        """at_shutdown referencing an existing resource should pass validation."""
         data = dict(_MINIMAL)
         data["at_shutdown"] = "a"
         model = ConfigModel(**data)
         assert model.at_shutdown == "a"
+
+
+class TestSceneValidation:
+    """Validation of scene binding fields in ConfigModel."""
+
+    def test_binding_requires_display_key(self):
+        data = dict(_MINIMAL)
+        data["scene"] = {"office": [{"resource": "a"}]}
+        with pytest.raises(ValueError, match="Either display_model or match_display_model"):
+            ConfigModel(**data)
+
+    def test_binding_rejects_both_display_keys(self):
+        data = dict(_MINIMAL)
+        data["scene"] = {
+            "office": [
+                {"display_model": "Dell U27", "match_display_model": "Dell.*", "resource": "a"}
+            ]
+        }
+        with pytest.raises(ValueError, match="Only one of display_model or match_display_model"):
+            ConfigModel(**data)
+
+    def test_scene_rejects_duplicate_display_model(self):
+        data = dict(_MINIMAL)
+        data["scene"] = {
+            "office": [
+                {"display_model": "Dell U27", "resource": "a"},
+                {"display_model": "Dell U27", "resource": "a"},
+            ]
+        }
+        with pytest.raises(ValueError, match="duplicate display_model"):
+            ConfigModel(**data)
+
+    def test_scene_rejects_duplicate_match_display_model(self):
+        data = dict(_MINIMAL)
+        data["scene"] = {
+            "office": [
+                {"match_display_model": "Dell.*", "resource": "a"},
+                {"match_display_model": "Dell.*", "resource": "a"},
+            ]
+        }
+        with pytest.raises(ValueError, match="duplicate match_display_model"):
+            ConfigModel(**data)

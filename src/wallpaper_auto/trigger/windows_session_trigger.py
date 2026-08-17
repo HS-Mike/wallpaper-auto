@@ -6,7 +6,6 @@ via a hidden window message pump and fires callbacks when any session event occu
 """
 
 import logging
-import threading
 from enum import Enum
 from typing import override
 
@@ -39,6 +38,14 @@ class WindowsSessionEvent(Enum):
 
 
 class WindowsSessionTrigger(BaseThreadTrigger):
+    """Trigger fired on Windows session events (logon, logoff, lock, unlock).
+
+    Uses a hidden window registered with WTSRegisterSessionNotification to
+    receive WM_WTSSESSION_CHANGE messages, then fires callbacks. The latest
+    event and its session ID are exposed via ``current_event`` and
+    ``current_session_id``.
+    """
+
     def __init__(self) -> None:
         super().__init__()
         self.hwnd: int | None = None
@@ -48,23 +55,21 @@ class WindowsSessionTrigger(BaseThreadTrigger):
     @override
     def start(self) -> None:
         super().start()
-        logger.debug(f"{self.__class__.__name__} start")
 
     @override
     def stop(self) -> None:
-        """send WM_CLOSE to stop PumpMessages"""
+        """Send WM_CLOSE to unblock the message pump and stop the trigger."""
         if self.hwnd:
             win32gui.PostMessage(self.hwnd, win32con.WM_CLOSE, 0, 0)
         super().stop()
-        logger.debug(f"{self.__class__.__name__} stop")
 
     def _setup_window(self) -> None:
-        """create a watch window in current threadi"""
+        """Create the hidden watch window and register for session notifications."""
         className = f"{self.__class__.__name__}_{id(self)}"  # noqa: N806
         hInstance = win32gui.GetModuleHandle(None)  # noqa: N806
 
         wc = win32gui.WNDCLASS()
-        wc.lpfnWndProc = self.wnd_proc  # type: ignore[misc]
+        wc.lpfnWndProc = self._msg_proc  # type: ignore[misc]
         wc.lpszClassName = className  # type: ignore[misc]
         wc.hInstance = hInstance  # type: ignore[misc]
         win32gui.RegisterClass(wc)
@@ -83,11 +88,23 @@ class WindowsSessionTrigger(BaseThreadTrigger):
             None,  # lpParam
         )
         self.hwnd = hwnd
-
         win32ts.WTSRegisterSessionNotification(hwnd, 1)
-        logger.debug(f"window created in thread {threading.get_ident()} and monitor session change")
 
-    def wnd_proc(self, hwnd: int, msg: int, wParam: int, lParam: int) -> int:  # noqa: N803
+    def _msg_proc(self, hwnd: int, msg: int, wParam: int, lParam: int) -> int:  # noqa: N803
+        """Handle Windows messages for the hidden watch window.
+
+        Args:
+            hwnd: Handle of the watch window.
+            msg: Windows message identifier.
+            wParam: First message parameter; for WM_WTSSESSION_CHANGE it is the
+                session event code.
+            lParam: Second message parameter; for WM_WTSSESSION_CHANGE it is
+                the session ID.
+
+        Returns:
+            Zero when the message was handled; otherwise the result of the
+            default window procedure.
+        """
         if msg == WM_WTSSESSION_CHANGE:
             self.process_event(lParam, wParam)
         elif msg == win32con.WM_CLOSE:
@@ -100,12 +117,17 @@ class WindowsSessionTrigger(BaseThreadTrigger):
         return int(win32gui.DefWindowProc(hwnd, msg, wParam, lParam))
 
     def process_event(self, session_id: int, event_code: int) -> None:
+        """Record the session event state and fire the trigger callbacks.
+
+        Args:
+            session_id: ID of the session that changed.
+            event_code: Raw WTS session event code; unknown codes are recorded
+                as ``None``.
+        """
         try:
             event = WindowsSessionEvent(event_code)
-            logger.debug(f"Session {session_id} event={event.name}")
         except ValueError:
             event = None
-            logger.debug(f"Session {session_id} OTHER EVENT {event_code}")
 
         self.current_session_id = session_id
         self.current_event = event

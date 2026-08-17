@@ -23,23 +23,8 @@ class ResourceCycle(BaseResource):
     A wallpaper resource that cycles through a list of sub-resources.
 
     On mount, starts a background thread that transitions to the next
-    sub-resource every *interval* seconds. On demount, stops the thread
-    and cleans up sub-resources.
-
-    Sub-resources should be created with ``restore=False`` (the default)
-    so that individual demount calls do not interfere with the cycle's
-    lifecycle management.
-
-    Args:
-        resources: Sub-resources to cycle through.  Each element is either
-            a ``BaseResource`` instance or a ``dict`` matching the
-            ``ResourceConfig`` schema (``{"name": ..., "config": ...}``).
-        interval: Seconds between automatic switches (default 300).
-        random: If True, pick resources in random order; otherwise sequential.
-        restore: If True, restore the original wallpaper on demount.
-
-    Raises:
-        ValueError: If *resources* is empty or *interval* is not positive.
+    sub-resource every ``interval`` seconds. On demount, stops the thread
+    and demounts the currently active sub-resource.
     """
 
     def __init__(
@@ -47,8 +32,22 @@ class ResourceCycle(BaseResource):
         resources: list[BaseResource | dict[str, Any]],
         interval: float = 300,
         random: bool = False,
-        restore: bool = False,
     ) -> None:
+        """Initialize the resource cycle.
+
+        Args:
+            resources: Sub-resources to cycle through. Each element is either
+                a ``BaseResource`` instance or a ``dict`` matching the
+                ``ResourceConfig`` schema (``{"name": ..., "config": ...}``).
+            interval: Seconds between automatic switches (default 300).
+            random: If True, pick resources in random order; otherwise sequential.
+
+        Raises:
+            TypeError: If any element of ``resources`` is neither a
+                ``BaseResource`` instance nor a ``dict``.
+            ValueError: If ``resources`` is empty, ``interval`` is not positive,
+                or a ``dict`` references an unknown resource type.
+        """
         super().__init__()
         # Resolve any raw dict entries through the resource registry
         self._resources: list[BaseResource] = []
@@ -68,12 +67,13 @@ class ResourceCycle(BaseResource):
 
         self.interval = interval
         self.random = random
-        self.restore = restore
 
         # Threading state
         self._stop_event = threading.Event()
         self._cycling_thread: threading.Thread | None = None
         self._index = 0
+
+        self.mounted_resource: BaseResource | None = None
 
     @staticmethod
     def _build_sub_resource(raw: dict[str, Any]) -> BaseResource:
@@ -101,34 +101,49 @@ class ResourceCycle(BaseResource):
             self._index = (self._index + 1) % len(self._resources)
 
     def _cycling_loop(self) -> None:
-        logger.debug("resource cycle cycling thread start")
+        """Rotate sub-resources until the stop event is set.
 
-        # Pick the first resource (random start or index 0)
-        if self.random:
-            self._advance_index()
-        r = self._resources[self._index]
-        assert self.monitor_device_path is not None
-        r._bind_monitor_device_path(self.monitor_device_path)
-        r.mount()
-        self.plot_canvas()
+        Demounts the current sub-resource, advances to the next index, mounts
+        the next sub-resource, and requests a composite. Exits (and demounts
+        the active sub-resource) when the stop event is set.
+        """
+        assert self.mounted_resource is not None
+        assert self.display is not None
 
         while not self._stop_event.wait(timeout=self.interval):
-            r.demount()
+            self.mounted_resource.demount()
             self._advance_index()
-            r = self._resources[self._index]
-            r._bind_monitor_device_path(self.monitor_device_path)
-            r.mount()
+            self.mounted_resource = self._resources[self._index]
+            self.mounted_resource._bind_display(self.display)
+            self.mounted_resource.mount()
             self.plot_canvas()
-        r.demount()
+        self.mounted_resource.demount()
         logger.debug("resource cycle cycling thread exit")
 
     def mount(self) -> None:
-        # Start the cycling thread
+        """Start cycling sub-resources on a background thread.
+
+        Advances to the next index, mounts that sub-resource synchronously,
+        then starts a daemon thread that rotates to the next sub-resource
+        every ``interval`` seconds until :meth:`demount` is called.
+        """
         self._stop_event.clear()
+
+        self._advance_index()
+        self.mounted_resource = self._resources[self._index]
+        assert self.display is not None
+        self.mounted_resource._bind_display(self.display)
+        self.mounted_resource.mount()
+
         self._cycling_thread = threading.Thread(target=self._cycling_loop, daemon=True)
         self._cycling_thread.start()
 
     def demount(self) -> None:
+        """Stop cycling and release the mounted sub-resource.
+
+        Signals the cycling thread to exit and joins it, allowing the thread
+        to demount the currently active sub-resource before it finishes.
+        """
         if self._cycling_thread is not None:
             self._stop_event.set()
             self._cycling_thread.join(timeout=3.0)

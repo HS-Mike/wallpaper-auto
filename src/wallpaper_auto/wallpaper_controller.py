@@ -2,7 +2,7 @@
 Main wallpaper controller.
 
 Coordinates the resource manager, trigger manager, and rule engine.
-Owns the worker loop that processes mode-switch and resource-set tasks from the queue.
+Owns the work loop that processes mode-switch and resource-set tasks from the queue.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from __future__ import annotations
 import itertools
 import logging
 import queue
-import signal
 import threading
 
 from PIL import Image
@@ -23,7 +22,7 @@ from .resource.base_resource import BaseResource
 from .resource_manager import ResourceManager
 from .rule_engine import RuleEngine
 from .system_tray import WallpaperSwitchSystemTray
-from .task import Mode, ModeSwitchTask, PlotCanvasTask, QuitTask, TargetSetTask, Task
+from .task import ApplySceneTask, Mode, ModeSwitchTask, QuitTask, Task, UpdateSceneTask
 from .trigger.base_trigger import BaseTrigger
 from .trigger.display_trigger import DisplayTrigger
 from .trigger_manager import TriggerManager
@@ -31,22 +30,21 @@ from .trigger_manager import TriggerManager
 logger = logging.getLogger(__name__)
 
 
-# support up to 64K 16:9 resolution wallpapers (30,720x17,280)
+# support up to 64K 16:9 resolution wallpapers (61,440x34,560)
 # you may set to None to disable the limit
 Image.MAX_IMAGE_PIXELS = 61440 * 34560
-# Image.MAX_IMAGE_PIXELS = None
 
 
 class WallpaperController:
     def __init__(self) -> None:
-        self._worker_loop_thread: threading.Thread | None = None
+        self._work_loop_thread: threading.Thread | None = None
         self._task_queue: queue.PriorityQueue[tuple[int, int, Task]] = queue.PriorityQueue()
         self._task_counter = ThreadSafeCounter()
         self._config_store: ConfigStore = ConfigStore()
         self._resource_manager: ResourceManager = ResourceManager()
         self._display_manager: DisplayManager = DisplayManager()
         BaseResource.register_update_canvas(self._display_manager.update_canvas)
-        BaseResource.register_plot_canvas(self.add_plot_canvas_task)
+        BaseResource.register_plot_canvas(self.add_apply_scene_task)
         self._trigger_manager: TriggerManager = TriggerManager()
         self._trigger_manager.add_callback(self.evaluate)
         self._rule_engine: RuleEngine = RuleEngine()
@@ -61,14 +59,24 @@ class WallpaperController:
         self.active_rule: Rule | None = None
         self.active_target: str | None = None
 
-    def _worker_loop(self) -> None:
-        logger.debug("worker loop thread start")
+    def _work_loop(self) -> None:
+        logger.debug("wallpaper controller work loop start")
+
+        # Deprecated ApplySceneTasks, finished once the superseding render completes.
+        deferred_plots: list[ApplySceneTask] = []
+
         while True:
-            _priority, _count, task = self._task_queue.get()
+            priority, _count, task = self._task_queue.get()
+            logger.debug(
+                f"work loop task: {task.__class__.__name__} (id: {id(task)} priority: {priority})"
+            )
 
             if isinstance(task, QuitTask):
-                logger.debug("worker loop thread receive QUIT signal.")
+                for deferred in deferred_plots:
+                    deferred.mark_finish()
+                deferred_plots.clear()
                 task.mark_finish()
+                self._task_queue.task_done()
                 break
 
             elif isinstance(task, ModeSwitchTask):
@@ -79,40 +87,102 @@ class WallpaperController:
                     self._trigger_manager.pause()
                 else:
                     raise RuntimeError(f"invalid mode {task.target_mode.name}")
-                logger.info(f"mode: {task.target_mode.name}")
+                logger.info(f"wallpaper controler mode set to {task.target_mode.name}")
                 self._mode = task.target_mode
+                self.update_system_tray()
+                task.mark_finish()
 
-            elif isinstance(task, TargetSetTask):
-                self._display_manager.update_display()
-                resources = self._resource_manager.evaluate_target(task.target)
-                if resources is not None:
-                    for p, r in resources.items():
-                        self._display_manager.update_resource(p, r)
-                    self.active_target = task.target
-                    self.active_rule = task.matched_rule
-                    with self._task_queue.mutex:
-                        has_newer_update = any(
-                            isinstance(t, PlotCanvasTask) for _p, _c, t in self._task_queue.queue
+            elif isinstance(task, UpdateSceneTask):
+                try:
+                    display_info = self._display_manager.update_display()
+                    if display_info is not None:
+                        scenes = self._resource_manager.evaluate_target(
+                            target=task.target, display_info=display_info
                         )
-                    if not has_newer_update:
-                        self._display_manager.plot_canvas()
-                    else:
-                        logger.debug("Skipping canvas plot; a newer update task is already queued.")
+                        for scene in scenes:
+                            self._display_manager.update_display_scene(
+                                scene.display_id, scene.resource, scene.resolution, scene.scale
+                            )
+                        self.active_target = task.target
+                        self.active_rule = task.matched_rule
+                        self.add_apply_scene_task()
+                        self.update_system_tray()
+                except Exception as e:
+                    logger.exception(e)
+                finally:
+                    task.mark_finish()
 
-            elif isinstance(task, PlotCanvasTask):
-                self._display_manager.update_display()
-                self._display_manager.plot_canvas()
+            elif isinstance(task, ApplySceneTask):
+                # A task takes exactly one of two mutually exclusive branches.
+                with self._task_queue.mutex:
+                    newest_queued = max(
+                        (
+                            (c, t)
+                            for _p, c, t in self._task_queue.queue
+                            if isinstance(t, ApplySceneTask)
+                        ),
+                        key=lambda pair: pair[0],
+                        default=None,
+                    )
+                if newest_queued is not None:
+                    # Deprecated branch: a newer ApplySceneTask is already
+                    # queued, so this task is skipped and its completion is
+                    # deferred to the superseding render.
+                    _, newest_task = newest_queued
+                    logger.debug(
+                        "ApplySceneTask (id: %d) deprecated by newer ApplySceneTask (id: %d)",
+                        id(task),
+                        id(newest_task),
+                    )
+                    deferred_plots.append(task)
+                else:
+                    # Renderer branch: this task is the newest, so it renders,
+                    # then finishes the deprecated tasks and pops redundant
+                    # plots enqueued while it ran.
+                    rendered = False
+                    try:
+                        self._display_manager.update_display()
+                        self._display_manager.apply_display_scene()
+                        rendered = True
+                    except Exception as e:
+                        logger.exception(e)
+                    if rendered:
+                        with self._task_queue.mutex:
+                            pending = list(self._task_queue.queue)
+                            all_plots = all(isinstance(t, ApplySceneTask) for _p, _c, t in pending)
+                            if all_plots:
+                                self._task_queue.queue.clear()
+                        if all_plots:
+                            # Only plot tasks are queued (no non-plot task that
+                            # would change the canvas buffer next): this render
+                            # already covered the latest canvas — finish the
+                            # deprecated tasks it served (older, logged first),
+                            # then pop the redundant plots enqueued while it ran.
+                            for deferred in deferred_plots:
+                                logger.debug(
+                                    "ApplySceneTask (id: %d) deprecated; finished",
+                                    id(deferred),
+                                )
+                                deferred.mark_finish()
+                            deferred_plots.clear()
+                            for _p, _c, t in pending:
+                                logger.debug(
+                                    "ApplySceneTask (id: %d) redundant; popped",
+                                    id(t),
+                                )
+                                t.mark_finish()
+                                self._task_queue.task_done()
+                    task.mark_finish()
 
-            task.mark_finish()
-            self.update_system_tray()
             self._task_queue.task_done()
 
-        logger.debug("worker loop thread exit")
+        logger.debug("wallpaper controller work loop stop")
 
     def load_config(self, config_path: str) -> None:
-        """
-        load and verify config from YAML config file
-        init managers accordingly
+        """Load and verify the YAML config, initializing managers accordingly.
+
+        Args:
+            config_path: Path to the YAML config file.
         """
         self._config_store.load(config_path)
 
@@ -148,13 +218,13 @@ class WallpaperController:
         self._task_queue.put((priority, next(self._task_counter), t))
         return t
 
-    def add_set_target_task(
+    def add_update_scene_task(
         self,
         target: str,
         matched_rule: Rule | None = None,
         priority: int | None = None,
-    ) -> TargetSetTask:
-        t = TargetSetTask(
+    ) -> UpdateSceneTask:
+        t = UpdateSceneTask(
             target=target,
             matched_rule=matched_rule,
         )
@@ -162,20 +232,28 @@ class WallpaperController:
         self._task_queue.put((priority, next(self._task_counter), t))
         return t
 
-    def add_plot_canvas_task(self, priority: int | None = None) -> PlotCanvasTask:
-        t = PlotCanvasTask()
+    def add_apply_scene_task(self, priority: int | None = None) -> ApplySceneTask:
+        """Enqueue a :class:`ApplySceneTask` for the work loop to render.
+
+        No coalescing happens here — every request is enqueued unconditionally.
+        The work loop owns the decision: if a newer ``ApplySceneTask`` is
+        already queued, the older one is deprecated and skipped (the newer one
+        renders the latest buffered canvas).
+        """
         priority = 10 if priority is None else priority
+        t = ApplySceneTask()
         self._task_queue.put((priority, next(self._task_counter), t))
         return t
 
     def at_display_change(self, _trigger: BaseTrigger) -> None:
         logger.info("Detect display change.")
-        self.add_plot_canvas_task()
+        self.add_apply_scene_task()
 
     def evaluate(self) -> None:
-        """
-        callback function of trigger_manager
-        evaluate condition according to rule, and then mount resoruce
+        """Re-evaluate rules against current conditions and enqueue the resulting target.
+
+        Called by :class:`TriggerManager` when a trigger fires; falls back to
+        the configured fallback target when no rule matches.
         """
         active_rule = self._rule_engine.evaluate()
         if active_rule is None:
@@ -183,11 +261,16 @@ class WallpaperController:
         else:
             target = active_rule.target
 
-        self.add_set_target_task(target=target, matched_rule=active_rule)
+        self.add_update_scene_task(target=target, matched_rule=active_rule)
 
     def set_tray(self, tray: WallpaperSwitchSystemTray) -> None:
-        """
-        bind system try to controller
+        """Bind the system tray to the controller.
+
+        Registers the tray's mode/target/quit/update handlers against the
+        controller.
+
+        Args:
+            tray: The system tray to bind.
         """
         self._tray = tray
 
@@ -195,7 +278,7 @@ class WallpaperController:
             self.add_set_mode_task(mode)
 
         def _set_target(target: str) -> None:
-            self.add_set_target_task(target=target)
+            self.add_update_scene_task(target=target)
 
         self._tray.bridge.register_set_mode_handler(_set_mode)
         self._tray.bridge.register_select_target_handler(_set_target)
@@ -206,13 +289,13 @@ class WallpaperController:
         target = self._config_store.at_shutdown_target
         if target is None:
             return
-        task = self.add_set_target_task(target=target, matched_rule=None, priority=0)
-        task.wait(timeout=5)
+        logger.info(f"apply at shutdown target {target}")
+        update_task = self.add_update_scene_task(target=target, matched_rule=None, priority=1)
+        plot_task = self.add_apply_scene_task(priority=2)
+        update_task.wait(timeout=5)
+        plot_task.wait(timeout=5)
 
     def start(self) -> None:
-        logger.info("wallpaper controller start")
-        signal.signal(signal.SIGINT, lambda sig, frame: self.stop())
-        signal.signal(signal.SIGTERM, lambda sig, frame: self.stop())
 
         self._mode = Mode.AUTO
 
@@ -221,23 +304,29 @@ class WallpaperController:
 
         self._display_trigger.start()
         self._display_manager.start()
-        self._worker_loop_thread = threading.Thread(target=self._worker_loop)
-        self._worker_loop_thread.start()
-        self.evaluate()
         self._trigger_manager.activate()
+
+        self._work_loop_thread = threading.Thread(target=self._work_loop, daemon=True)
+        self._work_loop_thread.start()
+        self.evaluate()
         at_system_shutdown.register(self.at_shutdown)
 
     def stop(self) -> None:
-        logger.info("wallpaper controller stop")
-        self._display_trigger.stop()
-        if self._worker_loop_thread is None:
-            raise RuntimeError("worker loop thread not start yet")
-        self.add_quit_task()
-        self._worker_loop_thread.join()
-        self._worker_loop_thread = None
-        self._trigger_manager.deactivate()
-        self._display_manager.stop()
+        if self._work_loop_thread is None:
+            raise RuntimeError("work loop thread not start yet")
+
+        self.at_shutdown()
         at_system_shutdown.unregister(self.at_shutdown)
+
+        self.add_quit_task()
+        self._work_loop_thread.join()
+        self._work_loop_thread = None
+
+        self._trigger_manager.deactivate()
+        restore_original = self._config_store.at_shutdown_target is None
+        self._display_manager.stop(restore_original=restore_original)
+        self._display_trigger.stop()
+
         if self._tray is not None:
             app = self._tray._app
             self._tray.hide()

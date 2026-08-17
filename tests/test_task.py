@@ -1,11 +1,11 @@
 """Tests for task.py — task __hash__ and task type coverage."""
 
 from wallpaper_auto.task import (
+    ApplySceneTask,
     Mode,
     ModeSwitchTask,
-    PlotCanvasTask,
     QuitTask,
-    TargetSetTask,
+    UpdateSceneTask,
 )
 
 
@@ -16,9 +16,9 @@ class TestBaseTaskHash:
         task = QuitTask()
         assert hash(task) == task.id
 
-    def test_hash_uses_default_uuid_int_id(self):
+    def test_default_id_is_positive_int(self):
         task = QuitTask()
-        # uuid.uuid4().int produces a 128-bit positive int.
+        # secrets.randbits(63) produces a 63-bit non-negative int.
         assert isinstance(task.id, int)
         assert task.id > 0
 
@@ -40,8 +40,8 @@ class TestBaseTaskHash:
 
     def test_hash_consistent_across_types(self):
         switch = ModeSwitchTask(target_mode=Mode.AUTO)
-        target = TargetSetTask(target="r1", matched_rule=None)
-        plot = PlotCanvasTask()
+        target = UpdateSceneTask(target="r1", matched_rule=None)
+        plot = ApplySceneTask()
         assert hash(switch) == switch.id
         assert hash(target) == target.id
         assert hash(plot) == plot.id
@@ -66,7 +66,7 @@ class TestBaseTaskCompletion:
         assert task.wait(timeout=0) is True
 
     def test_mark_finish_sets_completed_event(self):
-        task = TargetSetTask(target="r1", matched_rule=None)
+        task = UpdateSceneTask(target="r1", matched_rule=None)
         assert task.completed_event.is_set() is False
         task.mark_finish()
         assert task.completed_event.is_set() is True

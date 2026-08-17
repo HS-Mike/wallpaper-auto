@@ -1,13 +1,13 @@
 """Tests for wallpaper_controller.py — controller lifecycle and task processing."""
 
-import signal
-from unittest.mock import ANY, MagicMock, call, patch
+import threading
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from wallpaper_auto.models import Rule
 from wallpaper_auto.resource.base_resource import BaseResource
-from wallpaper_auto.task import Mode, ModeSwitchTask, PlotCanvasTask, QuitTask, TargetSetTask
+from wallpaper_auto.task import ApplySceneTask, Mode, ModeSwitchTask, QuitTask, UpdateSceneTask
 from wallpaper_auto.wallpaper_controller import WallpaperController
 
 
@@ -40,15 +40,15 @@ def _make_task(task, priority=5, counter=0):
 
 
 def _quit_after(*tasks):
-    """Append a QuitTask after *tasks for terminating the worker loop."""
+    """Append a QuitTask after *tasks for terminating the work loop."""
     return [*tasks, _make_task(QuitTask(), priority=100)]
 
 
-def _cleanup_worker(controller):
-    """Safety net: kill the worker thread if ``stop()`` was never reached."""
-    if controller._worker_loop_thread is not None:
+def _cleanup_work(controller):
+    """Safety net: kill the work thread if ``stop()`` was never reached."""
+    if controller._work_loop_thread is not None:
         controller._task_queue.put(_make_task(QuitTask(), priority=0))
-        controller._worker_loop_thread.join()
+        controller._work_loop_thread.join()
 
 
 @pytest.fixture
@@ -64,7 +64,7 @@ class TestWallpaperControllerInit:
         [
             ("_mode", Mode.UNSET),
             ("active_rule", None),
-            ("_worker_loop_thread", None),
+            ("_work_loop_thread", None),
             ("_tray", None),
         ],
     )
@@ -91,7 +91,7 @@ class TestWallpaperControllerInit:
         controller = WallpaperController()
 
         assert registered["update_canvas"] == controller._display_manager.update_canvas
-        assert registered["plot_canvas"] == controller.add_plot_canvas_task
+        assert registered["plot_canvas"] == controller.add_apply_scene_task
 
 
 class TestWallpaperControllerLoadConfig:
@@ -135,13 +135,13 @@ class TestWallpaperControllerLoadConfig:
         re_init.assert_called_once_with([])
 
 
-class TestWallpaperControllerWorkerLoop:
-    """_worker_loop() processes tasks from the queue until it sees a QUIT."""
+class TestWallpaperControllerWorkLoop:
+    """_work_loop() processes tasks from the queue until it sees a QUIT."""
 
     def test_quit_breaks_loop(self, controller):
         """A single QUIT task causes the loop to exit cleanly."""
         controller._task_queue.put(_make_task(QuitTask(), priority=0))
-        controller._worker_loop()
+        controller._work_loop()
         # If we get here without hanging, the test passes.
 
     def test_mode_switch_auto_resumes_triggers(self, controller):
@@ -149,11 +149,11 @@ class TestWallpaperControllerWorkerLoop:
         _mock_config_store(controller)
         controller._display_manager = MagicMock()
         controller._resource_manager = MagicMock()
-        controller._resource_manager.evaluate_target.return_value = {}
+        controller._resource_manager.evaluate_target.return_value = []
         for t in _quit_after(_make_task(ModeSwitchTask(target_mode=Mode.AUTO))):
             controller._task_queue.put(t)
 
-        controller._worker_loop()
+        controller._work_loop()
 
         controller._trigger_manager.resume.assert_called_once()
         assert controller._mode == Mode.AUTO
@@ -163,7 +163,7 @@ class TestWallpaperControllerWorkerLoop:
         for t in _quit_after(_make_task(ModeSwitchTask(target_mode=Mode.MANUAL))):
             controller._task_queue.put(t)
 
-        controller._worker_loop()
+        controller._work_loop()
 
         controller._trigger_manager.pause.assert_called_once()
         assert controller._mode == Mode.MANUAL
@@ -173,28 +173,31 @@ class TestWallpaperControllerWorkerLoop:
             controller._task_queue.put(t)
 
         with pytest.raises(RuntimeError, match="invalid mode"):
-            controller._worker_loop()
+            controller._work_loop()
 
     def test_target_set_calls_evaluate_target(self, controller):
         controller._resource_manager = MagicMock()
-        controller._resource_manager.evaluate_target.return_value = {}
+        controller._resource_manager.evaluate_target.return_value = []
         controller._display_manager = MagicMock()
-        for t in _quit_after(_make_task(TargetSetTask(target="res_x", matched_rule=None))):
+        controller._display_manager.update_display.return_value = []
+        for t in _quit_after(_make_task(UpdateSceneTask(target="res_x", matched_rule=None))):
             controller._task_queue.put(t)
 
-        controller._worker_loop()
+        controller._work_loop()
 
-        controller._resource_manager.evaluate_target.assert_called_once_with("res_x")
+        controller._resource_manager.evaluate_target.assert_called_once_with(
+            target="res_x", display_info=[]
+        )
 
     def test_update_system_tray_called_after_each_non_quit_task(self, controller):
         controller._resource_manager = MagicMock()
-        controller._resource_manager.evaluate_target.return_value = {}
+        controller._resource_manager.evaluate_target.return_value = []
         controller._display_manager = MagicMock()
-        for t in _quit_after(_make_task(TargetSetTask(target="r1", matched_rule=None))):
+        for t in _quit_after(_make_task(UpdateSceneTask(target="r1", matched_rule=None))):
             controller._task_queue.put(t)
 
         with patch.object(controller, "update_system_tray") as mock_update:
-            controller._worker_loop()
+            controller._work_loop()
 
         # Called after TARGET_SET processing, *not* after QUIT.
         mock_update.assert_called_once()
@@ -213,7 +216,7 @@ class TestWallpaperControllerEvaluate:
         controller.evaluate()
 
         _prio, _cnt, task = controller._task_queue.get_nowait()
-        assert isinstance(task, TargetSetTask)
+        assert isinstance(task, UpdateSceneTask)
         assert task.target == "work_res"
         assert task.matched_rule is rule
 
@@ -224,7 +227,7 @@ class TestWallpaperControllerEvaluate:
         controller.evaluate()
 
         _prio, _cnt, task = controller._task_queue.get_nowait()
-        assert isinstance(task, TargetSetTask)
+        assert isinstance(task, UpdateSceneTask)
         assert task.target == "fallback_res"
         assert task.matched_rule is None
 
@@ -306,18 +309,18 @@ class TestWallpaperControllerSetTray:
         assert isinstance(task, ModeSwitchTask)
         assert task.target_mode == Mode.MANUAL
 
-    def test_select_target_handler_wraps_add_set_target_task(self, controller):
+    def test_select_target_handler_wraps_add_update_scene_task(self, controller):
         mock_tray = MagicMock()
         controller.set_tray(mock_tray)
         handler = mock_tray.bridge.register_select_target_handler.call_args[0][0]
         handler("some_target")
         _prio, _cnt, task = controller._task_queue.get_nowait()
-        assert isinstance(task, TargetSetTask)
+        assert isinstance(task, UpdateSceneTask)
         assert task.target == "some_target"
 
 
 class TestWallpaperControllerTaskHelpers:
-    """add_set_mode_task / add_set_resource_id_task enqueue correct tasks."""
+    """add_set_mode_task / add_update_scene_task enqueue correct tasks."""
 
     def test_add_set_mode_task_enqueues(self, controller):
         controller.add_set_mode_task(Mode.MANUAL)
@@ -325,61 +328,161 @@ class TestWallpaperControllerTaskHelpers:
         assert isinstance(task, ModeSwitchTask)
         assert task.target_mode == Mode.MANUAL
 
-    def test_add_set_target_task_enqueues(self, controller):
-        controller.add_set_target_task(target="my_res")
+    def test_add_update_scene_task_enqueues(self, controller):
+        controller.add_update_scene_task(target="my_res")
         _prio, _cnt, task = controller._task_queue.get_nowait()
-        assert isinstance(task, TargetSetTask)
+        assert isinstance(task, UpdateSceneTask)
         assert task.target == "my_res"
 
-    def test_add_plot_canvas_task_respects_explicit_priority(self, controller):
-        controller.add_plot_canvas_task(priority=3)
+    def test_add_apply_scene_task_respects_explicit_priority(self, controller):
+        controller.add_apply_scene_task(priority=3)
         prio, _cnt, task = controller._task_queue.get_nowait()
-        assert isinstance(task, PlotCanvasTask)
+        assert isinstance(task, ApplySceneTask)
         assert prio == 3
 
 
 class TestWallpaperControllerTargetSetBranches:
     """TARGET_SET branches covering resource dispatch and the plot-canvas coalescing."""
 
-    def _setup(self, controller, resources_per_monitor=None):
+    def _setup(self, controller, targets=None):
         controller._resource_manager = MagicMock()
-        controller._resource_manager.evaluate_target.return_value = resources_per_monitor or {}
+        controller._resource_manager.evaluate_target.return_value = (
+            targets if targets is not None else []
+        )
         controller._display_manager = MagicMock()
+        controller._display_manager.update_display.return_value = []
+        # Mirror the real apply_display_scene(), which composites (plot_canvas) at the end.
+        controller._display_manager.apply_display_scene.side_effect = lambda: (
+            controller._display_manager.plot_canvas()
+        )
         return controller
 
     def test_target_set_dispatches_each_resource(self, controller):
-        r1, r2 = MagicMock(), MagicMock()
-        self._setup(controller, {"monA": r1, "monB": r2})
+        from wallpaper_auto.resource_manager import DisplayScene
+        from wallpaper_auto.util.display_utils import DisplayId
 
-        for t in _quit_after(_make_task(TargetSetTask(target="r1", matched_rule=None))):
+        t1 = DisplayScene(
+            display_id=DisplayId(1), resource=MagicMock(name="r1"), resolution=None, scale=None
+        )
+        t2 = DisplayScene(
+            display_id=DisplayId(2), resource=MagicMock(name="r2"), resolution=None, scale=None
+        )
+        self._setup(controller, [t1, t2])
+
+        for t in _quit_after(_make_task(UpdateSceneTask(target="r1", matched_rule=None))):
             controller._task_queue.put(t)
-        controller._worker_loop()
+        controller._work_loop()
 
-        controller._display_manager.update_resource.assert_any_call("monA", r1)
-        controller._display_manager.update_resource.assert_any_call("monB", r2)
+        controller._display_manager.update_display_scene.assert_any_call(
+            t1.display_id, t1.resource, t1.resolution, t1.scale
+        )
+        controller._display_manager.update_display_scene.assert_any_call(
+            t2.display_id, t2.resource, t2.resolution, t2.scale
+        )
         assert controller.active_target == "r1"
         controller._display_manager.plot_canvas.assert_called_once()
 
     def test_target_set_skips_plot_when_newer_canvas_queued(self, controller):
         """If a PLOT_CANVAS is already pending, the controller skips its own plot call."""
-        self._setup(controller, {"monA": MagicMock()})
+        self._setup(controller, [MagicMock()])
 
         for t in _quit_after(
-            _make_task(PlotCanvasTask(), priority=8),
-            _make_task(TargetSetTask(target="r1", matched_rule=None), priority=5),
+            _make_task(ApplySceneTask(), priority=8),
+            _make_task(UpdateSceneTask(target="r1", matched_rule=None), priority=5),
         ):
             controller._task_queue.put(t)
 
         with patch("wallpaper_auto.wallpaper_controller.logger") as mock_logger:
-            controller._worker_loop()
+            controller._work_loop()
 
         assert controller._display_manager.plot_canvas.call_count == 1
-        assert any("Skipping canvas plot" in str(c) for c in mock_logger.debug.call_args_list)
+        assert any("deprecated by newer" in str(c) for c in mock_logger.debug.call_args_list)
+
+    def test_target_set_error_is_logged(self, controller):
+        """An exception while resolving a target is logged; the task still finishes."""
+        self._setup(controller)
+        controller._resource_manager.evaluate_target.side_effect = RuntimeError("boom")
+
+        for t in _quit_after(_make_task(UpdateSceneTask(target="r1", matched_rule=None))):
+            controller._task_queue.put(t)
+
+        with patch("wallpaper_auto.wallpaper_controller.logger") as mock_logger:
+            controller._work_loop()
+
+        mock_logger.exception.assert_called_once()
+
+    def test_render_error_is_logged(self, controller):
+        """An exception during rendering is logged; the task still finishes."""
+        self._setup(controller)
+        controller._display_manager.apply_display_scene.side_effect = RuntimeError("boom")
+
+        for t in _quit_after(_make_task(ApplySceneTask(), priority=5)):
+            controller._task_queue.put(t)
+
+        with patch("wallpaper_auto.wallpaper_controller.logger") as mock_logger:
+            controller._work_loop()
+
+        mock_logger.exception.assert_called_once()
+
+    def test_older_plot_is_deprecated_by_newer(self, controller):
+        """A plot superseded by a newer queued plot is deprecated, not rendered."""
+        self._setup(controller)
+        older = ApplySceneTask()
+        newer = ApplySceneTask()
+
+        for t in _quit_after(
+            _make_task(older, priority=5, counter=0),
+            _make_task(newer, priority=10, counter=1),
+        ):
+            controller._task_queue.put(t)
+
+        with patch("wallpaper_auto.wallpaper_controller.logger") as mock_logger:
+            controller._work_loop()
+
+        assert any("deprecated by newer" in str(c) for c in mock_logger.debug.call_args_list)
+        # Only the newest plot renders; the deprecated one never reaches the renderer.
+        assert controller._display_manager.plot_canvas.call_count == 1
+        assert older.wait(timeout=0)
+        assert newer.wait(timeout=0)
+
+    def test_renderer_finishes_deprecated_and_pops_redundant_plots(self, controller):
+        """The newest plot renders, finishing deprecated ones and popping redundant ones."""
+        self._setup(controller)
+        deprecated = ApplySceneTask()
+        renderer = ApplySceneTask()
+        redundant = ApplySceneTask()
+
+        def _enqueue_redundant_plot() -> None:
+            controller._task_queue.put(_make_task(redundant, priority=10, counter=2))
+
+        controller._display_manager.apply_display_scene.side_effect = _enqueue_redundant_plot
+
+        controller._task_queue.put(_make_task(deprecated, priority=5, counter=0))
+        controller._task_queue.put(_make_task(renderer, priority=10, counter=1))
+
+        thread = threading.Thread(target=controller._work_loop)
+        thread.start()
+        try:
+            # The renderer marks itself finished only after the cleanup; wait for
+            # that, then enqueue QUIT so the loop exits instead of blocking.
+            assert renderer.wait(timeout=5)
+            controller._task_queue.put(_make_task(QuitTask(), priority=100))
+            thread.join(timeout=5)
+        finally:
+            if thread.is_alive():
+                controller._task_queue.put(_make_task(QuitTask(), priority=0))
+                thread.join(timeout=1)
+
+        assert not thread.is_alive()
+        assert deprecated.wait(timeout=0)
+        assert renderer.wait(timeout=0)
+        assert redundant.wait(timeout=0)
+        assert controller._task_queue.qsize() == 0
 
 
 class TestWallpaperControllerAtDisplayChange:
     def test_at_display_change_enqueues_plot_canvas(self, controller):
-        with patch.object(controller, "add_plot_canvas_task") as mock_add:
+        with patch.object(controller, "add_apply_scene_task") as mock_add:
             controller.at_display_change(MagicMock())
         mock_add.assert_called_once()
 
@@ -411,30 +514,11 @@ class TestThreadSafeCounter:
 class TestWallpaperControllerLifecycle:
     """start() and stop() – controller lifecycle."""
 
-    def test_starts_worker_thread_and_sets_mode_auto(self, controller):
+    def test_starts_work_thread_and_sets_mode_auto(self, controller):
         _start_controller(controller)
-        assert controller._worker_loop_thread is not None
-        assert controller._worker_loop_thread.is_alive()
+        assert controller._work_loop_thread is not None
+        assert controller._work_loop_thread.is_alive()
         assert controller._mode == Mode.AUTO
-        with patch.object(controller._display_manager, "stop"):
-            controller.stop()
-
-    def test_registers_signal_handlers(self, controller):
-        _mock_config_store(controller)
-        with (
-            patch.object(controller, "evaluate"),
-            patch.object(controller, "_display_trigger"),
-            patch.object(controller._display_manager, "start"),
-            patch("signal.signal") as mock_signal,
-        ):
-            controller.start()
-        assert mock_signal.call_count == 2
-        mock_signal.assert_has_calls(
-            [
-                call(signal.SIGINT, ANY),
-                call(signal.SIGTERM, ANY),
-            ]
-        )
         with patch.object(controller._display_manager, "stop"):
             controller.stop()
 
@@ -448,16 +532,16 @@ class TestWallpaperControllerLifecycle:
 
     def test_stop_raises_when_thread_not_started(self, controller):
         with patch.object(controller._display_trigger, "stop"):
-            with pytest.raises(RuntimeError, match="worker loop thread not start"):
+            with pytest.raises(RuntimeError, match="work loop thread not start"):
                 controller.stop()
 
     def test_stop_joins_thread_and_cleans_up(self, controller):
         _start_controller(controller)
         with patch.object(controller._display_manager, "stop"):
             controller.stop()
-        assert controller._worker_loop_thread is None
+        assert controller._work_loop_thread is None
         assert controller._task_queue.qsize() == 0
-        _cleanup_worker(controller)
+        _cleanup_work(controller)
 
     def test_stop_deactivates_triggers_and_stops_display(self, controller):
         _start_controller(controller)
@@ -468,7 +552,7 @@ class TestWallpaperControllerLifecycle:
             controller.stop()
         mock_deact.assert_called_once()
         mock_display_stop.assert_called_once()
-        _cleanup_worker(controller)
+        _cleanup_work(controller)
 
     @pytest.mark.parametrize("app", [MagicMock(), None], ids=["with_app", "without_app"])
     def test_stop_hides_tray_and_optionally_quits_app(self, controller, app):
@@ -481,7 +565,7 @@ class TestWallpaperControllerLifecycle:
         mock_tray.hide.assert_called_once()
         if app is not None:
             app.quit.assert_called_once()
-        _cleanup_worker(controller)
+        _cleanup_work(controller)
 
     def test_stop_unregisters_shutdown_callback(self, controller):
         """stop() should unregister the at-shutdown callback to prevent restart leaks."""
@@ -492,7 +576,7 @@ class TestWallpaperControllerLifecycle:
         ):
             controller.stop()
         mock_atsd.unregister.assert_called_once_with(controller.at_shutdown)
-        _cleanup_worker(controller)
+        _cleanup_work(controller)
 
     def test_stop_called_twice_raises_on_second_call(self, controller):
         """After a successful stop(), a second stop() raises RuntimeError."""
@@ -500,9 +584,9 @@ class TestWallpaperControllerLifecycle:
         with patch.object(controller._display_manager, "stop"):
             controller.stop()
         with patch.object(controller._display_manager, "stop"):
-            with pytest.raises(RuntimeError, match="worker loop thread not start"):
+            with pytest.raises(RuntimeError, match="work loop thread not start"):
                 controller.stop()
-        _cleanup_worker(controller)
+        _cleanup_work(controller)
 
 
 class TestWallpaperControllerAtShutdown:
@@ -515,15 +599,15 @@ class TestWallpaperControllerAtShutdown:
         # No crash = success
 
     def test_queues_target_task_on_shutdown(self, controller):
-        """at_shutdown() queues a TargetSetTask at priority 0."""
+        """at_shutdown() queues an UpdateSceneTask at priority 1."""
         _mock_config_store(controller, at_shutdown_target="shutdown_res")
         with (
-            patch.object(controller, "add_set_target_task") as mock_add,
+            patch.object(controller, "add_update_scene_task") as mock_add,
             patch("threading.Event.wait"),
         ):
             controller.at_shutdown()
         mock_add.assert_called_once_with(
             target="shutdown_res",
             matched_rule=None,
-            priority=0,
+            priority=1,
         )

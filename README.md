@@ -211,6 +211,9 @@ wallpaper-auto -c /path/to/config.yaml
 
 # Set log level
 wallpaper-auto -l INFO
+
+# Log to a file (console-only by default)
+wallpaper-auto --log-file /path/to/log.txt
 ```
 
 Or start programmatically from Python:

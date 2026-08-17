@@ -20,9 +20,7 @@ _LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
 class TestSetupLogging:
-    """``_setup_logging()`` configures the root logger."""
-
-    def test_uses_basicConfig(self) -> None:  # noqa: N802
+    def test_configures_root_logger(self) -> None:
         with patch("wallpaper_auto.service.logging.basicConfig") as mock_bc:
             _setup_logging("INFO")
         mock_bc.assert_called_once()
@@ -50,11 +48,29 @@ class TestSetupLogging:
         assert "%(thread)" in fmt
         assert "%(message)s" in fmt
 
+    def test_no_file_handler_by_default(self) -> None:
+        with (
+            patch("wallpaper_auto.service.logging.basicConfig"),
+            patch("wallpaper_auto.service.logging.FileHandler") as mock_fh,
+        ):
+            _setup_logging("INFO")
+        mock_fh.assert_not_called()
+
+    def test_adds_file_handler_when_log_file_given(self) -> None:
+        with (
+            patch("wallpaper_auto.service.logging.basicConfig"),
+            patch("wallpaper_auto.service.logging.FileHandler") as mock_fh,
+            patch("wallpaper_auto.service.logging.getLogger"),
+        ):
+            _setup_logging("INFO", "app.log")
+        mock_fh.assert_called_once_with("app.log", encoding="utf-8")
+        handler = mock_fh.return_value
+        handler.setLevel.assert_called_once_with(logging.INFO)
+        handler.setFormatter.assert_called_once()
+
 
 class TestBuildParser:
-    """``_build_parser()`` creates the CLI argument parser."""
-
-    def test_prog_name(self) -> None:
+    def test_program_name(self) -> None:
         parser = _build_parser()
         assert parser.prog == "wallpaper-auto"
 
@@ -85,6 +101,18 @@ class TestBuildParser:
         parser = _build_parser()
         args = parser.parse_args(cli_args)
         assert args.log_level == expected_level
+
+    @pytest.mark.parametrize(
+        ("cli_args", "expected_log_file"),
+        [
+            pytest.param([], None, id="default"),
+            pytest.param(["--log-file", "app.log"], "app.log", id="long_opt"),
+        ],
+    )
+    def test_log_file(self, cli_args: list[str], expected_log_file: str | None) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(cli_args)
+        assert args.log_file == expected_log_file
 
     def test_init_config_subcommand(self) -> None:
         parser = _build_parser()
@@ -121,7 +149,7 @@ class TestRunServiceCLIMode:
             pytest.param(["wp", "-c", "prod.yaml", "-l", "INFO"], "prod.yaml", id="custom"),
         ],
     )
-    def test_cli_basic(
+    def test_cli_forwards_config_to_impl(
         self,
         sys_argv: list[str],
         expected_config: str,
@@ -175,7 +203,6 @@ class TestRunServiceCLIMode:
         mock_impl.assert_not_called()
 
     def test_cli_custom_triggers_forwarded(self) -> None:
-        """Custom component registrations are forwarded to _run_service_impl."""
         t_cls: Any = MagicMock()
         r_cls: Any = MagicMock()
         e_inst: Any = MagicMock()
@@ -209,8 +236,6 @@ class TestRunServiceCLIMode:
 
 
 class TestRunServiceCLIErrors:
-    """Error paths in CLI mode."""
-
     def test_init_config_file_exists_exits(self) -> None:
         with (
             patch("sys.argv", ["wp", "init-config", "out.yaml"]),
@@ -237,7 +262,6 @@ class TestRunServiceCLIErrors:
         assert exc_info.value.code == 1
 
     def test_non_runtime_error_propagates(self) -> None:
-        """Non-``RuntimeError`` exceptions from ``_run_service_impl`` propagate."""
         with (
             patch("sys.argv", ["wp"]),
             patch("wallpaper_auto.process_mutex.ProcessMutex"),
@@ -272,8 +296,6 @@ class _FakeEvaluator(BaseEvaluator):  # type: ignore[misc]
 
 
 class TestRunServiceImpl:
-    """``_run_service_impl()`` startup logic."""
-
     @pytest.mark.parametrize(
         ("kwarg_name", "registry", "name", "value"),
         [
@@ -307,7 +329,6 @@ class TestRunServiceImpl:
         name: str,
         value: Any,
     ) -> None:
-        """A custom component is registered with the manager."""
         with (
             patch("wallpaper_auto.service.WallpaperController"),
             patch("wallpaper_auto.service.WallpaperSwitchSystemTray"),
