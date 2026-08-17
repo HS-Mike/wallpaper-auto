@@ -50,14 +50,23 @@ from .trigger_manager import TriggerManager
 from .wallpaper_controller import WallpaperController
 
 _LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
+_LOG_FORMAT = "%(asctime)s  %(module)-25s  %(levelname)-7s  %(thread)-6d  %(message)s"
 
 
-def _setup_logging(level: _LogLevel) -> None:
-    """Configure the root logger for the CLI."""
-    logging.basicConfig(
-        level=getattr(logging, level),
-        format="%(asctime)s  %(levelname)-7s  %(thread)-6d  %(message)s",
-    )
+def _setup_logging(level: _LogLevel, log_file: Optional[str] = None) -> None:  # noqa: UP045
+    """Configure the root logger for the CLI.
+
+    Writes to the console (default stream handler) and, when *log_file* is
+    given, to that file.  The file handler is thread-safe:
+    ``logging.Handler.emit()`` is serialized by an internal lock, so
+    concurrent log calls from the app's threads do not interleave writes.
+    """
+    logging.basicConfig(level=getattr(logging, level), format=_LOG_FORMAT)
+    if log_file is not None:
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        file_handler.setLevel(getattr(logging, level))
+        file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+        logging.getLogger().addHandler(file_handler)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -71,6 +80,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default="DEBUG",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help="Logging level",
+    )
+    parser.add_argument(
+        "--log-file",
+        default=None,
+        help="Path to log file (console-only logging if omitted)",
     )
 
     subparsers = parser.add_subparsers(dest="subcommand")
@@ -143,7 +157,7 @@ def run_service(
 
         # Subcommand: init-config
         if args.subcommand == "init-config":
-            _setup_logging(args.log_level)
+            _setup_logging(args.log_level, args.log_file)
             try:
                 generate_template(args.output, force=args.force)
             except FileExistsError as e:
@@ -153,7 +167,7 @@ def run_service(
 
         log_level = args.log_level
 
-        _setup_logging(log_level)
+        _setup_logging(log_level, args.log_file)
 
         # Normal run: wrap in process mutex
         try:

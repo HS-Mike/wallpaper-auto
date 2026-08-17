@@ -50,6 +50,26 @@ class TestSetupLogging:
         assert "%(thread)" in fmt
         assert "%(message)s" in fmt
 
+    def test_no_file_handler_by_default(self) -> None:
+        with (
+            patch("wallpaper_auto.service.logging.basicConfig"),
+            patch("wallpaper_auto.service.logging.FileHandler") as mock_fh,
+        ):
+            _setup_logging("INFO")
+        mock_fh.assert_not_called()
+
+    def test_adds_file_handler_when_log_file_given(self) -> None:
+        with (
+            patch("wallpaper_auto.service.logging.basicConfig"),
+            patch("wallpaper_auto.service.logging.FileHandler") as mock_fh,
+            patch("wallpaper_auto.service.logging.getLogger"),
+        ):
+            _setup_logging("INFO", "app.log")
+        mock_fh.assert_called_once_with("app.log", encoding="utf-8")
+        handler = mock_fh.return_value
+        handler.setLevel.assert_called_once_with(logging.INFO)
+        handler.setFormatter.assert_called_once()
+
 
 class TestBuildParser:
     """``_build_parser()`` creates the CLI argument parser."""
@@ -85,6 +105,18 @@ class TestBuildParser:
         parser = _build_parser()
         args = parser.parse_args(cli_args)
         assert args.log_level == expected_level
+
+    @pytest.mark.parametrize(
+        ("cli_args", "expected_log_file"),
+        [
+            pytest.param([], None, id="default"),
+            pytest.param(["--log-file", "app.log"], "app.log", id="long_opt"),
+        ],
+    )
+    def test_log_file(self, cli_args: list[str], expected_log_file: str | None) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(cli_args)
+        assert args.log_file == expected_log_file
 
     def test_init_config_subcommand(self) -> None:
         parser = _build_parser()
