@@ -453,12 +453,12 @@ class DisplayManager:
     def apply_display_scene(self) -> None:
         """Apply recorded resolution/scale and composite the canvas on every display."""
         with self._lock:
-            pending = [d for d, s in self._displays.items() if s.pending is not None]
-        for display_id in pending:
-            with self._lock:
-                recorded = self._displays[display_id].pending
-            if recorded is None:
-                continue
+            snapshot = [
+                (d, s.pending)
+                for d, s in self._displays.items()
+                if s.pending is not None
+            ]
+        for display_id, recorded in snapshot:
             resolution, scale = recorded
             if resolution is not None:
                 self.set_display_resolution(display_id, resolution[0], resolution[1])

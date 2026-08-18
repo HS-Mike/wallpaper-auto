@@ -378,6 +378,30 @@ class TestDisplayManagerAddRemove:
         assert mock_wp.call_count == 1
         assert mock_style.call_count == 1
 
+    def test_add_raises_when_resolution_query_fails(self):
+        """A None resolution from the OS is a genuine error and is raised."""
+        dm = DisplayManager()
+        info = _make_display(_DEVICE_A, 0, 0, 100, 100)
+        with patch("wallpaper_auto.display_manager.get_display_resolution", return_value=None):
+            with pytest.raises(RuntimeError, match="display resolution request fail"):
+                dm.add_display(info)
+        assert _did(_DEVICE_A) not in dm._displays
+
+    def test_add_raises_when_scale_query_fails(self):
+        """A None scale from the OS is a genuine error and is raised."""
+        dm = DisplayManager()
+        info = _make_display(_DEVICE_A, 0, 0, 100, 100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                return_value=(100, 100),
+            ),
+            patch("wallpaper_auto.display_manager.get_display_scale", return_value=None),
+        ):
+            with pytest.raises(RuntimeError, match="display scale request fail"):
+                dm.add_display(info)
+        assert _did(_DEVICE_A) not in dm._displays
+
     def test_remove_demounts_active_and_remounts_restore(self):
         dm = DisplayManager()
         _add_display(dm, _DEVICE_A)
@@ -395,6 +419,29 @@ class TestDisplayManagerAddRemove:
         custom.demount.assert_called_once()
         mock_static.assert_called_once()
         assert dm._displays[_did(_DEVICE_A)].is_patch is True
+
+    def test_remove_without_restore_leaves_resource_mounted(self):
+        """restore_original=False drops the display but keeps the resource mounted.
+
+        Used by ``stop`` for the at_shutdown target: the current wallpaper
+        survives, so no restore patch is mounted and the resource is not
+        demounted.
+        """
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        custom = _make_resource()
+        dm.update_resource(_did(_DEVICE_A), custom)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[_make_display(_DEVICE_A, 0, 0, 100, 100)],
+            ),
+            patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
+        ):
+            dm.remove_display(_did(_DEVICE_A), restore_original=False)
+        assert _did(_DEVICE_A) not in dm._displays
+        custom.demount.assert_not_called()
+        mock_static.assert_not_called()
 
     def test_remove_drops_unplugged_display_and_demounts_resource(self):
         """A display with an original wallpaper record no longer connected is dropped."""
@@ -685,6 +732,21 @@ class TestDisplayManagerPlotCanvas:
             dm.plot_canvas()
         assert fresh_dir.exists()
         assert (fresh_dir / "composite").exists()
+
+    def test_gc_old_composites_tolerates_unlink_failure(self, tmp_path):
+        """A composite the OS is still reading cannot be deleted; the failure is logged."""
+        dm = DisplayManager()
+        composite_dir = tmp_path / "composite"
+        composite_dir.mkdir()
+        stale = composite_dir / "_composite_1.png"
+        stale.write_bytes(b"stale")
+        with (
+            patch.object(Path, "unlink", side_effect=OSError("file in use")),
+            patch("wallpaper_auto.display_manager.logger") as mock_logger,
+        ):
+            dm._gc_old_composites(composite_dir)
+        mock_logger.warning.assert_called_once()
+        assert stale.exists()
 
     def test_span_overrides_non_span_entries(self):
         """SPAN entry in buffer replaces all other entries."""
