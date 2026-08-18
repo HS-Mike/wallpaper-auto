@@ -18,10 +18,10 @@ from wallpaper_auto.util.display_utils import (
     ERROR_SUCCESS,
     DisplayTopologyTransientError,
     RemoteSessionEnvironmentError,
+    _get_hmonitor_by_device_name,
     get_display_capability,
     get_display_info,
     get_display_resolution,
-    _get_hmonitor_by_device_name,
     get_display_scale,
     is_remote_session,
     resolve_target_resolution,
@@ -719,6 +719,11 @@ class TestDisplayInfoEquality:
     )
     def test_unequal_when_snapshot_field_changes(self, override):
         assert self._info(**override) != self._info()
+
+    def test_unequal_to_unrelated_type(self):
+        """Comparing against a non-DisplayInfo returns NotImplemented (unequal)."""
+        assert self._info().__eq__("not a display") is NotImplemented
+        assert self._info() != 42
 
     def test_hash_consistent_with_equality(self):
         assert hash(self._info()) == hash(self._info())
