@@ -72,4 +72,3 @@ __all__ = [
     "init_config",
     "run",
 ]
-

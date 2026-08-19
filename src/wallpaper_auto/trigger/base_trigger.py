@@ -18,7 +18,6 @@ from typing import Any, override
 
 from ..util.callback_register import CallbackRegister
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -34,7 +33,7 @@ class BaseTrigger(CallbackRegister[["BaseTrigger"], None], ABC):
 
     def stop(self) -> None: ...
 
-    def _format_identity(self):
+    def _format_identity(self) -> str:
         return f"{self.__class__.__name__} (id: {id(self)})"
 
     def __getattribute__(self, name: str) -> Any:

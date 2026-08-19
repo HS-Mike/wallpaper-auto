@@ -60,17 +60,17 @@ class DisplayTrigger(BaseThreadTrigger):
         class_atom = win32gui.RegisterClass(wc)
 
         self.hwnd = win32gui.CreateWindow(
-            class_atom,                     # lpszClassName
-            self._window_class_name,        # lpszWindowName
-            0,                              # dwStyle
-            0,                              # x
-            0,                              # y
-            0,                              # nWidth
-            0,                              # nHeight
-            0,                              # hWndParent
-            0,                              # hMenu
-            h_instance,                     # hInstance
-            None,                           # lpParam
+            class_atom,  # lpszClassName
+            self._window_class_name,  # lpszWindowName
+            0,  # dwStyle
+            0,  # x
+            0,  # y
+            0,  # nWidth
+            0,  # nHeight
+            0,  # hWndParent
+            0,  # hMenu
+            h_instance,  # hInstance
+            None,  # lpParam
         )
 
         display_info = get_display_info(raise_error=False) or []

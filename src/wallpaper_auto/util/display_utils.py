@@ -339,16 +339,17 @@ class DisplayInfo:
     :func:`get_display_info` before acting on a snapshot held across a
     topology change.
     """
-    device_name: str                            # GDI device path, e.g. \\.\DISPLAY1
-    monitor_device_path: str                    # IDesktopWallpaper monitorDevicePath
+
+    device_name: str  # GDI device path, e.g. \\.\DISPLAY1
+    monitor_device_path: str  # IDesktopWallpaper monitorDevicePath
     model: str | None
     source_resolution: tuple[int, int]
     position: tuple[int, int]
     target_resolution: tuple[int, int]
-    adapter_id: LUID                            # source adapter LUID
+    adapter_id: LUID  # source adapter LUID
     source_id: int
-    scale: int | None                           # scale percentage (e.g. 175)
-    display_id: DisplayId = field(init=False)   # opaque id, derived from the fields above
+    scale: int | None  # scale percentage (e.g. 175)
+    display_id: DisplayId = field(init=False)  # opaque id, derived from the fields above
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "display_id", _make_display_id(self))
@@ -662,13 +663,12 @@ def get_display_resolution(device_name: str) -> tuple[int, int] | None:
     devmode = DEVMODEW()
     devmode.dmSize = ctypes.sizeof(DEVMODEW)
 
-    if not user32.EnumDisplaySettingsW(
-        device_name, ENUM_CURRENT_SETTINGS, ctypes.byref(devmode)
-    ):
+    if not user32.EnumDisplaySettingsW(device_name, ENUM_CURRENT_SETTINGS, ctypes.byref(devmode)):
         logger.error(f"cannot read current display resolution for {device_name}")
         return None
 
     return (devmode.dmPelsWidth, devmode.dmPelsHeight)
+
 
 def resolve_target_resolution(
     target_resolution: tuple[int, int], support_resolutions: list[tuple[int, int]]
@@ -716,7 +716,6 @@ def set_display_resolution(
     devmode.dmPelsWidth = width
     devmode.dmPelsHeight = height
     devmode.dmFields |= DM_PELSWIDTH | DM_PELSHEIGHT
-
 
     flags = CDS_UPDATEREGISTRY
     res = user32.ChangeDisplaySettingsExW(device_name, ctypes.byref(devmode), None, flags, None)
@@ -773,7 +772,6 @@ def get_display_scale(device_name: str) -> int | None:
     if res != ERROR_SUCCESS:
         return None
     return min(_SCALE_PERCENTS, key=lambda p: abs(p - round(dpi_x.value / 96.0 * 100)))
-
 
 
 def resolve_target_scale_step(

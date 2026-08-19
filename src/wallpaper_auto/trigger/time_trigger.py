@@ -69,7 +69,7 @@ class TimeTrigger(BaseThreadTrigger):
             self._reference_time = reference_time or datetime.datetime.now()
         self._update_event.set()
 
-    def _log_status(self):
+    def _log_status(self) -> None:
         with self._lock:
             parts = []
             if self._interval is not None and self._reference_time is not None:
