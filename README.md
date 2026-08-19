@@ -435,66 +435,79 @@ run(
 
 ## Custom Components
 
-All three component types are extensible. The recommended way to register custom components is by passing them to `run_service()` via the `custom_triggers`, `custom_resources`, and `custom_evaluators` keyword arguments. All base classes are importable from the top-level `wallpaper_auto` package.
+**Resource**, **Trigger**, and **Evaluator** are extensible components. The recommended way to register custom components is by passing them to `run()` via the `custom_triggers`, `custom_resources`, and `custom_evaluators` keyword arguments. All base classes are importable from the top-level `wallpaper_auto` package.
 
 ### Custom Resource
 
-Extend `BaseResource` and pass it through `run_service()`.
+The previous section described **Resource** as the asset the app tries to apply on an actual display. In fact, this component is far more flexible than just applying a simple static wallpaper. 
+
+Extend `BaseResource` and pass it through `run()`.
 
 ```python
-from wallpaper_auto import BaseResource, run_service
+from wallpaper_auto import BaseResource, run
 
-class OnlineResource(BaseResource):
-    def __init__(self, query: str = "nature", style: str = "fill"):
-        self.query = query
-        self.style = style
+class CustomResource(BaseResource):
+    """a custom resource that does nothing"""
+    pass
 
-    def mount(self):
-        # Download image, then buffer it via update_canvas(). The worker loop
-        # composites the buffered canvas (call self.plot_canvas() to request an
-        # immediate composite).
-        self.update_canvas(self.style, path)
-        ...
-
-    def demount(self):
-        # Lifecycle notification — the wallpaper system restores the previous wallpaper.
-        ...
-
-run_service("config.yaml", custom_resources={"online": OnlineResource})
+run("config.yaml", custom_resources={"custom": CustomResource})
 ```
+
+**BaseResource** has 4 important methods: 2 lifecycle notification methods (``mount()`` and ``demount()``) and 2 wallpaper canvas manage methods (``update_canvas(style, image)`` and ``plot_canvas()``).
+
+`mount()` and `demount()` are lifecycle **notifications** — they signal that the resource has entered or left the active window. Do not execute time-consuming processes in these methods. Otherwise, this will block the application's worker loop. Run the work in a thread instead.
 
 A custom resource never sets the wallpaper directly. It buffers an image for its bound monitor and asks the system to composite it:
 
 - **`update_canvas(style, image)`** — buffer an image for the resource's monitor. `style` is a `WallpaperStyle` (e.g. `fill`, `fit`); `image` is a `Path` or a PIL `Image`. Buffering alone does **not** apply the wallpaper.
 - **`plot_canvas()`** — request a composite of the buffered canvas. In the running app this is enqueued to the controller's worker loop rather than composited synchronously, so it is safe to call from any thread.
 
-`update_canvas()` may be called any time after `mount()` and before `demount()` — not only during `mount()` — so a resource can update its wallpaper dynamically (cycling, animation). Call `plot_canvas()` after each update to apply it:
+In fact, you are free to call `update_canvas()` and `plot_canvas()` in between the lifecycle. In ``ResourceCycle``, there is a dedicated thread that starts in `mount()` and joins in `demount()` to manage the wallpaper rotation dynamically. Under a trusted environment, you can even execute bash scripts to get richer customized features. 
+
+At runtime, a resource can inspect the display it is bound to through `self.display` (a `DisplayInfo` set before `mount()`). This is an **instance attribute**: the manager sets it on each instance when it binds that instance to a monitor (before `mount()`), so every instance tracks its own bound display — unlike the class-wide `update_canvas()` / `plot_canvas()` callbacks, which are uniform across all instances.
+
+**WARNING:** Resource instances are **not reused**. Each time a target is applied, the manager creates a fresh instance per connected display, binds it to a single monitor (accessible via `self.display`), and calls `mount()` once and `demount()` once. Expect a **different instance across each wallpaper apply session and per display**.
+
+The keys under `config` are unpacked as keyword arguments to the resource's `__init__` when the manager constructs the instance. 
+
+The example below shows a custom resource that applies a wallpaper from a time-consuming download. It integrates all the `BaseResource` features described above: `__init__` accepts the config keys, a worker thread started in `mount()` runs the time-consuming download using the bound display's resolution, and `update_canvas` / `plot_canvas` apply the result. `demount()` joins the thread. The manager unpacks `config:` keys into `__init__` kwargs — so `query: "mountain"` and `style: fill` become `OnlineResource(query="mountain", style="fill")`. Define `__init__` parameters to match the config keys you expect — a default value makes each key optional.
+
 
 ```python
-def mount(self):
-    self.update_canvas(self.style, self.image_path)
-    self.plot_canvas()          # apply the buffered image
+import threading
+from wallpaper_auto import BaseResource
 
-def next_frame(self):
-    self.update_canvas(self.style, self.next_image)
-    self.plot_canvas()          # apply a dynamic update
-```
+class OnlineResource(BaseResource):
+    """Custom resource that downloads a wallpaper on a worker thread."""
 
-`mount()` and `demount()` are lifecycle **notifications** — they signal that the resource has entered or left the active window. They never set the wallpaper themselves; that happens through `update_canvas()` / `plot_canvas()`.
+    def __init__(self, query: str = "nature", style: str = "fill"):
+        # `query` and `style` come from the `config:` block below
+        super().__init__()
+        self.query = query
+        self.style = style
+        self._worker_thread: threading.Thread | None = None
 
-Resource instances are **not reused**. Each time a target is applied, the manager creates a fresh instance per connected display, binds it to a single monitor (`monitor_device_path`), and calls `mount()` once and `demount()` once. Expect a **different instance across each wallpaper apply session and per display**:
+    def mount(self) -> None:
+        # `self.display` is the DisplayInfo bound to this instance (set by the
+        # manager before mount). Pass its source resolution to the download fn.
+        resolution = self.display.source_resolution  # (width, height) tuple
+        self._worker_thread = threading.Thread(
+            target=self._download_and_apply,
+            args=(resolution,),
+            daemon=True,
+        )
+        self._worker_thread.start()
 
-- Initialize everything in `__init__` — do not rely on instance state surviving between mounts.
-- An instance buffers only its bound monitor's image.
-- Don't re-mount or reuse an instance; construct a new one for each apply.
+    def demount(self) -> None:
+        if self._worker_thread is not None:
+            self._worker_thread.join(timeout=3.0)
+            self._worker_thread = None
 
-At runtime, a resource can inspect the display it is bound to through `self.monitor_device_path`. This is an **instance attribute**: the manager sets it on each instance when it binds that instance to a monitor (before `mount()`), so every instance tracks its own bound display — unlike the class-wide `update_canvas()` / `plot_canvas()` callbacks, which are uniform across all instances.
-
-```python
-def mount(self):
-    # self.monitor_device_path identifies the display this instance is bound to
-    self.update_canvas(self.style, self.image_path)
-    self.plot_canvas()
+    def _download_and_apply(self, resolution: tuple[int, int]) -> None:
+        # `download_image` is your time-consuming fetch
+        image_path = download_image(self.query, resolution)
+        self.update_canvas(self.style, image_path)
+        self.plot_canvas()
 ```
 
 ```yaml
@@ -506,7 +519,6 @@ resource:
       style: fill
 ```
 
-The keys under `config` are unpacked as keyword arguments to the resource's `__init__` when the manager constructs the instance. In the example above, `query: "mountain"` and `style: fill` become `OnlineResource(query="mountain", style="fill")`. Define `__init__` parameters to match the config keys you expect — a default value makes each key optional.
 
 ### Custom Trigger
 
