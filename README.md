@@ -2,199 +2,290 @@
 
 [![codecov](https://codecov.io/github/HS-Mike/wallpaper-auto/graph/badge.svg?token=BZSTAYXUWF)](https://codecov.io/github/HS-Mike/wallpaper-auto)
 
-Automatically switches Windows desktop wallpapers based on configurable conditions (time, WiFi, day of week, display changes).
-
+Rule-driven wallpaper switching for Windows with per-display resolution and scale setting.
 ## How It Works
 
-The application is built around three pluggable component types:
+The application has the following key concepts:
 
-| Component | Role | Example |
-|-----------|------|---------|
-| **Trigger** | Watches for system events and fires when something changes | WiFi network changed, monitor plugged in, workstation unlocked |
-| **Evaluator** | Checks a single condition and returns true/false | "Is the current time between 9 AM and 6 PM?", "Am I connected to the office WiFi?" |
-| **Resource** | Applies a wallpaper (or cycles through multiple) | Set a static image, rotate through a slideshow |
+| Component | Role |
+|-----------|------|
+| **Resource** | Applies a wallpaper to the desktop — either a single static image or a rotating slideshow of multiple images; a **Resource** is unaware of actual displays |
+| **Scene** | Like a **Resource**, but it specifies display match info and resolution and scale settings |
+| **Trigger** | Watches for changes and notifies the app when one occurs |
+| **Rule** | A set of conditions paired with a target; the target (either a **Resource** or a **Scene**) is applied when the conditions match |
+| **Evaluator** | Checks a single condition and returns true/false. Every condition in a **Rule** maps to a corresponding evaluator |
 
-**The flow:** A Trigger detects a change (e.g., you connect to "OfficeWiFi") and notifies the controller. The controller runs the **Rule Engine**, which evaluates each rule's conditions using **Evaluators**. The first rule whose conditions all match determines the target — a **Resource** or a **Scene** — to apply. The resource buffers an image for its monitor, and the **display manager** composites all monitors into a single spanned wallpaper and applies it.
+
+A Trigger detects a change (e.g., you connect to "OfficeWiFi") and notifies the controller. The controller runs the **Rule Engine**, which evaluates each rule's conditions using **Evaluators**. The first rule whose conditions all match determines the target (a **Resource** or a **Scene** ) to apply. 
+target will be resolved to the actual wallpaper, resolution, and scale for each display at runtime, then those settings are applied via the Windows API.
 
 ```
 Trigger fires
     |
     v
-Controller + Rule Engine evaluates rules
+Rules are evaluated top-to-bottom, and a target is selected.
     |
     v
-Target selected (resource / cycle / scene)
+Target is resolved to proposed settings for each display 
+(per-monitor resource + resolution + scale)
     |
     v
-Resource buffers an image for its monitor
-    |
-    v
-DisplayManager composites all monitors (SPAN)
-    |
-    v
-SPAN wallpaper applied via IDesktopWallpaper
+Each display prepares its wallpaper at those settings
 ```
-
-## How Wallpapers Are Applied
-
-Resources don't set wallpapers directly. Each resource buffers an image for its monitor via `update_canvas()` and requests a composite via `plot_canvas()`. The **display manager** composites every monitor's buffered image into a single spanned wallpaper canvas and applies it through the Windows COM `IDesktopWallpaper` API with `SPAN` style.
-
-The `IDesktopWallpaper` API has no true per-monitor mode: it exposes a single global wallpaper and a single global `WallpaperStyle`. Under `SPAN`, calls that pass a `monitorID` (such as `GetWallpaper`) ignore it and return the spanned composite. That's why per-display wallpapers are composited into one canvas instead of being set per monitor.
-
-This is what enables per-display wallpapers (scenes): each monitor's image is rendered into its own region of the virtual desktop, so different monitors can show different wallpapers simultaneously. Per-monitor `WallpaperStyle` (fill / fit / stretch / center / tile) is honored during compositing.
-
-The display manager also tracks each display's original wallpaper, captures it at startup, and restores it when the app stops or the display is removed. The composite canvas is cached under the configured `cache` directory.
-
-## Features
-
-- **Multi-condition triggers**: Supports Windows session changes, network changes, time changes, and display changes as four types of triggers
-- **Flexible rules**: Supports AND/OR condition combinations, can evaluate multiple conditions simultaneously
-- **Condition types**:
-  - `network`: Current connected WiFi name
-  - `day_of_week_is`: Day-of-week check (0=Monday ... 6=Sunday)
-  - `time_range`: Time range (supports crossing midnight)
-  - `have_display`: Check if a display with a matching model name (exact or regex) is connected
-- **System tray control**: System tray menu for manual wallpaper switching and pause/resume auto-switching
-- **Thread-safe**: Each monitoring module runs independently without blocking others
-- **Multi-monitor scenes**: Bind different wallpapers to different displays by monitor model
-- **At-shutdown wallpaper**: Optionally apply a specific wallpaper when Windows shuts down or the user logs off
 
 ## Quick Start
 
-1. Download the project to your local machine and enter the directory
 
-2. Install the package:
+1. Install the package:
 
    ```bash
    pip install wallpaper-auto
    ```
 
-3. Generate a starter config file:
+2. Create `config.yaml` in the current directory:
 
-   ```bash
-   wallpaper-auto init-config
+   ```yaml
+   resource:
+     office_view: "C:/Users/You/Pictures/wallpaper1.jpg"
+     home_view: "C:/Users/You/Pictures/wallpaper2.jpg"
+
+   trigger:
+     - name: time
+       config:
+         interval: 60          # Re-evaluate rules every minute
+
+   rule:
+     - name: "work_hours_at_office"
+       condition:
+         day_of_week_is: [0, 1, 2, 3, 4]     # Monday to Friday
+       target: "office_view"
+
+   fallback_target: "home_view"              # Applied when no rule matches
    ```
 
-4. Edit config.yaml with your wallpaper paths and rules, then run:
+   This minimal config shows a simple weekday/weekend split:
+
+   - **Weekdays (Mon–Fri)** — applies `office_view`.
+   - **All other times** (evenings and weekends) — applies `home_view`, since the fallback is used whenever no rule matches.
+
+   A `time` trigger re-evaluates the rules every minute (though too frequently in practice), so the wallpaper switches as soon as the day changes.
+
+3. Run:
 
    ```bash
-   wallpaper-auto
+   wallpaper-auto run -c config.yaml
    ```
+
+
+## How Wallpapers, Resolution, and Scale Are Applied
+
+The Windows COM `IDesktopWallpaper` API only allows a uniform style across all displays. To support per-display wallpaper style settings, the app applies wallpapers as a single SPAN wallpaper rather than one per monitor. Each display's prepared image is laid out into one canvas (each with its proposed style) that stretches across the entire virtual desktop, so Windows sees a single wallpaper covering all monitors.
+
+The app also applies **resolution** and **scale** alongside the wallpaper. You cannot assign arbitrary resolution or scale values to a display — they must fall within the display's supported capability options.
+
+Each display's original wallpaper, resolution, and DPI scale are captured when the display is added, and its supported resolution/scale modes are cached for snapping on apply. On stop or display removal, every display is reverted to its recorded originals (wallpaper, resolution, and scale). Note: if a new display is plugged in during app runtime, Windows cannot capture its original wallpaper setting because the app's single SPAN wallpaper overrides it — a black background is set as the fallback in that case.
+
 
 ## Configuration
 
-Generate a starter config with all options documented:
+Generate a starter config with all options documented in the current directory:
 
 ```bash
 wallpaper-auto init-config
-# Creates config.yaml in the current directory
 ```
 
-Or specify a custom path and force-overwrite an existing file:
+A config file has following sections:
 
-```bash
-wallpaper-auto init-config myconfig.yaml -f
+   | Section | Required | Remark |
+   |----------------|----------|--------|
+   | `resource` | required | |
+   | `scene` | optional | |
+   | `trigger` | required | |
+   | `rule` | required | |
+   | `fallback_target` | required | Target applied when no rule matches |
+   | `at_shutdown` | optional | Target applied on Windows shutdown or logoff |
+   | `cache` | optional | Cache dir and resized-image tuning |
+   | `logging` | optional | Log level and optional log file |
+
+   *The app parses config file with Pydantic using the `ConfigModel` class in `wallpaper_auto/models.py`*.
+
+
+---
+
+
+### Section - `resource`
+
+*Refer to ResourceConfig in wallpaper_auto.models*
+
+Generally, `resource` specifies the asset the app tries to apply on an actual display. Configurations in this section should be stated as a dict, whose key will serve as the id. Other components can use this id to refer to the corresponding resource.
+
+__static_wallpaper__
+
+A simple image used as wallpaper.
+
+ ```yaml
+resource:
+  
+  black: "C:/Users/You/Pictures/black.jpg"    # Shorthand  with ``style: fill``
+
+  office_view:
+    name: static_wallpaper
+    config:
+      path: "C:/Users/You/Pictures/office.jpg"
+      style: fill                            # fill | fit | stretch | center | tile
 ```
 
-See `wallpaper-auto init-config --help` for all options. You can also create a `config.yaml` file manually (or specify the path via `run -c`).
+__cycle__
 
-### Configuration Structure
+Serve as Slideshow show function. Resource that cycles through a list of sub-resources. This is an wrapper on several resources. 
 
 ```yaml
-# 1. Wallpaper resource pool
 resource:
-  work_wallpaper:                         # Resource ID — referenced by rules & fallback_target
-    name: static_wallpaper                # Single-image wallpaper
-    config:
-      path: "C:/path/to/wallpaper.jpg"
-      style: fill                         # fill / fit / stretch / center / tile
-
-  cycle:                               # Multi-image cycling wallpaper (resource cycle)
+  slideshow_view:                      
     name: cycle
     config:
-      resources:                          # Sub-resources to cycle through
+      resources:                          
+        # Sub-resources to cycle through
+        # each item in this list is a complete resource config
         - name: static_wallpaper
-          config: {path: "C:/Pictures/morning.jpg", style: fill}
+          config: {path: "C:/Pictures/picture1.jpg", style: fill}
         - name: static_wallpaper
-          config: {path: "C:/Pictures/afternoon.jpg", style: fill}
-      interval: 300                       # Seconds between switches (default 300)
+          config: {path: "C:/Pictures/picture2.jpg", style: fit}
+        - "C:/Pictures/picture3.jpg"
+      interval: 300                       # Seconds between switches 
       random: false                       # true = random order, false = sequential
-
-# 2. Trigger configuration
-trigger:
-  - name: network                         # Monitor WiFi / network changes
-    config: {}
-  - name: time                            # Periodic time-based evaluation
-    config: {}
-  - name: windows_session                 # Monitor lock/unlock/logon/logoff
-    config: {}
-  - name: display                          # Monitor monitor plug/unplug
-    config: {}
-
-# 3. Rules (evaluated top-to-bottom; first match wins)
-#    A rule's target can be a resource ID or a scene name — checked in that order.
-rule:
-  - name: "At work"
-    condition:
-      wifi_ssid_is: "OfficeWiFi"          # Leaf condition — evaluator name + params
-    target: "work_wallpaper"
-  - name: "Night mode"
-    condition:
-      and:                                # AND/OR combinators supported
-        - in_time_range: ["23:00", "06:00"]
-        - day_of_week_is: [0, 1, 2, 3, 4] # Monday to Friday
-    target: "dark_wallpaper"
-# 4. Scenes (optional) — per-display wallpaper bindings for multi-monitor setups.
-#    display_model is a regex matched via re.search against the monitor's model
-#    name (first match wins per monitor). Scene names are auto-registered as
-#    rule targets — see "Scenes" below.
-# scene:
-#   work_layout:
-#     - display_model: "U2719D"
-#       resource: "work_wallpaper"
-#     - display_model: "DELL P2419H"
-#       resource: "secondary_wallpaper"
-
-# 5. Fallback wallpaper (used when no rule matches)
-fallback_target: "default_wallpaper"
-
-# 6. (Optional) At-shutdown wallpaper — applied when Windows shuts down
-# at_shutdown: "work_wallpaper"
-
-# 7. (Optional) Cache — shared dir + resized-image cache tuning
-# cache:
-#   path: "C:/Users/You/.cache/wallpaper_auto"
-#   resize:
-#     enabled: true           # set false to disable the resized-image cache (default true)
-#     max_size_mb: 200        # max total size of resized cache in MB (default 200)
-#     evict_ratio: 0.9        # evict down to this fraction of max (default 0.9)
-
-# 8. (Optional) Logging — log level and optional log file.
-# logging:
-#   level: INFO            # DEBUG | INFO | WARNING | ERROR (default DEBUG)
-#   file: "app.log"        # optional; console-only logging if omitted
 ```
+     
 
-Logging resolves by precedence: `run()`/`run_service()` arguments (including the `-l`/`--log-file` flags) override the `logging` section above, which in turn overrides the built-in defaults (`DEBUG`, console-only).
+---
 
-### Scenes (per-display wallpapers)
+### Section - `scene`
 
-A **scene** assigns resources to specific monitors so each display can show its own wallpaper in a multi-monitor setup.
+*Refer to SceneBinding in wallpaper_auto.models*
+
+Scenes assign resources to specific monitors so each display can show its own wallpaper in a multi-monitor setup. Configurations in this section should be stated as a dict, whose key will serve as the id. Other components can use this id to refer to the corresponding scene. Each value is a list of bindings mapping a display model pattern to a resource, with optional per-display `resolution` and `scale`. Scene names are auto-registered as rule targets.
+
+__SceneBinding__
+
+Each binding maps a display model pattern to a resource, with optional per-display resolution and scale.
 
 ```yaml
 scene:
-  work_layout:
-    - display_model: "U2719D"      # regex, matched via re.search
+  - layout_1:
+      display_model: "U2719D"          # exact match
       resource: "work_wallpaper"
-    - display_model: "DELL P2419H"
+      resolution: "1920x1080"          # "1920X1080", "1920*1080", "1920, 1080", [1920, 1080] are all acceptable format
+      scale: 150                       # float representation (1.75) will be translated to percentage int (175)
+
+  - layout_2:
+      match_display_model: "U27.+"     # regex, matched via re.search
       resource: "secondary_wallpaper"
 ```
 
-- `display_model` is a regex pattern matched against the monitor's model name with `re.search` — partial matches count, and matching is case-sensitive. Bindings are evaluated top-to-bottom; the first match wins per monitor.
-- Scenes are **auto-registered as rule targets**: a rule can set `target: "work_layout"` without any matching entry in the `resource` section.
-- A rule's `target` can name either a **resource** or a **scene**. Config validation and target resolution accept both, checking the `resource` section first, then `scene`.
-- When a scene is applied, every connected monitor whose model matches a binding receives that binding's resource; unmatched monitors keep their current wallpaper.
-- Scenes combine naturally with the `have_display` evaluator to adapt to whatever monitors are connected:
+---
+
+### Section - `trigger`
+
+*Refer to TriggerConfig in wallpaper_auto.models*
+
+A list of triggers that watch for changes and notify the app to re-evaluate the rules. Each item pairs a `name` (the trigger type) with a `config` block whose keys are unpacked as constructor arguments.
+
+__time__
+
+Fires callbacks at fixed daily times and/or on a periodic interval.
+
+```yaml
+trigger:
+  - name: time
+    config:
+      interval: 60          # Re-evaluate every 60 seconds
+      times:                # Fixed daily trigger times
+        - "09:00"
+        - "18:00"
+```
+
+__network__
+
+Fires when the WiFi / network changes.
+
+```yaml
+trigger:
+  - name: network
+    # no config required
+```
+
+__windows_session__
+
+Fires on lock / unlock / logon / logoff.
+
+```yaml
+trigger:
+  - name: windows_session
+    # no config required
+```
+
+__display__
+
+Fires on monitor plug / unplug and DPI scale change.
+
+```yaml
+trigger:
+  - name: display
+    # no config required
+```
+
+---
+
+### Section - `rule`
+
+*Refer to Rule and ConditionNode in wallpaper_auto.models*
+
+Ordered rules, evaluated top-to-bottom; the first match wins. Each rule has a `name`, a `target`, and a `condition`. The `target` should be a `resource` / `scene` ID.
+
+__wifi_ssid_is__
+
+True when connected to the given WiFi SSID.
+
+```yaml
+rule:
+  - name: "At work"
+    target: "work_wallpaper"
+    condition:
+      wifi_ssid_is: "OfficeWiFi"
+```
+
+__day_of_week_is__
+
+True when today's weekday is in the list (`0` = Monday ... `6` = Sunday).
+
+```yaml
+rule:
+  - name: "Work days"
+    target: "office_wallpaper"
+    condition:
+      day_of_week_is: [0, 1, 2, 3, 4]    # Monday to Friday
+```
+
+__in_time_range__
+
+True when the current time falls within the `"HH:MM"` range (supports overnight ranges).
+
+```yaml
+rule:
+  - name: "intraday"
+    condition:
+      in_time_range: ["13:00", "14:00"]
+    target: "office_view"
+
+  - name: "overnight"
+    condition:
+      in_time_range: ["23:00", "06:00"]
+    target: "home view"
+```
+
+__have_display__
+
+True when a connected display's model name matches the regex (`re.search`).
 
 ```yaml
 rule:
@@ -202,6 +293,79 @@ rule:
     condition:
       have_display: "U2719D"
     target: "work_layout"
+```
+
+__and / or__
+
+Combine nested conditions; all (`and`) or any (`or`) child must match.
+
+```yaml
+rule:
+  - name: "Work hours at office"
+    target: "work_wallpaper"
+    condition:
+      and:
+        - day_of_week_is: [0, 1, 2, 3, 4]
+        - in_time_range: ["09:00", "18:00"]
+```
+
+---
+
+### Section - `fallback_target`
+
+*Refer to ConfigModel in wallpaper_auto.models*
+
+The `resource` / `scene` ID applied when no rule matches. Must reference an existing resource.
+
+```yaml
+fallback_target: "default_wallpaper"
+```
+
+---
+
+### Section - `at_shutdown`
+
+*Refer to ConfigModel in wallpaper_auto.models*
+
+The resource ID applied when Windows shuts down or the user logs off. Must reference an existing resource.
+
+```yaml
+at_shutdown: "work_wallpaper"
+```
+
+---
+
+### Section - `cache`
+
+*Refer to CacheConfig in wallpaper_auto.models*
+
+Cache directory plus resized-image cache tuning. `path` is the shared cache dir used by both the composited wallpaper and the resized per-display images; `resize` configures the resized-image cache.
+
+__CacheResizeConfig__
+
+Tuning knobs for the resized-image cache.
+
+```yaml
+cache:
+  path: "C:/Users/You/.cache/wallpaper_auto"
+  resize:
+    enabled: true           # Enable the resized-image cache (default true)
+    max_size_mb: 200        # Max total size of the resized cache in MB (default 200)
+    evict_ratio: 0.9        # Evict down to this fraction of max (default 0.9)
+```
+
+---
+
+### Section - `logging`
+
+*Refer to LoggingConfig in wallpaper_auto.models*
+
+Log level and optional log file. Logging resolves by precedence: `run()` arguments (including the `-l`/`--log-file` flags) override this section, which in turn overrides the built-in defaults (`DEBUG`, console-only).
+
+```yaml
+logging:
+  level: INFO            # DEBUG | INFO | WARNING | ERROR (default DEBUG)
+  file: "app.log"        # optional; console-only if omitted
 ```
 
 ## Running
@@ -230,8 +394,8 @@ with code 1.
 Or start programmatically from Python:
 
 ```python
-from wallpaper_auto import run_service
-run_service("config.yaml")
+from wallpaper_auto import run
+run("config.yaml")
 ```
 
 ## Auto Start
@@ -242,92 +406,26 @@ To launch automatically at logon, create a **Task Scheduler** task with an **At 
 pythonw.exe -m wallpaper_auto run -c config.yaml
 ```
 
-## How Config Parameters Flow to Components
-
-Each component type can accept configuration via a `config` block in the YAML file. The key-value pairs are unpacked as keyword arguments to the component's constructor.
-
-### Triggers
-
-```yaml
-trigger:
-  - name: time
-    config:
-      interval: 60       # → TimeTrigger(interval=60)
-      times:             # → TimeTrigger(times=["09:00", "18:00"])
-        - "09:00"
-        - "18:00"
-```
-
-| Trigger | Constructor Parameters | Description |
-|---------|----------------------|-------------|
-| `time` | `interval` (seconds), `times` (list of `"HH:MM"` strings) | Periodic polling interval and/or fixed daily trigger times |
-| `network` | *(none)* | Fires on WiFi SSID changes |
-| `windows_session` | *(none)* | Fires on lock/unlock/resume |
-| `display` | *(none)* | Fires on monitor plug/unplug |
-
-### Resources
-
-```yaml
-# Static — single image
-resource:
-  custom_name:
-    name: static_wallpaper    # Resource type → constructor lookup
-    config:
-      path: "C:/img.jpg"     # → StaticWallpaper(path="C:/img.jpg", style="fill")
-      style: fill
-
-# Resource cycle — cycles through multiple sub-resources on a timer
-  cycle:
-    name: cycle
-    config:
-      resources:
-        - name: static_wallpaper
-          config: {path: "C:/img1.jpg", style: fill}
-        - name: static_wallpaper
-          config: {path: "C:/img2.jpg", style: fill}
-      interval: 300           # → ResourceCycle(resources=[...], interval=300, random=False)
-      random: false
-```
-
-| Resource | Constructor Parameters | Description |
-|----------|----------------------|-------------|
-| `static_wallpaper` | `path` (str), `style` (str) | Static image wallpaper. Restoration of a display's original wallpaper is handled by the display manager, not the resource itself. |
-| `cycle` | `resources` (list[dict]), `interval` (int, default 300), `random` (bool, default False), `restore` (bool, default False) | Cycles through sub-resources — each sub-resource is a full resource config dict with its own `name` and `config`. |
-
-The shorthand form (`black: "C:/img.jpg"`) is expanded to `static_wallpaper` with the string as the `path`.
-
-### Evaluators
-
-Evaluators don't use a `config` block — their parameters are defined inline in the condition:
-
-```yaml
-condition:
-  wifi_ssid_is: "Company_WiFi"             # param: SSID string
-  in_time_range: ["09:00", "18:00"]         # param: [start, end]
-  day_of_week_is: [5, 6]                    # param: list[int]  0=Mon ... 6=Sun
-  have_display: "U2719D"                   # param: model name or regex pattern
-```
-
 ## System Tray
 
 After running, the app displays an icon in the system tray:
 
-- **Auto mode**: Resume auto-switching (hides the manual wallpaper options)
-- **Pause mode**: Stop automatic rule-based switching. Manual wallpaper selection becomes available.
-- **Select wallpaper**: Manually switch to the specified wallpaper (only available while paused)
+- **AUTO**: Switches to automatic rule-driven wallpaper selection. The active target (the resource or scene the rule engine most recently matched, or the fallback) is marked on the menu.
+- **Wallpaper targets**: One menu item per resource/scene. Clicking a target switches to MANUAL mode and applies that target immediately. In MANUAL mode, the selected target stays active until AUTO is clicked again.
+- **quit**: Stops the service.
 
 ## Programmatic Usage
 
-You can start the service from Python code using `run_service()`. This is the recommended way when registering custom components.
+You can start the service from Python code using `run()`. This is the recommended way when registering custom components.
 
 ```python
-from wallpaper_auto import run_service
+from wallpaper_auto import run
 
 # Start with the default config.yaml
-run_service("config.yaml")
+run("config.yaml")
 
 # With custom components registered inline
-run_service(
+run(
     "config.yaml",
     custom_triggers={"my_trigger": MyTrigger},
     custom_resources={"my_resource": MyResource},
