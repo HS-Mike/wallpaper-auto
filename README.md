@@ -416,7 +416,7 @@ After running, the app displays an icon in the system tray:
 
 ## Programmatic Usage
 
-You can start the service from Python code using `run()`. This is the recommended way when registering custom components.
+You can start the service from Python code using `run()`.
 
 ```python
 from wallpaper_auto import run
@@ -475,7 +475,7 @@ The example below shows a custom resource that applies a wallpaper from a time-c
 
 ```python
 import threading
-from wallpaper_auto import BaseResource
+from wallpaper_auto import BaseResource, run
 
 class OnlineResource(BaseResource):
     """Custom resource that downloads a wallpaper on a worker thread."""
@@ -508,6 +508,8 @@ class OnlineResource(BaseResource):
         image_path = download_image(self.query, resolution)
         self.update_canvas(self.style, image_path)
         self.plot_canvas()
+
+run("config.yaml", custom_resources={"online": OnlineResource})
 ```
 
 ```yaml
@@ -522,52 +524,68 @@ resource:
 
 ### Custom Trigger
 
-Extend `BaseTrigger` or `BaseThreadTrigger` and pass it through `run_service()`.
+Custom Trigger must inherit from `BaseTrigger`.
+
+**BaseTrigger** has 3 important methods: 2 lifecycle notification methods (``start()`` and ``stop()``) and 1 evaluation-trigger method (``trigger()``).
+
+Override start() and stop() to manage the trigger's lifecycle; call trigger() between them to request the app to re-evaluate the rules.
+
+For triggers that poll or watch in the background, extend **`BaseThreadTrigger`**. It manages a daemon thread for you: subclass and override `run()` — the framework calls it on the thread and joins it on shutdown. Exit the loop when `self.stop_event.is_set()`, and call `self.trigger()` to fire the callback.
+
+The keys under `config:` are unpacked as keyword arguments to the trigger's `__init__` when the manager constructs the instance.
+
+The example below demonstrates a custom trigger that fires when a USB device is plugged in or unplugged. It inherits from `BaseThreadTrigger`.
 
 ```python
-from wallpaper_auto import BaseThreadTrigger, run_service
+from wallpaper_auto import BaseThreadTrigger, run
 
 class UsbPlugTrigger(BaseThreadTrigger):
-    def run(self):
-        while not self._stop_event.is_set():
-            # Poll for USB insertion/removal
+    """Polls for USB insert/removal and fires the trigger callback."""
+
+    def __init__(self, poll_interval: int = 5):
+        # `poll_interval` comes from the `config:` block below
+        super().__init__()
+        self.poll_interval = poll_interval
+
+    def run(self) -> None:
+        while not self.stop_event.is_set():
+            # Poll for USB insertion/removal (your detection logic)
             ...
             self.trigger()
-            self._stop_event.wait(timeout=5)
+            self.stop_event.wait(timeout=self.poll_interval)
 
-run_service("config.yaml", custom_triggers={"usb_plug": UsbPlugTrigger})
+run("config.yaml", custom_triggers={"usb_plug": UsbPlugTrigger})
 ```
 
 ```yaml
 trigger:
   - name: usb_plug
-    config: {}
+    config:
+      poll_interval: 5
 ```
 
 ### Custom Evaluator
 
-Implement `BaseEvaluator` (a callable interface) and pass an instance through `run_service()`.
+Custom Evaluators allow you to write your own condition checks in `Rule` config.
 
-For example, here is a geo-location evaluator that checks whether the current machine is within a given radius of a target location:
+**BaseEvaluator** is a callable protocol. Subclass and implement `__call__(self, param) -> bool` — the rule engine calls it with the leaf's value from the YAML. Unlike triggers and resources, evaluators receive their input as a single positional argument (whatever shape your YAML leaf has), not via `__init__`, so the param can take any shape you write in YAML. Construct an instance and register it via `custom_evaluators={...}`:
 
 ```python
-from wallpaper_auto import BaseEvaluator, run_service
+from wallpaper_auto import BaseEvaluator, run
 
 class GeoEvaluator(BaseEvaluator):
-    """Evaluate whether the current machine is within a given radius
-    of a target location."""
+    """Evaluate whether the current machine is within `radius` km of (lat, lon)."""
 
     def __call__(self, param: dict) -> bool:
+        # param = {lat: 31.23, lon: 121.47, radius: 0.5}
         # 1. Validate input: param must contain lat, lon, radius
         # 2. Resolve current location via IP geolocation API
         # 3. Compute distance between current location and target
         # 4. Return True if distance <= radius
         ...
 
-run_service("config.yaml", custom_evaluators={"in_geo_range": GeoEvaluator()})
+run("config.yaml", custom_evaluators={"in_geo_range": GeoEvaluator()})
 ```
-
-The example above resolves the machine's public IP via a geolocation API, computes the distance using the Haversine formula, and returns ``True`` when the machine is within the configured radius. The actual API call and distance calculation are left as an exercise for the reader -- the pattern shown here is the extensibility contract: subclass ``BaseEvaluator``, implement ``__call__``, and pass an instance to ``run_service()``.
 
 ```yaml
 rule:
@@ -582,21 +600,21 @@ rule:
 
 ### Registering All Three Together
 
-All custom component types can be registered in a single `run_service()` call:
+All custom component types can be registered in a single `run()` call:
 
 ```python
 from wallpaper_auto import (
     BaseResource,
     BaseThreadTrigger,
     BaseEvaluator,
-    run_service,
+    run,
 )
 
 class MyResource(BaseResource): ...
 class MyTrigger(BaseThreadTrigger): ...
 class MyEvaluator(BaseEvaluator): ...
 
-run_service(
+run(
     "config.yaml",
     custom_triggers={"my_trigger": MyTrigger},
     custom_resources={"my_resource": MyResource},
@@ -606,16 +624,16 @@ run_service(
 
 ### Alternative: Class-level Registration
 
-As an alternative, you can register components directly on the manager classes before calling `run_service()`. This is useful when the registration must happen before the configuration is loaded (e.g., in a plugin system).
+As an alternative, you can register components directly on the manager classes before calling `run()`. This is useful when the registration must happen before the configuration is loaded (e.g., in a plugin system).
 
 ```python
-from wallpaper_auto import ResourceManager, RuleEngine, TriggerManager, run_service
+from wallpaper_auto import ResourceManager, RuleEngine, TriggerManager, run
 
 ResourceManager.register_resource("online", OnlineResource)
 TriggerManager.register_trigger("usb_plug", UsbPlugTrigger)
 RuleEngine.register_evaluator("my_evaluator", MyEvaluator())
 
-run_service("config.yaml")
+run("config.yaml")
 ```
 
 ## Dependencies
