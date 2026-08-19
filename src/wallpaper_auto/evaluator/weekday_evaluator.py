@@ -11,12 +11,17 @@ from .base_evaluator import BaseEvaluator
 
 
 class WeekdayEvaluator(BaseEvaluator):
-    """Evaluator that checks if today's weekday is in the provided list.
-
-    Param type: ``list[int]`` — weekday numbers where 0=Monday ... 6=Sunday.
-    """
+    """Evaluator that checks if today's weekday is in the provided list."""
 
     def __call__(self, param: list[int]) -> bool:
+        """Check whether today's weekday is in *param*.
+
+        Args:
+            param: Weekday numbers where 0=Monday ... 6=Sunday.
+
+        Returns:
+            True if today's weekday appears in *param*.
+        """
         self._validate_param(param)
         today = datetime.datetime.now().weekday()
         return today in param

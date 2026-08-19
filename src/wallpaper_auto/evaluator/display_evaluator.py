@@ -13,12 +13,17 @@ from .base_evaluator import BaseEvaluator
 
 
 class HaveDisplayEvaluator(BaseEvaluator):
-    """Check if a connected display matches a given model name or regex pattern.
-
-    YAML usage: ``have_display: "U2719D"`` or ``have_display: "27.*"``
-    """
+    """Check if a connected display matches a given model name or regex pattern."""
 
     def __call__(self, param: str) -> bool:
+        """Check whether any connected display matches the given model pattern.
+
+        Args:
+            param: Model name or regex pattern (e.g. ``"U2719D"`` or ``"27.*"``).
+
+        Returns:
+            True if any connected display's model matches *param*.
+        """
         if not isinstance(param, str):
             raise ValueError(f"invalid {self.__class__.__name__} param")
         displays = get_display_info()
