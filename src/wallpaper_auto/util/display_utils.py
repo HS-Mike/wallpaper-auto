@@ -695,7 +695,6 @@ def set_display_resolution(
     device_name: str,
     width: int,
     height: int,
-  
 ) -> bool:
     """Set the display's resolution, persisting the change to the registry.
 
@@ -777,7 +776,10 @@ def get_display_scale(device_name: str) -> int | None:
 
 
 
-def resolve_target_scale_step(    reference_scale: int, target_scale: int, support_scales: list[int] | tuple[int, ...]
+def resolve_target_scale_step(
+    reference_scale: int,
+    target_scale: int,
+    support_scales: list[int] | tuple[int, ...],
 ) -> int:
     """Return the relative step from ``reference_scale`` to ``target_scale``.
 

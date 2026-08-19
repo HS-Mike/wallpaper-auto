@@ -16,13 +16,13 @@ import threading
 from abc import ABC, abstractmethod
 from typing import Any, override
 
-from ..util import callback_register
+from ..util.callback_register import CallbackRegister
 
 
 logger = logging.getLogger(__name__)
 
 
-class BaseTrigger(callback_register.CallbackRegister[["BaseTrigger"], None], ABC):
+class BaseTrigger(CallbackRegister[["BaseTrigger"], None], ABC):
     def __init__(self) -> None:
         super().__init__()
 

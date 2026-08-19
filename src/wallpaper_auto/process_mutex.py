@@ -8,8 +8,8 @@ lock files on disk are harmless.
 
 import logging
 import msvcrt
-import sys
 import os
+import sys
 import tempfile
 from typing import IO, Any
 
