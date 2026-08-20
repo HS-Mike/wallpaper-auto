@@ -234,6 +234,26 @@ trigger:
     # no config required
 ```
 
+__process__
+
+Fires on process start / stop events for a configurable list of executable identifiers.
+
+Each entry is classified by whether it contains a directory component:
+
+- a bare filename like `"notepad.exe"` — matches any process with that basename
+- a full path like `"C:\Windows\System32\notepad.exe"` — matches only processes launched from that exact path
+
+
+```yaml
+trigger:
+  - name: process
+    config:
+      exe_names:                    # Required: list of executable identifiers to watch
+        - "notepad.exe"             # matches any notepad.exe
+        - "C:\\Windows\\System32\\mspaint.exe"   # matches only this exact path
+```
+
+
 ---
 
 ### Section - `rule`

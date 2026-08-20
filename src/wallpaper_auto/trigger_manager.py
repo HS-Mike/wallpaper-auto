@@ -12,6 +12,7 @@ from .models import TriggerConfig
 from .trigger.base_trigger import BaseTrigger
 from .trigger.display_trigger import DisplayTrigger
 from .trigger.network_trigger import NetworkTrigger
+from .trigger.process_trigger import ProcessTrigger
 from .trigger.time_trigger import TimeTrigger
 from .trigger.windows_session_trigger import WindowsSessionTrigger
 from .util.callback_register import CallbackRegister
@@ -24,6 +25,7 @@ _BUILTIN_TRIGGERS: dict[str, type[BaseTrigger]] = {
     "time": TimeTrigger,
     "windows_session": WindowsSessionTrigger,
     "display": DisplayTrigger,
+    "process": ProcessTrigger,
 }
 
 
