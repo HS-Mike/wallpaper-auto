@@ -138,6 +138,7 @@ trigger:
 #   in_time_range: ["HH:MM", "HH:MM"]
 #   day_of_week_is: [0, 1, 2, 3, 4, 5, 6]  # 0=Monday ... 6=Sunday
 #   have_display: <model_name_or_regex>    # e.g. "U2719D" or "27.*"
+#   process_running: <basename_or_path>    # e.g. "notepad.exe" or "C:/Windows/..."
 #
 # ``target`` can reference a resource ID or a ``scene`` name — the
 # resource section is checked first, then scene.
@@ -182,7 +183,15 @@ rule:
   #     have_display: "U2719D"
   #   target: "work_layout"      # scene name — auto-registered as a resource
 
-  # ── Example 6: Rule targeting a scene ────────────────────────────────────
+  # ── Example 6: Process-running rule ──────────────────────────────────────
+  # Switches to a dark wallpaper while a game is running. ``process_running``
+  # accepts a basename (any location) or a full path (exact match).
+  # - name: "game_running"
+  #   condition:
+  #     process_running: "game.exe"
+  #   target: "black"
+
+  # ── Example 7: Rule targeting a scene ────────────────────────────────────
   # - name: "mobile"
   #   condition:
   #     wifi_ssid_is: "CoffeeShop"

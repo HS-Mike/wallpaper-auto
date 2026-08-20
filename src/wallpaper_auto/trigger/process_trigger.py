@@ -47,17 +47,6 @@ DEFAULT_WITHIN_SECONDS: int = 2
 WATCHER_TIMEOUT_MS: int = 1000
 
 
-def _normalize_path(path: str) -> str:
-    """Normalize a Windows path for case-insensitive comparison.
-
-    Lowercases the string and resolves mixed/duplicate separators via
-    ``os.path.normpath``. Does not resolve symlinks or 8.3 short names —
-    the comparison is intentionally best-effort against ``ExecutablePath``
-    values returned by WMI / Win32, which are already in canonical form.
-    """
-    return os.path.normpath(os.path.normcase(path))
-
-
 class ProcessEventType(Enum):
     """The kind of process lifecycle transition a ``ProcessEvent`` represents."""
 
@@ -110,7 +99,7 @@ class ProcessTrigger(BaseThreadTrigger):
             if p.parent == Path(".") or str(p.parent) == "":
                 basenames.add(p.name.lower())
             else:
-                full_paths.add(_normalize_path(s))
+                full_paths.add(os.path.normpath(os.path.normcase(s)))
 
         if not basenames and not full_paths:
             raise ValueError("exe_names must contain at least one non-empty executable identifier")
@@ -198,7 +187,7 @@ class ProcessTrigger(BaseThreadTrigger):
                     # path) or a watched full path. An unresolved path never
                     # matches a full-path entry.
                     matches = exe_name.lower() in self.exe_names or (
-                        exe_path and _normalize_path(exe_path) in self.exe_paths
+                        exe_path and os.path.normpath(os.path.normcase(exe_path)) in self.exe_paths
                     )
                     if not matches:
                         continue
