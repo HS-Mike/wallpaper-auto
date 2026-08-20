@@ -9,6 +9,7 @@ import logging
 
 from .evaluator.base_evaluator import BaseEvaluator
 from .evaluator.display_evaluator import HaveDisplayEvaluator
+from .evaluator.process_evaluator import ProcessEvaluator
 from .evaluator.time_range_evaluator import TimeRangeEvaluator
 from .evaluator.weekday_evaluator import WeekdayEvaluator
 from .evaluator.wifi_ssid_evaluator import WIFISsidEvaluator
@@ -21,6 +22,7 @@ _BUILTIN_EVALUATORS: dict[str, BaseEvaluator] = {
     "in_time_range": TimeRangeEvaluator(),
     "day_of_week_is": WeekdayEvaluator(),
     "have_display": HaveDisplayEvaluator(),
+    "process_running": ProcessEvaluator(),
 }
 
 
