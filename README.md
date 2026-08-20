@@ -315,6 +315,23 @@ rule:
     target: "work_layout"
 ```
 
+__process_running__
+
+True when a process matching the identifier is currently running. A bare filename like `"notepad.exe"` matches any process with that basename; a full path like `"C:\Windows\System32\notepad.exe"` matches only processes launched from that exact path (case-insensitive).
+
+```yaml
+rule:
+  - name: "Game running"
+    condition:
+      process_running: "game.exe"
+    target: "dark_theme"
+
+  - name: "Specific app instance"
+    condition:
+      process_running: "C:\\Program Files\\MyApp\\app.exe"
+    target: "work_wallpaper"
+```
+
 __and / or__
 
 Combine nested conditions; all (`and`) or any (`or`) child must match.
