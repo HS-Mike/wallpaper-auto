@@ -193,8 +193,8 @@ class TestRegisterCanvasCallbacks:
     def test_register_plot_canvas_sets_class_attribute(self, monkeypatch) -> None:
         monkeypatch.setattr(BaseResource, "_plot_canvas", None)
 
-        def cb() -> None:
-            return None
+        def cb() -> ApplySceneTask:
+            return ApplySceneTask()
 
         BaseResource.register_plot_canvas(cb)
         assert BaseResource._plot_canvas is cb
