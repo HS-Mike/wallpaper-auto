@@ -8,7 +8,7 @@ from PIL import Image
 
 from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
 from wallpaper_auto.resource.static_wallpaper import WallpaperStyle as SWWallpaperStyle
-from wallpaper_auto.util.display_utils import LUID, DisplayInfo
+from wallpaper_auto.util.display_util import LUID, DisplayInfo
 
 _DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
 

@@ -9,7 +9,7 @@ import pytest
 import win32con
 
 from wallpaper_auto.trigger.display_trigger import DisplayTrigger
-from wallpaper_auto.util.display_utils import (
+from wallpaper_auto.util.display_util import (
     LUID,
     DisplayInfo,
 )

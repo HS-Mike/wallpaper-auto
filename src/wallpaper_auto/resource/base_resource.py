@@ -21,7 +21,7 @@ from typing import Any, Protocol
 from PIL import Image
 
 from ..task import ApplySceneTask
-from ..util.display_utils import DisplayId, DisplayInfo
+from ..util.display_util import DisplayId, DisplayInfo
 from ..util.wallpaper_util import WallpaperStyle
 
 logger = logging.getLogger(__name__)

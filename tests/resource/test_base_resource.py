@@ -7,7 +7,7 @@ from PIL import Image
 
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.task import ApplySceneTask
-from wallpaper_auto.util.display_utils import LUID, DisplayId, DisplayInfo
+from wallpaper_auto.util.display_util import LUID, DisplayId, DisplayInfo
 from wallpaper_auto.util.wallpaper_util import WallpaperStyle
 
 

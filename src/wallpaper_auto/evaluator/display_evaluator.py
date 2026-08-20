@@ -3,12 +3,12 @@ Display condition evaluator.
 
 Checks whether a connected display model name matches a given pattern.
 
-Uses :func:`get_display_info` from ``util.display_utils`` for its data source.
+Uses :func:`get_display_info` from ``util.display_util`` for its data source.
 """
 
 import re
 
-from ..util.display_utils import get_display_info
+from ..util.display_util import get_display_info
 from .base_evaluator import BaseEvaluator
 
 

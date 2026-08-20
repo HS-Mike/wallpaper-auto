@@ -16,7 +16,7 @@ from datetime import datetime
 
 import pythoncom
 
-from wallpaper_auto.util.network_utils import get_current_ssid
+from wallpaper_auto.util.network_util import get_current_ssid
 from wallpaper_auto.trigger.network_trigger import NetworkTrigger
 
 logging.basicConfig(

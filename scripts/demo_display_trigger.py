@@ -12,7 +12,7 @@ Usage:
 import logging
 import threading
 
-from wallpaper_auto.util.display_utils import DisplayInfo, get_display_info
+from wallpaper_auto.util.display_util import DisplayInfo, get_display_info
 from wallpaper_auto.trigger.display_trigger import DisplayTrigger
 
 logging.basicConfig(

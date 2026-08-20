@@ -14,7 +14,7 @@ import pythoncom
 import win32con
 import win32gui
 
-from ..util.display_utils import DisplayInfo, get_display_info, set_process_dpi_aware
+from ..util.display_util import DisplayInfo, get_display_info, set_process_dpi_aware
 from .base_trigger import BaseThreadTrigger
 
 logger = logging.getLogger(__name__)

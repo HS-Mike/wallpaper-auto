@@ -9,7 +9,7 @@ import pytest
 
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource.resource_cycle import ResourceCycle
-from wallpaper_auto.util.display_utils import LUID, DisplayInfo
+from wallpaper_auto.util.display_util import LUID, DisplayInfo
 
 _DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
 

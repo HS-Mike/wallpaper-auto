@@ -1,11 +1,11 @@
-"""Tests for network_utils.py — SSID detection."""
+"""Tests for network_util.py — SSID detection."""
 
 import subprocess
 from unittest.mock import patch
 
-from wallpaper_auto.util.network_utils import get_current_ssid
+from wallpaper_auto.util.network_util import get_current_ssid
 
-_NET_UTIL = "wallpaper_auto.util.network_utils"
+_NET_UTIL = "wallpaper_auto.util.network_util"
 
 
 class TestGetCurrentSsid:

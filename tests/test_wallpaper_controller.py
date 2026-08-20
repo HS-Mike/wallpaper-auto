@@ -359,7 +359,7 @@ class TestWallpaperControllerTargetSetBranches:
 
     def test_target_set_dispatches_each_resource(self, controller):
         from wallpaper_auto.resource_manager import DisplayScene
-        from wallpaper_auto.util.display_utils import DisplayId
+        from wallpaper_auto.util.display_util import DisplayId
 
         t1 = DisplayScene(
             display_id=DisplayId(1), resource=MagicMock(name="r1"), resolution=None, scale=None

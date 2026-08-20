@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from wallpaper_auto.evaluator.display_evaluator import HaveDisplayEvaluator
-from wallpaper_auto.util.display_utils import LUID, DisplayInfo
+from wallpaper_auto.util.display_util import LUID, DisplayInfo
 
 _MOD = "wallpaper_auto.evaluator.display_evaluator"
 

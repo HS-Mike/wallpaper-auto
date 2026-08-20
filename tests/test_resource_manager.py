@@ -7,7 +7,7 @@ import pytest
 from wallpaper_auto.models import ResourceConfig, SceneBinding
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource_manager import _BUILTIN_RESOURCES, DisplayScene, ResourceManager
-from wallpaper_auto.util.display_utils import LUID, DisplayInfo
+from wallpaper_auto.util.display_util import LUID, DisplayInfo
 
 
 def _make_display_info(

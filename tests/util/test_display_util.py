@@ -1,4 +1,4 @@
-"""Tests for display_utils.py — get_display_info() error paths and edge cases."""
+"""Tests for display_util.py — get_display_info() error paths and edge cases."""
 
 import ctypes
 import logging
@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from wallpaper_auto.util import display_utils
-from wallpaper_auto.util.display_utils import (
+from wallpaper_auto.util import display_util
+from wallpaper_auto.util.display_util import (
     CDS_UPDATEREGISTRY,
     DISPLAYCONFIG_PATH_MODE_IDX_INVALID,
     ERROR_ACCESS_DENIED,
@@ -60,8 +60,8 @@ def _install_user32(
     monkeypatch.setattr(ctypes.windll.user32, "DisplayConfigGetDeviceInfo", _device_info)
     monkeypatch.setattr(ctypes.windll.user32, "MonitorFromPoint", lambda *_a, **_kw: 0)
 
-    monkeypatch.setattr(display_utils, "user32", ctypes.windll.user32)
-    monkeypatch.setattr(display_utils, "shcore", ctypes.windll.shcore)
+    monkeypatch.setattr(display_util, "user32", ctypes.windll.user32)
+    monkeypatch.setattr(display_util, "shcore", ctypes.windll.shcore)
 
 
 def _stub_paths_and_modes(monkeypatch, source_idx: int, target_idx: int):
@@ -73,11 +73,11 @@ def _stub_paths_and_modes(monkeypatch, source_idx: int, target_idx: int):
     entry has the correct infoType for its expected access pattern.
     """
 
-    path_base = display_utils.DISPLAYCONFIG_PATH_INFO
-    mode_base = display_utils.DISPLAYCONFIG_MODE_INFO
+    path_base = display_util.DISPLAYCONFIG_PATH_INFO
+    mode_base = display_util.DISPLAYCONFIG_MODE_INFO
     base_meta = type(path_base)
-    source_type = display_utils.DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE
-    target_type = display_utils.DISPLAYCONFIG_MODE_INFO_TYPE_TARGET
+    source_type = display_util.DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE
+    target_type = display_util.DISPLAYCONFIG_MODE_INFO_TYPE_TARGET
 
     def _make_meta(base):
         class _Meta(base_meta):
@@ -110,8 +110,8 @@ def _stub_paths_and_modes(monkeypatch, source_idx: int, target_idx: int):
     class _ModeFactory(mode_base, metaclass=_make_meta(mode_base)):
         pass
 
-    monkeypatch.setattr(display_utils, "DISPLAYCONFIG_PATH_INFO", _PathFactory)
-    monkeypatch.setattr(display_utils, "DISPLAYCONFIG_MODE_INFO", _ModeFactory)
+    monkeypatch.setattr(display_util, "DISPLAYCONFIG_PATH_INFO", _PathFactory)
+    monkeypatch.setattr(display_util, "DISPLAYCONFIG_MODE_INFO", _ModeFactory)
 
 
 def _install_user32_get_dpi_scaling(
@@ -126,14 +126,14 @@ def _install_user32_get_dpi_scaling(
     mock_user32 = MagicMock()
 
     def _get_device_info(ptr):
-        info = ctypes.cast(ptr, ctypes.POINTER(display_utils.DISPLAYCONFIG_GET_DPI_SCALING))[0]
+        info = ctypes.cast(ptr, ctypes.POINTER(display_util.DISPLAYCONFIG_GET_DPI_SCALING))[0]
         info.curScaleRel = cur_scale_rel
         info.minScaleRel = min_scale_rel
         info.maxScaleRel = max_scale_rel
         return get_dpi_result
 
     mock_user32.DisplayConfigGetDeviceInfo.side_effect = _get_device_info
-    monkeypatch.setattr(display_utils, "user32", mock_user32)
+    monkeypatch.setattr(display_util, "user32", mock_user32)
     return mock_user32
 
 
@@ -152,7 +152,7 @@ class TestGetDisplayInfoQueryConfigError:
 
     def test_query_config_insufficient_buffer_times_out(self, monkeypatch):
         _install_user32(monkeypatch, query_result=ERROR_INSUFFICIENT_BUFFER)
-        monkeypatch.setattr(display_utils.time, "sleep", lambda *_a, **_kw: None)
+        monkeypatch.setattr(display_util.time, "sleep", lambda *_a, **_kw: None)
         with pytest.raises(OSError, match="retry time exceed"):
             get_display_info(raise_error=True)
 
@@ -165,8 +165,8 @@ class TestGetDisplayInfoQueryConfigError:
             calls["n"] += 1
             return ERROR_INSUFFICIENT_BUFFER if calls["n"] == 1 else ERROR_SUCCESS
 
-        monkeypatch.setattr(display_utils.user32, "QueryDisplayConfig", _side)
-        monkeypatch.setattr(display_utils.time, "sleep", lambda *_a, **_kw: None)
+        monkeypatch.setattr(display_util.user32, "QueryDisplayConfig", _side)
+        monkeypatch.setattr(display_util.time, "sleep", lambda *_a, **_kw: None)
         # Returns [] because num_paths.value was never set (stays 0).
         assert get_display_info() == []
 
@@ -185,7 +185,7 @@ class TestGetDisplayInfoQueryConfigError:
     def test_query_config_invalid_param_remote_session(self, monkeypatch):
         """ERROR_INVALID_PARAMETER in remote session raises RemoteSessionEnvironmentError"""
         _install_user32(monkeypatch, query_result=ERROR_INVALID_PARAMETER)
-        monkeypatch.setattr(display_utils, "is_remote_session", lambda: True)
+        monkeypatch.setattr(display_util, "is_remote_session", lambda: True)
         with pytest.raises(
             RemoteSessionEnvironmentError, match="QueryDisplayConfig is unavailable"
         ):
@@ -194,7 +194,7 @@ class TestGetDisplayInfoQueryConfigError:
     def test_query_config_invalid_param_non_remote_raises(self, monkeypatch):
         """ERROR_INVALID_PARAMETER outside remote session raises plain OSError"""
         _install_user32(monkeypatch, query_result=ERROR_INVALID_PARAMETER)
-        monkeypatch.setattr(display_utils, "is_remote_session", lambda: False)
+        monkeypatch.setattr(display_util, "is_remote_session", lambda: False)
         with pytest.raises(OSError, match="QueryDisplayConfig error return"):
             get_display_info(raise_error=True)
 
@@ -244,12 +244,12 @@ class TestGetDisplayInfoDeviceInfoErrors:
         def _device_info_empty(*args):
             ptr = ctypes.cast(
                 args[0],
-                ctypes.POINTER(display_utils.DISPLAYCONFIG_TARGET_DEVICE_NAME),
+                ctypes.POINTER(display_util.DISPLAYCONFIG_TARGET_DEVICE_NAME),
             )
             ptr[0].monitorFriendlyDeviceName = ""
             return ERROR_SUCCESS
 
-        monkeypatch.setattr(display_utils.user32, "DisplayConfigGetDeviceInfo", _device_info_empty)
+        monkeypatch.setattr(display_util.user32, "DisplayConfigGetDeviceInfo", _device_info_empty)
 
         result = get_display_info()
         assert result is not None
@@ -263,7 +263,7 @@ class TestGetDisplayInfoDeviceInfoErrors:
 
         # make the monitor-handle lookup return a valid non-zero handle
         monkeypatch.setattr(
-            display_utils, "_get_hmonitor_by_device_name", lambda _device_name: 12345
+            display_util, "_get_hmonitor_by_device_name", lambda _device_name: 12345
         )
 
         # Mock GetDpiForMonitor to write 144 DPI into the C pointer
@@ -288,7 +288,7 @@ class TestGetDisplayInfoTolerantDefault:
 
     def test_buffer_sizes_failure_returns_none(self, monkeypatch, caplog):
         _install_user32(monkeypatch, buffer_sizes_result=1)
-        with caplog.at_level(logging.WARNING, logger="wallpaper_auto.util.display_utils"):
+        with caplog.at_level(logging.WARNING, logger="wallpaper_auto.util.display_util"):
             assert get_display_info() is None
         assert "cannot query displays" in caplog.text
 
@@ -308,14 +308,14 @@ class TestIsRemoteSession:
         """Local session: GetSystemMetrics(SM_REMOTESESSION) returns 0"""
         mock_user32 = MagicMock()
         mock_user32.GetSystemMetrics.return_value = 0
-        monkeypatch.setattr(display_utils, "user32", mock_user32)
+        monkeypatch.setattr(display_util, "user32", mock_user32)
         assert is_remote_session() is False
 
     def test_returns_true_for_remote_session(self, monkeypatch):
         """Remote session: GetSystemMetrics(SM_REMOTESESSION) returns non-zero"""
         mock_user32 = MagicMock()
         mock_user32.GetSystemMetrics.return_value = 1
-        monkeypatch.setattr(display_utils, "user32", mock_user32)
+        monkeypatch.setattr(display_util, "user32", mock_user32)
         assert is_remote_session() is True
 
 
@@ -325,7 +325,7 @@ class TestSetProcessDpiAware:
     def test_success(self, monkeypatch):
         mock_user32 = MagicMock()
         mock_user32.SetProcessDpiAwarenessContext.return_value = 1
-        monkeypatch.setattr(display_utils, "user32", mock_user32)
+        monkeypatch.setattr(display_util, "user32", mock_user32)
         assert set_process_dpi_aware() is True
         mock_user32.SetProcessDpiAwarenessContext.assert_called_once()
         # c_void_p compares by identity, so compare the underlying value
@@ -339,7 +339,7 @@ class TestSetProcessDpiAware:
         # Process DPI context already claimed (e.g. by Qt) -> API returns FALSE.
         mock_user32 = MagicMock()
         mock_user32.SetProcessDpiAwarenessContext.return_value = 0
-        monkeypatch.setattr(display_utils, "user32", mock_user32)
+        monkeypatch.setattr(display_util, "user32", mock_user32)
         assert set_process_dpi_aware() is False
 
 
@@ -351,7 +351,7 @@ class TestGetHMonitorByDeviceName:
         mock_win32api = MagicMock()
         mock_win32api.EnumDisplayMonitors.return_value = [(12345, None, (0, 0, 1920, 1080))]
         mock_win32api.GetMonitorInfo.return_value = {"Device": device_name_to_write}
-        monkeypatch.setattr(display_utils, "win32api", mock_win32api)
+        monkeypatch.setattr(display_util, "win32api", mock_win32api)
 
     def test_found_returns_handle(self, monkeypatch):
         self._install(monkeypatch, r"\\.\DISPLAY1")
@@ -375,25 +375,25 @@ class TestGetMonitorCurrentScale:
             return result
 
         mock_shcore.GetDpiForMonitor.side_effect = _get_dpi
-        monkeypatch.setattr(display_utils, "shcore", mock_shcore)
+        monkeypatch.setattr(display_util, "shcore", mock_shcore)
 
     def test_returns_percent(self, monkeypatch):
-        monkeypatch.setattr(display_utils, "_get_hmonitor_by_device_name", lambda _d: 12345)
+        monkeypatch.setattr(display_util, "_get_hmonitor_by_device_name", lambda _d: 12345)
         self._install_shcore(monkeypatch, dpi=120)
         assert get_display_scale(r"\\.\DISPLAY1") == 125
 
     def test_snaps_to_nearest_supported_scale(self, monkeypatch):
         # 140 DPI -> 145.8% -> nearest supported step is 150
-        monkeypatch.setattr(display_utils, "_get_hmonitor_by_device_name", lambda _d: 12345)
+        monkeypatch.setattr(display_util, "_get_hmonitor_by_device_name", lambda _d: 12345)
         self._install_shcore(monkeypatch, dpi=140)
         assert get_display_scale(r"\\.\DISPLAY1") == 150
 
     def test_no_handle_returns_none(self, monkeypatch):
-        monkeypatch.setattr(display_utils, "_get_hmonitor_by_device_name", lambda _d: None)
+        monkeypatch.setattr(display_util, "_get_hmonitor_by_device_name", lambda _d: None)
         assert get_display_scale(r"\\.\DISPLAY1") is None
 
     def test_dpi_query_failure_returns_none(self, monkeypatch):
-        monkeypatch.setattr(display_utils, "_get_hmonitor_by_device_name", lambda _d: 12345)
+        monkeypatch.setattr(display_util, "_get_hmonitor_by_device_name", lambda _d: 12345)
         self._install_shcore(monkeypatch, dpi=96, result=0x80004005)
         assert get_display_scale(r"\\.\DISPLAY1") is None
 
@@ -406,7 +406,7 @@ class TestSetDisplayResolution:
         mock_user32 = MagicMock()
         mock_user32.EnumDisplaySettingsW.return_value = enum_result
         mock_user32.ChangeDisplaySettingsExW.return_value = change_result
-        monkeypatch.setattr(display_utils, "user32", mock_user32)
+        monkeypatch.setattr(display_util, "user32", mock_user32)
         return mock_user32
 
     def test_success_default_persistent(self, monkeypatch):
@@ -433,13 +433,13 @@ class TestGetDisplayResolution:
         def _enum_settings(_name, _idx, devmode_ptr):
             if not enum_result:
                 return False
-            devmode = ctypes.cast(devmode_ptr, ctypes.POINTER(display_utils.DEVMODEW))[0]
+            devmode = ctypes.cast(devmode_ptr, ctypes.POINTER(display_util.DEVMODEW))[0]
             devmode.dmPelsWidth = width
             devmode.dmPelsHeight = height
             return True
 
         mock_user32.EnumDisplaySettingsW.side_effect = _enum_settings
-        monkeypatch.setattr(display_utils, "user32", mock_user32)
+        monkeypatch.setattr(display_util, "user32", mock_user32)
         return mock_user32
 
     def test_success_returns_resolution(self, monkeypatch):
@@ -448,7 +448,7 @@ class TestGetDisplayResolution:
 
     def test_read_failure_returns_none(self, monkeypatch, caplog):
         self._mock_user32(monkeypatch, enum_result=0)
-        with caplog.at_level(logging.ERROR, logger="wallpaper_auto.util.display_utils"):
+        with caplog.at_level(logging.ERROR, logger="wallpaper_auto.util.display_util"):
             assert get_display_resolution(r"\\.\DISPLAY1") is None
         assert "cannot read current display resolution" in caplog.text
 
@@ -475,32 +475,32 @@ class TestSetDisplayScale:
 
     def test_success(self, monkeypatch):
         mock = self._mock_user32(monkeypatch)
-        assert set_display_scale(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1, 1) is True
+        assert set_display_scale(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1, 1) is True
         ptr = mock.DisplayConfigSetDeviceInfo.call_args.args[0]
-        set_dpi = ctypes.cast(ptr, ctypes.POINTER(display_utils.DISPLAYCONFIG_SET_DPI_SCALING))[0]
+        set_dpi = ctypes.cast(ptr, ctypes.POINTER(display_util.DISPLAYCONFIG_SET_DPI_SCALING))[0]
         assert set_dpi.scaleRel == 1  # unclamped value passed through
 
     def test_get_dpi_failure(self, monkeypatch):
         self._mock_user32(monkeypatch, get_dpi_result=ERROR_ACCESS_DENIED)
-        assert set_display_scale(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1, 1) is False
+        assert set_display_scale(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1, 1) is False
 
     def test_out_of_range_clamps_high(self, monkeypatch):
         mock = self._mock_user32(monkeypatch, max_scale_rel=0)
-        assert set_display_scale(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1, 1) is True
+        assert set_display_scale(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1, 1) is True
         ptr = mock.DisplayConfigSetDeviceInfo.call_args.args[0]
-        set_dpi = ctypes.cast(ptr, ctypes.POINTER(display_utils.DISPLAYCONFIG_SET_DPI_SCALING))[0]
+        set_dpi = ctypes.cast(ptr, ctypes.POINTER(display_util.DISPLAYCONFIG_SET_DPI_SCALING))[0]
         assert set_dpi.scaleRel == 0  # clamped from 1 down to max 0
 
     def test_out_of_range_clamps_low(self, monkeypatch):
         mock = self._mock_user32(monkeypatch, min_scale_rel=0, max_scale_rel=2)
-        assert set_display_scale(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1, -1) is True
+        assert set_display_scale(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1, -1) is True
         ptr = mock.DisplayConfigSetDeviceInfo.call_args.args[0]
-        set_dpi = ctypes.cast(ptr, ctypes.POINTER(display_utils.DISPLAYCONFIG_SET_DPI_SCALING))[0]
+        set_dpi = ctypes.cast(ptr, ctypes.POINTER(display_util.DISPLAYCONFIG_SET_DPI_SCALING))[0]
         assert set_dpi.scaleRel == 0  # clamped from -1 up to min 0
 
     def test_set_dpi_failure(self, monkeypatch):
         self._mock_user32(monkeypatch, set_dpi_result=ERROR_ACCESS_DENIED)
-        assert set_display_scale(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1, 1) is False
+        assert set_display_scale(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1, 1) is False
 
 
 class TestGetDisplayCapability:
@@ -508,7 +508,7 @@ class TestGetDisplayCapability:
 
     @staticmethod
     def _mock_current_factor(monkeypatch, current_pct):
-        monkeypatch.setattr(display_utils, "get_display_scale", lambda _d: current_pct)
+        monkeypatch.setattr(display_util, "get_display_scale", lambda _d: current_pct)
 
     @staticmethod
     def _mock_user32(
@@ -530,7 +530,7 @@ class TestGetDisplayCapability:
         def _enum_settings(_name, idx, devmode_ptr):
             if idx >= len(modes):
                 return False
-            devmode = ctypes.cast(devmode_ptr, ctypes.POINTER(display_utils.DEVMODEW))[0]
+            devmode = ctypes.cast(devmode_ptr, ctypes.POINTER(display_util.DEVMODEW))[0]
             devmode.dmPelsWidth, devmode.dmPelsHeight = modes[idx]
             return True
 
@@ -540,7 +540,7 @@ class TestGetDisplayCapability:
     def test_success(self, monkeypatch):
         self._mock_current_factor(monkeypatch, 100)
         self._mock_user32(monkeypatch, modes=[(2560, 1440), (1920, 1080), (1920, 1080)])
-        cap = get_display_capability(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1)
+        cap = get_display_capability(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1)
         assert cap is not None
         assert cap.scale == (100, 125, 150)
         assert cap.reference_scale == 100
@@ -548,28 +548,28 @@ class TestGetDisplayCapability:
 
     def test_remote_session_returns_none(self, monkeypatch):
         # Empty GDI device name (no physical monitor) — not queryable.
-        assert get_display_capability("", display_utils.LUID(1, 2), 1) is None
+        assert get_display_capability("", display_util.LUID(1, 2), 1) is None
 
     def test_dpi_query_failure_returns_none(self, monkeypatch):
         self._mock_current_factor(monkeypatch, 100)
         self._mock_user32(monkeypatch, get_dpi_result=ERROR_ACCESS_DENIED)
-        assert get_display_capability(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1) is None
+        assert get_display_capability(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1) is None
 
     def test_dpi_query_failure_raises(self, monkeypatch):
         self._mock_current_factor(monkeypatch, 100)
         self._mock_user32(monkeypatch, get_dpi_result=ERROR_ACCESS_DENIED)
         with pytest.raises(OSError):
-            get_display_capability(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1, raise_error=True)
+            get_display_capability(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1, raise_error=True)
 
     def test_current_factor_unknown(self, monkeypatch):
         self._mock_current_factor(monkeypatch, None)
         self._mock_user32(monkeypatch)
-        assert get_display_capability(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1) is None
+        assert get_display_capability(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1) is None
 
     def test_clamps_scale_range_high(self, monkeypatch):
         self._mock_current_factor(monkeypatch, 100)
         self._mock_user32(monkeypatch, max_scale_rel=0)
-        cap = get_display_capability(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1)
+        cap = get_display_capability(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1)
         assert cap is not None
         assert cap.scale == (100,)
         assert cap.reference_scale == 100
@@ -578,7 +578,7 @@ class TestGetDisplayCapability:
         # reference index 1; min_scale_rel=-10 would give index -9, clamped up to 0
         self._mock_current_factor(monkeypatch, 125)
         self._mock_user32(monkeypatch, min_scale_rel=-10)
-        cap = get_display_capability(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1)
+        cap = get_display_capability(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1)
         assert cap is not None
         assert cap.scale == (100, 125, 150, 175)
         assert cap.reference_scale == 125
@@ -587,7 +587,7 @@ class TestGetDisplayCapability:
         # factor 1.5 -> index 2; cur_scale_rel=1 -> reference index 1 -> 125%
         self._mock_current_factor(monkeypatch, 150)
         self._mock_user32(monkeypatch, cur_scale_rel=1)
-        cap = get_display_capability(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1)
+        cap = get_display_capability(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1)
         assert cap is not None
         assert cap.reference_scale == 125
 
@@ -596,7 +596,7 @@ class TestGetDisplayCapability:
         self._mock_current_factor(monkeypatch, 100)
         self._mock_user32(monkeypatch, cur_scale_rel=1)
         with pytest.raises(ValueError, match="out of bounds"):
-            get_display_capability(r"\\.\DISPLAY1", display_utils.LUID(1, 2), 1)
+            get_display_capability(r"\\.\DISPLAY1", display_util.LUID(1, 2), 1)
 
 
 class TestResolveTargetScaleStep:
@@ -636,20 +636,20 @@ class TestDisplayId:
     """Tests for DisplayId — a standalone, opaque display identity type."""
 
     def test_is_a_standalone_runtime_type(self):
-        did = display_utils.DisplayId(42)
+        did = display_util.DisplayId(42)
         # A real class, not an int alias/subclass — visible to isinstance/the debugger.
-        assert isinstance(did, display_utils.DisplayId)
+        assert isinstance(did, display_util.DisplayId)
         assert not isinstance(did, int)
         assert repr(did) == "DisplayId(42)"
         # Still usable as a dictionary key.
         assert {did: "value"}[did] == "value"
-        assert did == display_utils.DisplayId(42)
+        assert did == display_util.DisplayId(42)
 
 
 class TestMakeDisplayId:
     """Tests for make_display_id() — stability, change detection, volatility."""
 
-    def _info(self, **overrides) -> display_utils.DisplayInfo:
+    def _info(self, **overrides) -> display_util.DisplayInfo:
         defaults: dict[str, Any] = dict(
             device_name=r"\\.\DISPLAY1",
             model="test",
@@ -658,11 +658,11 @@ class TestMakeDisplayId:
             target_resolution=(1920, 1080),
             scale=100,
             monitor_device_path=r"\\?\DISPLAY#TEST#1",
-            adapter_id=display_utils.LUID(1, 2),
+            adapter_id=display_util.LUID(1, 2),
             source_id=3,
         )
         defaults.update(overrides)
-        return display_utils.DisplayInfo(**defaults)
+        return display_util.DisplayInfo(**defaults)
 
     def test_stable_for_identical_identifiers(self):
         assert self._info().display_id == self._info().display_id
@@ -672,7 +672,7 @@ class TestMakeDisplayId:
         [
             {"monitor_device_path": r"\\?\DISPLAY#TEST#2"},
             {"device_name": r"\\.\DISPLAY2"},
-            {"adapter_id": display_utils.LUID(9, 9)},
+            {"adapter_id": display_util.LUID(9, 9)},
             {"source_id": 7},
         ],
     )
@@ -688,7 +688,7 @@ class TestMakeDisplayId:
 class TestDisplayInfoEquality:
     """Tests for DisplayInfo value equality and hashing."""
 
-    def _info(self, **overrides) -> display_utils.DisplayInfo:
+    def _info(self, **overrides) -> display_util.DisplayInfo:
         defaults: dict[str, Any] = dict(
             device_name=r"\\.\DISPLAY1",
             model="test",
@@ -697,11 +697,11 @@ class TestDisplayInfoEquality:
             target_resolution=(1920, 1080),
             scale=100,
             monitor_device_path=r"\\?\DISPLAY#TEST#1",
-            adapter_id=display_utils.LUID(1, 2),
+            adapter_id=display_util.LUID(1, 2),
             source_id=3,
         )
         defaults.update(overrides)
-        return display_utils.DisplayInfo(**defaults)
+        return display_util.DisplayInfo(**defaults)
 
     def test_equal_for_identical_values_across_instances(self):
         # LUID is compared by value, not identity — separate objects with the
@@ -714,7 +714,7 @@ class TestDisplayInfoEquality:
             {"scale": 125},
             {"source_resolution": (2560, 1440)},
             {"position": (100, 0)},
-            {"adapter_id": display_utils.LUID(9, 9)},
+            {"adapter_id": display_util.LUID(9, 9)},
         ],
     )
     def test_unequal_when_snapshot_field_changes(self, override):

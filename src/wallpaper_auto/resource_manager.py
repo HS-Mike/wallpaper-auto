@@ -14,7 +14,7 @@ from .models import ResourceConfig, SceneBinding
 from .resource.base_resource import BaseResource
 from .resource.resource_cycle import ResourceCycle
 from .resource.static_wallpaper import StaticWallpaper
-from .util.display_utils import DisplayId, DisplayInfo
+from .util.display_util import DisplayId, DisplayInfo
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from wallpaper_auto.display_manager import DisplayManager, DisplayState
 from wallpaper_auto.models import CacheConfig, CacheResizeConfig, ConfigModel, ResourceConfig
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
-from wallpaper_auto.util.display_utils import (
+from wallpaper_auto.util.display_util import (
     LUID,
     DisplayCapability,
     DisplayId,

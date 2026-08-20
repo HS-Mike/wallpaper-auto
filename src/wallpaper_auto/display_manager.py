@@ -18,7 +18,7 @@ from .config_store import ConfigStore
 from .image_cache import ImageCompressionCache, _resize_image
 from .resource.base_resource import BaseResource
 from .resource.static_wallpaper import StaticWallpaper
-from .util.display_utils import (
+from .util.display_util import (
     DisplayCapability,
     DisplayId,
     DisplayInfo,
