@@ -234,6 +234,20 @@ trigger:
     # no config required
 ```
 
+__process__
+
+Fires on process start / stop events for a configurable list of executable basenames.
+
+```yaml
+trigger:
+  - name: process
+    config:
+      exe_names:              # Required: list of executable basenames to watch
+        - "notepad.exe"
+        - "mspaint.exe"
+```
+
+
 ---
 
 ### Section - `rule`
