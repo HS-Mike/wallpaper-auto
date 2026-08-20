@@ -243,6 +243,8 @@ Each entry is classified by whether it contains a directory component:
 - a bare filename like `"notepad.exe"` — matches any process with that basename
 - a full path like `"C:\Windows\System32\notepad.exe"` — matches only processes launched from that exact path
 
+Detection requires the app and target to share an integrity level — if the target runs elevated (e.g. via *Run as administrator*), the app must also be run elevated to see it.
+
 
 ```yaml
 trigger:
@@ -318,6 +320,8 @@ rule:
 __process_running__
 
 True when a process matching the identifier is currently running. A bare filename like `"notepad.exe"` matches any process with that basename; a full path like `"C:\Windows\System32\notepad.exe"` matches only processes launched from that exact path (case-insensitive).
+
+Detection requires the app and target to share an integrity level — if the target runs elevated (e.g. via *Run as administrator*), the app must also be run elevated to see it.
 
 ```yaml
 rule:
