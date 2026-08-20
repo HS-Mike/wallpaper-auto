@@ -26,10 +26,15 @@ from wallpaper_auto.trigger.process_trigger import ProcessEvent, ProcessTrigger
 # Listing both keeps the demo working on any modern Windows version. Names
 # are OR-joined into a single WMI subscription, so unused entries add only
 # a cheap filter clause.
+#
+# Entries may be a plain basename (matches any process with that name) or
+# a full path (matches only processes launched from that exact path, with
+# case- and separator-insensitive comparison).
 WATCHED_EXECUTABLES = [
     "notepad.exe",
     "calc.exe",
     "CalculatorApp.exe",
+    r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
 ]
 
 logging.basicConfig(
@@ -44,7 +49,13 @@ def on_process_event(trigger: BaseTrigger) -> None:
     event: ProcessEvent | None = trigger.last_event
     if event is None:
         return
-    logger.info("%s: %s (pid=%s)", event.event_type.name, event.exe_name, event.pid)
+    logger.info(
+        "%s: %s (pid=%s, path=%s)",
+        event.event_type.name,
+        event.exe_name,
+        event.pid,
+        event.exe_path or "<unresolved>",
+    )
 
 
 def main() -> None:
