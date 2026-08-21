@@ -104,7 +104,10 @@ def get_running_processes() -> list[tuple[int, str]] | None:
         taken — a transient failure callers should skip rather than act on.
     """
     snapshot = _CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-    if snapshot.value in (None, _INVALID_HANDLE_VALUE):
+    # ctypes' HANDLE restype can surface as either a wrapped object with
+    # `.value` or a raw int depending on the ctypes version; accept both.
+    handle_value = snapshot.value if hasattr(snapshot, "value") else snapshot
+    if not handle_value or handle_value == _INVALID_HANDLE_VALUE:
         logger.warning("cannot create Toolhelp32 process snapshot")
         return None
 
