@@ -21,7 +21,7 @@ from .models import Rule
 from .resource.base_resource import BaseResource
 from .resource_manager import ResourceManager
 from .rule_engine import RuleEngine
-from .system_tray import WallpaperSwitchSystemTray
+from .system_tray import TrayMenuItem, WallpaperSwitchSystemTray
 from .task import ApplySceneTask, Mode, ModeSwitchTask, QuitTask, Task, UpdateSceneTask
 from .trigger.base_trigger import BaseTrigger
 from .trigger.display_trigger import DisplayTrigger
@@ -198,13 +198,28 @@ class WallpaperController:
         )
 
     def update_system_tray(self) -> None:
-        if self._tray is not None:
-            self._tray.bridge.update_ui(
-                list(self._config_store.resource.keys()) + list(self._config_store.scene.keys()),
-                self._mode,
-                self.active_rule.name if self.active_rule is not None else None,
-                self.active_target,
-            )
+        """Push the current menu state to the system tray via the bridge.
+
+        Emits one :class:`TrayMenuItem` per configured resource and per
+        configured scene (regardless of ``show``). The tray owns the
+        rendering policy: it decides which items to render as selectable
+        entries, which to render as a non-clickable active-target header,
+        and which to omit.
+        """
+        if self._tray is None:
+            return
+        items: list[TrayMenuItem] = [
+            TrayMenuItem(id=rid, kind="resource", show=rcfg.show)
+            for rid, rcfg in self._config_store.resource.items()
+        ]
+        for sid, scene_cfg in self._config_store.scene.items():
+            items.append(TrayMenuItem(id=sid, kind="scene", show=scene_cfg.show))
+        self._tray.bridge.update_ui(
+            items,
+            self._mode,
+            self.active_rule.name if self.active_rule is not None else None,
+            self.active_target,
+        )
 
     def add_quit_task(self, priority: int | None = None) -> QuitTask:
         t = QuitTask()

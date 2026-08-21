@@ -62,6 +62,7 @@ class TriggerConfig(BaseModel):
 class ResourceConfig(BaseModel):
     name: str
     config: dict[str, Any]
+    show: bool = True
 
     @model_validator(mode="before")
     @classmethod
@@ -188,9 +189,50 @@ class Rule(BaseModel):
     target: str
 
 
+class SceneConfig(BaseModel):
+    """Scene-level metadata: a list of per-display bindings plus a ``show`` flag.
+
+    Used as the value type of :attr:`ConfigModel.scene`. ``show`` controls
+    whether the scene is rendered in the system tray menu (defaults to
+    ``True``).
+    """
+
+    bindings: list[SceneBinding]
+    show: bool = True
+
+    @model_validator(mode="after")
+    def check_unique_display_bindings(self) -> "SceneConfig":
+        """Reject duplicate ``display_model`` / ``match_display_model`` within a scene.
+
+        Two bindings in the same scene cannot target the same monitor via the
+        same matcher — the first match wins, so a duplicate is unreachable
+        dead config.
+
+        Returns:
+            This scene, unchanged.
+
+        Raises:
+            ValueError: If any matcher string appears more than once in ``bindings``.
+        """
+        seen_display: set[str] = set()
+        seen_match: set[str] = set()
+        for item in self.bindings:
+            if item.display_model:
+                if item.display_model in seen_display:
+                    raise ValueError(f"duplicate display_model: '{item.display_model}'")
+                seen_display.add(item.display_model)
+            if item.match_display_model:
+                if item.match_display_model in seen_match:
+                    raise ValueError(
+                        f"duplicate match_display_model: '{item.match_display_model}'"
+                    )
+                seen_match.add(item.match_display_model)
+        return self
+
+
 class ConfigModel(BaseModel):
     resource: dict[str, ResourceConfig] = Field(alias="resource")
-    scene: dict[str, list[SceneBinding]] | None = None
+    scene: dict[str, SceneConfig] | None = None
     trigger: list[TriggerConfig]
     rule: list[Rule]
     fallback_target: str
@@ -221,37 +263,6 @@ class ConfigModel(BaseModel):
         if self.at_shutdown is not None and self.at_shutdown not in self.resource:
             raise ValueError(f"at_shutdown target '{self.at_shutdown}' not found in resource")
         return self
-
-    @field_validator("scene")
-    @classmethod
-    def validate_scenes(
-        cls, scenes: dict[str, list[SceneBinding]] | None
-    ) -> dict[str, list[SceneBinding]] | None:
-        if not scenes:
-            return scenes
-
-        for scene_name, bindings in scenes.items():
-            seen_display: set[str] = set()
-            seen_match: set[str] = set()
-
-            for item in bindings:
-                if item.display_model:
-                    if item.display_model in seen_display:
-                        raise ValueError(
-                            f"Scene '{scene_name}' has duplicate display_model: "
-                            f"'{item.display_model}'"
-                        )
-                    seen_display.add(item.display_model)
-
-                if item.match_display_model:
-                    if item.match_display_model in seen_match:
-                        raise ValueError(
-                            f"Scene '{scene_name}' has duplicate match_display_model: "
-                            f"'{item.match_display_model}'"
-                        )
-                    seen_match.add(item.match_display_model)
-
-        return scenes
 
 
 ConditionNode.model_rebuild()

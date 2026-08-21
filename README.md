@@ -125,7 +125,7 @@ A simple image used as wallpaper.
 
  ```yaml
 resource:
-  
+
   black: "C:/Users/You/Pictures/black.jpg"    # Shorthand  with ``style: fill``
 
   office_view:
@@ -133,6 +133,18 @@ resource:
     config:
       path: "C:/Users/You/Pictures/office.jpg"
       style: fill                            # fill | fit | stretch | center | tile
+```
+
+Set `show: false` on a resource to hide it from the system tray menu. The resource stays available to rules; the menu just doesn't list a selectable entry for it.
+
+```yaml
+resource:
+  secret_wallpaper:
+    name: static_wallpaper
+    config:
+      path: "C:/Users/You/Pictures/secret.jpg"
+      style: fill
+    show: false                  # omit or set to false to hide from the tray (default true)
 ```
 
 __cycle__
@@ -163,23 +175,29 @@ resource:
 
 *Refer to SceneBinding in wallpaper_auto.models*
 
-Scenes assign resources to specific monitors so each display can show its own wallpaper in a multi-monitor setup. Configurations in this section should be stated as a dict, whose key will serve as the id. Other components can use this id to refer to the corresponding scene. Each value is a list of bindings mapping a display model pattern to a resource, with optional per-display `resolution` and `scale`. Scene names are auto-registered as rule targets.
+Scenes assign resources to specific monitors so each display can show its own wallpaper in a multi-monitor setup. Each entry is a wrapper dict: the key is the scene id (auto-registered as a rule target), and the body holds a `bindings` list plus an optional `show` flag.
 
-__SceneBinding__
-
-Each binding maps a display model pattern to a resource, with optional per-display resolution and scale.
+Each binding maps a display model pattern — exact (`display_model`) or regex (`match_display_model`) — to a resource, with optional `resolution` and `scale`.
 
 ```yaml
 scene:
-  - layout_1:
-      display_model: "U2719D"          # exact match
-      resource: "work_wallpaper"
-      resolution: "1920x1080"          # "1920X1080", "1920*1080", "1920, 1080", [1920, 1080] are all acceptable format
-      scale: 150                       # float representation (1.75) will be translated to percentage int (175)
+  layout_1:
+    bindings:
+      - display_model: "U2719D"          # exact match
+        resource: "work_wallpaper"
+        resolution: "1920x1080"          # "1920X1080", "1920*1080", "1920, 1080", [1920, 1080] are all acceptable format
+        scale: 150                       # float representation (1.75) will be translated to percentage int (175)
 
-  - layout_2:
-      match_display_model: "U27.+"     # regex, matched via re.search
-      resource: "secondary_wallpaper"
+  layout_2:
+    bindings:
+      - match_display_model: "U27.+"     # regex, matched via re.search
+        resource: "secondary_wallpaper"
+
+  hidden_layout:
+    show: false                         # omit from the tray menu (default true)
+    bindings:
+      - match_display_model: ".*"
+        resource: "black"
 ```
 
 ---
@@ -452,7 +470,8 @@ pythonw.exe -m wallpaper_auto run -c config.yaml
 After running, the app displays an icon in the system tray:
 
 - **AUTO**: Switches to automatic rule-driven wallpaper selection. The active target (the resource or scene the rule engine most recently matched, or the fallback) is marked on the menu.
-- **Wallpaper targets**: One menu item per resource/scene. Clicking a target switches to MANUAL mode and applies that target immediately. In MANUAL mode, the selected target stays active until AUTO is clicked again.
+- **Wallpaper targets**: One menu item per `resource` / `scene` that has `show: true` (the default). Clicking a target switches to MANUAL mode and applies that target immediately. In MANUAL mode, the selected target stays active until AUTO is clicked again.
+- **Hidden targets**: A resource or scene with `show: false` is filtered out of the menu. If the active target is hidden, it still appears as a non-clickable indicator so you can see what's currently mounted; you can't reselect it from the tray.
 - **quit**: Stops the service.
 
 ## Programmatic Usage

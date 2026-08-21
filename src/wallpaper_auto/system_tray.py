@@ -9,8 +9,10 @@ import logging
 import signal
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from importlib.resources import files
 from types import FrameType
+from typing import Literal
 
 from PySide6.QtCore import QCoreApplication, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QCursor, QIcon, QPainter, QPixmap
@@ -25,6 +27,21 @@ ACTIVATE_COLOR = "#25FF80FF"
 ACTIVATE_AUXILIARY_COLOR = "#64DD9675"
 
 
+@dataclass(frozen=True)
+class TrayMenuItem:
+    """Single menu entry shown in the system tray.
+
+    Built by the controller and rendered by ``WallpaperSwitchSystemTray``.
+    The tray applies the rendering policy: visible items render as
+    selectable entries; the active target that is hidden renders as an
+    non-clickable active_hidden_indicator; hidden non-active items are omitted.
+    """
+
+    id: str  # resource ID or scene name this item represents
+    kind: Literal["resource", "scene"]  # what ``id`` refers to: a resource or a scene
+    show: bool = True  # tray-menu visibility; hidden non-active items are dropped
+
+
 class SystemTrayBridge(QObject):
     """
     Full-duplex bridge between the logic layer and the Qt UI layer.
@@ -35,7 +52,7 @@ class SystemTrayBridge(QObject):
     """
 
     # Signal: Logic layer -> UI layer (for updating the interface)
-    # Params: available_targets, mode, active_rule_id, active_target
+    # Params: menu items, mode, active_rule_id, active_target
     update_ui_signal = Signal(list, object, object, object)
 
     def __init__(self) -> None:
@@ -47,7 +64,7 @@ class SystemTrayBridge(QObject):
 
     def update_ui(
         self,
-        available_targets: list[str],
+        available_items: list[TrayMenuItem],
         mode: object,
         active_rule_id: str | None,
         active_target: str | None,
@@ -55,12 +72,14 @@ class SystemTrayBridge(QObject):
         """Emit update_ui_signal with the current UI state.
 
         Args:
-            available_targets: Target IDs available for manual selection.
+            available_items: TrayMenuItem list, one per configured resource
+                and scene (visible or hidden). The tray applies the
+                rendering policy.
             mode: Current mode.
             active_rule_id: ID of the matching rule, or None.
             active_target: ID of the active target, or None.
         """
-        self.update_ui_signal.emit(available_targets, mode, active_rule_id, active_target)
+        self.update_ui_signal.emit(available_items, mode, active_rule_id, active_target)
 
     def register_set_mode_handler(self, cb: Callable[[Mode], None]) -> None:
         """Register the callback invoked by request_set_mode.
@@ -180,7 +199,7 @@ class WallpaperSwitchSystemTray:
 
     def update_menu(
         self,
-        available_targets: list[str],
+        available_items: list[TrayMenuItem],
         mode: Mode,
         active_rule_id: str | None,
         active_target: str | None,
@@ -188,7 +207,11 @@ class WallpaperSwitchSystemTray:
         """Rebuild the context menu from the current UI state.
 
         Args:
-            available_targets: Target IDs available for manual selection.
+            available_items: One ``TrayMenuItem`` per configured resource
+                and scene. The tray applies the rendering policy: visible
+                items render as selectable entries; the active target that
+                is hidden renders as a non-clickable active_hidden_indicator;
+                hidden non-active items are omitted.
             mode: Current mode.
             active_rule_id: ID of the matching rule, or None.
             active_target: ID of the active target, or None.
@@ -207,24 +230,44 @@ class WallpaperSwitchSystemTray:
 
         self._menu.addSeparator()
 
-        for t in available_targets:
-            action = QAction(f"{t}")
+        # Apply visibility policy: hidden non-active items are dropped;
+        # the hidden active target (if any) renders as a non-clickable active_hidden_indicator.
+        active_hidden_indicator: TrayMenuItem | None = None
+        visible_items: list[TrayMenuItem] = []
+        for item in available_items:
+            if item.id == active_target and not item.show:
+                active_hidden_indicator = item
+            elif item.show:
+                visible_items.append(item)
+
+        if active_hidden_indicator is not None:
+            indicator_action = QAction(active_hidden_indicator.id, self._menu)
+            indicator_action.setEnabled(False)
+            indicator_action.setIcon(create_dot_icon(get_color(ACTIVATE_AUXILIARY_COLOR)))
+            self._menu.addAction(indicator_action)
+            self._menu.addSeparator()
+
+        for item in visible_items:
+            action = QAction(item.id, self._menu)
             action.triggered.connect(lambda: self.bridge.request_set_mode(Mode.MANUAL))
-            action.triggered.connect(lambda checked, t=t: self.bridge.request_select_target(t))
+            target_id = item.id
+            action.triggered.connect(
+                lambda checked, t=target_id: self.bridge.request_select_target(t)
+            )
             self._menu.addAction(action)
-            self._action_groups[t] = action
+            self._action_groups[item.id] = action
 
         if mode == Mode.AUTO:
             tip = active_rule_id or "fallback"
             auto_switch_action.setToolTip(tip)
             auto_switch_action.setIcon(create_dot_icon(get_color(ACTIVATE_COLOR)))
             auto_switch_action.setEnabled(False)
-            if active_target is not None:
+            if active_target is not None and active_target in self._action_groups:
                 active_action = self._action_groups[active_target]
                 active_action.setIcon(create_dot_icon(get_color(ACTIVATE_AUXILIARY_COLOR)))
 
         if mode == Mode.MANUAL:
-            if active_target is not None:
+            if active_target is not None and active_target in self._action_groups:
                 active_action = self._action_groups[active_target]
                 active_action.setIcon(create_dot_icon(get_color(ACTIVATE_COLOR)))
                 active_action.setEnabled(False)

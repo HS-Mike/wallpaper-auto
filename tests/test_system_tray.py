@@ -4,13 +4,28 @@ import signal
 import sys
 from collections.abc import Callable
 from types import FrameType
+from typing import Literal
 
 import pytest
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon
 
 from wallpaper_auto.models import ConditionNode, Rule
-from wallpaper_auto.system_tray import SystemTrayBridge, WallpaperSwitchSystemTray, get_color
+from wallpaper_auto.system_tray import (
+    SystemTrayBridge,
+    TrayMenuItem,
+    WallpaperSwitchSystemTray,
+    get_color,
+)
 from wallpaper_auto.task import Mode
+
+
+def _items(
+    *ids: str,
+    kind: Literal["resource", "scene"] = "resource",
+    show: bool = True,
+) -> list[TrayMenuItem]:
+    """Construct visible (or hidden) :class:`TrayMenuItem`s from bare IDs."""
+    return [TrayMenuItem(id=id_, kind=kind, show=show) for id_ in ids]
 
 
 @pytest.fixture
@@ -193,7 +208,7 @@ class TestBridgeSignals:
         tray.show()
         try:
             with qtbot.waitSignal(tray.bridge.update_ui_signal):
-                tray.bridge.update_ui(["res1"], Mode.AUTO, None, "res1")
+                tray.bridge.update_ui(_items("res1"), Mode.AUTO, None, "res1")
         finally:
             tray.hide()
 
@@ -240,10 +255,10 @@ class TestBridgeUpdateUiSignal:
     """The update_ui() method emits signals with correct payload."""
 
     @pytest.mark.parametrize(
-        "targets,mode,rule,active",
+        "items,mode,rule,active",
         [
             pytest.param(
-                ["r1", "r2"],
+                _items("r1", "r2"),
                 Mode.AUTO,
                 "test",
                 "r1",
@@ -256,15 +271,15 @@ class TestBridgeUpdateUiSignal:
         self,
         bridge: SystemTrayBridge,
         qtbot,
-        targets: list[str],
+        items: list[TrayMenuItem],
         mode: Mode,
         rule: str | None,
         active: str | None,
     ) -> None:
         with qtbot.waitSignal(bridge.update_ui_signal, timeout=200) as blocker:
-            bridge.update_ui(targets, mode, rule, active)
+            bridge.update_ui(items, mode, rule, active)
         args = blocker.args
-        assert args[0] == targets
+        assert args[0] == items
         assert args[1] == mode
         assert args[2] is rule
         assert args[3] == active
@@ -277,12 +292,12 @@ class TestBridgeUpdateUiSignal:
             received.append(args)
 
         bridge.update_ui_signal.connect(collect)
-        bridge.update_ui(["a"], Mode.AUTO, None, "a")
-        bridge.update_ui(["b", "c"], Mode.MANUAL, None, "b")
+        bridge.update_ui(_items("a"), Mode.AUTO, None, "a")
+        bridge.update_ui(_items("b", "c"), Mode.MANUAL, None, "b")
 
         assert len(received) == 2
-        assert received[0] == (["a"], Mode.AUTO, None, "a")
-        assert received[1] == (["b", "c"], Mode.MANUAL, None, "b")
+        assert received[0] == (_items("a"), Mode.AUTO, None, "a")
+        assert received[1] == (_items("b", "c"), Mode.MANUAL, None, "b")
 
 
 class TestBridgeEdgeCases:
@@ -314,11 +329,10 @@ class TestMenuRendering:
     """Tests for AUTO and MANUAL mode menu rendering and action state."""
 
     def test_menu_rendering_auto_mode(self, tray_app, qtbot):
-        available_targets = ["wallpaper1", "wallpaper2"]
         active_target = "wallpaper1"
 
         tray_app.bridge.update_ui(
-            available_targets,
+            _items("wallpaper1", "wallpaper2"),
             Mode.AUTO,
             Rule(
                 name="Work",
@@ -341,7 +355,7 @@ class TestMenuRendering:
         assert wp1_action.isEnabled()
 
     def test_menu_rendering_manual_mode_with_active_target(self, tray_app, qtbot):
-        tray_app.bridge.update_ui(["res1", "res2"], Mode.MANUAL, None, "res1")
+        tray_app.bridge.update_ui(_items("res1", "res2"), Mode.MANUAL, None, "res1")
 
         actions = tray_app._menu.actions()
         action_texts = [a.text() for a in actions]
@@ -353,6 +367,43 @@ class TestMenuRendering:
 
         res2_action = tray_app._action_groups["res2"]
         assert res2_action.isEnabled()
+
+    def test_menu_omits_hidden_inactive_items(self, tray_app) -> None:
+        """Items with show=False that aren't the active target don't render."""
+        items = _items("vis1") + _items("hidden1", show=False)
+        tray_app.bridge.update_ui(items, Mode.AUTO, "rule", "vis1")
+
+        action_texts = [a.text() for a in tray_app._menu.actions()]
+        assert "vis1" in action_texts
+        assert "hidden1" not in action_texts
+        assert "hidden1" not in tray_app._action_groups
+
+    def test_menu_renders_hidden_active_target_as_indicator(self, tray_app) -> None:
+        """Hidden active target renders as a non-clickable active_hidden_indicator."""
+        items = _items("vis1") + _items("hidden1", show=False)
+        tray_app.bridge.update_ui(items, Mode.AUTO, "rule", "hidden1")
+
+        actions = tray_app._menu.actions()
+        indicator_action = next((a for a in actions if "hidden1" in a.text()), None)
+        assert indicator_action is not None
+        assert not indicator_action.isEnabled()
+        assert "hidden1" == indicator_action.text()
+        # The active target is hidden — it must NOT appear as a selectable.
+        assert "hidden1" not in tray_app._action_groups
+
+    def test_menu_renders_resource_and_scene_kinds(self, tray_app) -> None:
+        """Both kind=resource and kind=scene items render with their IDs as labels."""
+        items = [
+            TrayMenuItem(id="res1", kind="resource"),
+            TrayMenuItem(id="scene1", kind="scene"),
+        ]
+        tray_app.bridge.update_ui(items, Mode.AUTO, "rule", None)
+
+        action_texts = [a.text() for a in tray_app._menu.actions()]
+        assert "res1" in action_texts
+        assert "scene1" in action_texts
+        assert "res1" in tray_app._action_groups
+        assert "scene1" in tray_app._action_groups
 
 
 class TestCallbacks:
@@ -370,7 +421,7 @@ class TestCallbacks:
         tray_app.bridge.register_quit_handler(lambda: mock_called.update({"quit": True}))
 
         # 1. In MANUAL mode, click a resource action (also sets mode to MANUAL)
-        tray_app.bridge.update_ui(["res_a"], Mode.MANUAL, None, None)
+        tray_app.bridge.update_ui(_items("res_a"), Mode.MANUAL, None, None)
         res_action = tray_app._action_groups["res_a"]
         res_action.trigger()
         assert mock_called["mode"] == Mode.MANUAL
@@ -427,7 +478,7 @@ class TestEdgeCases:
     def test_update_menu_runtime_error(self):
         tray = _make_tray()
         with pytest.raises(RuntimeError, match="menu not initialized"):
-            tray.update_menu([], Mode.AUTO, None, "")
+            tray.update_menu([], Mode.AUTO, None, "")  # type: ignore[arg-type]
 
     def test_exec_starts_event_loop(self, monkeypatch):
         exec_called = []

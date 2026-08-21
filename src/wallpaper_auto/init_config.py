@@ -34,24 +34,28 @@ _TEMPLATE = """\
 # Each key is a name you can reference in rules.
 # Two forms are accepted:
 #
-#   Full form  — dict with ``name`` (component type) and ``config``:
-#   shortcut: { name: static_wallpaper, config: { path: "...", style: fill } }
+#   Full form  — dict with ``name`` (component type), ``config``, and the
+#   optional ``show`` flag (defaults to true; set to false to hide from
+#   the system tray menu):
+#   shortcut: { name: static_wallpaper, config: { path: "...", style: fill }, show: true }
 #
 #   Shorthand  — a plain string treated as the image path; coerced into a
-#   ``static_wallpaper`` resource with ``style: fill``:
+#   ``static_wallpaper`` resource with ``style: fill`` and ``show: true``:
 #   shortcut: "C:/path/to/image.jpg"
 # ---------------------------------------------------------------------------
 resource:
 
-  # Full-form resource — explicit component name + config
+  # Full-form resource — explicit component name + config.
+  # ``show`` controls visibility in the system tray menu (default true).
   office_view:
     name: static_wallpaper
     config:
       path: "C:/Users/You/Pictures/office.jpg"
       style: fill               # fill | fit | stretch | center | tile
+    show: true                  # omit or set to false to hide from the tray
 
   # Shorthand — bare path string; coerced to a ``static_wallpaper`` resource
-  # with ``style: fill``
+  # with ``style: fill`` and ``show: true``
   black: "C:/Users/You/Pictures/black.jpg"
 
   # ── Resource cycle (cycles through multiple sub-resources) ─────────────
@@ -107,20 +111,30 @@ trigger:
 # Both resource IDs and scene names are valid rule ``target`` values.
 # Targets are resolved against the ``resource`` section first, then
 # ``scene``.
+#
+# Scene wrapper shape:
+#   scene_name:
+#     show: true                  # tray-menu visibility (default true)
+#     bindings:
+#       - display_model: "U2719D"
+#         resource: "office_view"
 # ---------------------------------------------------------------------------
 # scene:
 #   work_layout:
-#     - display_model: "U2719D"
-#       resource: "office_view"
-#     - display_model: "internal"
-#       resource: "black"
-#     - match_display_model: "27.*"      # regex: any 27-inch monitor
-#       resource: "office_view"
-#       resolution: "1920x1080"
-#       scale: 1.5
+#     show: true
+#     bindings:
+#       - display_model: "U2719D"
+#         resource: "office_view"
+#       - display_model: "internal"
+#         resource: "black"
+#       - match_display_model: "27.*"      # regex: any 27-inch monitor
+#         resource: "office_view"
+#         resolution: "1920x1080"
+#         scale: 1.5
 #   mobile:
-#     - match_display_model: ".*"        # regex catch-all
-#       resource: "black"
+#     bindings:
+#       - match_display_model: ".*"        # regex catch-all
+#         resource: "black"
 
 
 # ---------------------------------------------------------------------------

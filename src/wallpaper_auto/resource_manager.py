@@ -89,7 +89,7 @@ class ResourceManager:
         if target in ConfigStore.instance.scene:
             display_by_id = {i.display_id: i for i in display_info}
             for display_id, binding in ResourceManager.evaluate_scene(
-                ConfigStore.instance.scene[target], display_info
+                ConfigStore.instance.scene[target].bindings, display_info
             ).items():
                 res.append(
                     DisplayScene(
