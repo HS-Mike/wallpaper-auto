@@ -130,22 +130,22 @@ class DisplayTrigger(BaseThreadTrigger):
             removed: Displays present before the change but not after.
             added: Displays present after the change but not before.
         """
-        log_info = ""
         if removed:
-            log_info += "Removed displays: \n"
+            log_content = "removed displays: "
             for d_info in removed:
-                log_info += (
+                log_content += (
                     f"  {d_info.model or 'UNKNOWN MODEL'}"
-                    f" ({d_info.device_name or 'UNKNOW DEVICE NAME'})\n"
+                    f" ({d_info.device_name or 'UNKNOW DEVICE NAME'})  "
                 )
+            logger.debug(log_content)
         if added:
-            log_info += "Added displays: \n"
+            log_content = "added displays: "
             for d_info in added:
-                log_info += (
+                log_content += (
                     f"  {d_info.model or 'UNKNOWN MODEL'}"
-                    f" ({d_info.device_name or 'UNKNOW DEVICE NAME'})\n"
+                    f" ({d_info.device_name or 'UNKNOW DEVICE NAME'})  "
                 )
-        logger.debug(log_info.strip())
+            logger.debug(log_content)
 
     @override
     def run(self) -> None:
