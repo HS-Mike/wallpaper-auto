@@ -223,9 +223,7 @@ class SceneConfig(BaseModel):
                 seen_display.add(item.display_model)
             if item.match_display_model:
                 if item.match_display_model in seen_match:
-                    raise ValueError(
-                        f"duplicate match_display_model: '{item.match_display_model}'"
-                    )
+                    raise ValueError(f"duplicate match_display_model: '{item.match_display_model}'")
                 seen_match.add(item.match_display_model)
         return self
 

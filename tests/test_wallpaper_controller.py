@@ -533,6 +533,8 @@ class TestWallpaperControllerTargetSetBranches:
 
 
 class TestWallpaperControllerAtDisplayChange:
+    """TestWallpaperController.at_display_change() behavior."""
+
     def test_at_display_change_reapplies_active_target(self, controller):
         """A display change re-applies the current active target to the new topology."""
         rule = MagicMock(spec=Rule)

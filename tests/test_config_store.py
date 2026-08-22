@@ -508,9 +508,7 @@ class TestProperties:
     def test_scene_binding_parses_match_display_model(self, store: ConfigStore, tmp_path):
         yaml_str = _make_valid_yaml(
             scene={
-                "office": {
-                    "bindings": [{"match_display_model": "27.*", "resource": "office_view"}]
-                }
+                "office": {"bindings": [{"match_display_model": "27.*", "resource": "office_view"}]}
             }
         )
         path = tmp_path / "scene_regex.yaml"
@@ -626,9 +624,7 @@ class TestSceneValidation:
 
     def test_scene_wrapper_show_defaults_to_true(self) -> None:
         data = dict(_MINIMAL)
-        data["scene"] = {
-            "office": {"bindings": [{"display_model": "Dell U27", "resource": "a"}]}
-        }
+        data["scene"] = {"office": {"bindings": [{"display_model": "Dell U27", "resource": "a"}]}}
         model = ConfigModel(**data)
         assert model.scene is not None
         assert model.scene["office"].show is True
