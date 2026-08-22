@@ -103,6 +103,29 @@ class TestLoad:
         assert office.name == "static_wallpaper"
         assert office.config["path"] == "C:/img.png"
         assert office.config["style"] == "fill"
+        assert office.show is True
+
+    def test_load_resource_show_defaults_to_true(self, store: ConfigStore, valid_yaml: str):
+        store.load(valid_yaml)
+        assert store.config is not None
+        assert store.config.resource["office_view"].show is True
+        assert store.config.resource["black"].show is True
+
+    def test_load_resource_show_false_parses(self, store: ConfigStore, tmp_path):
+        yaml_str = _make_valid_yaml(
+            resource={
+                "office_view": {
+                    "name": "static_wallpaper",
+                    "config": {"path": "C:/img.png", "style": "fill"},
+                    "show": False,
+                },
+            }
+        )
+        path = tmp_path / "with_hide.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.config is not None
+        assert store.config.resource["office_view"].show is False
 
     def test_load_trigger_list(self, store: ConfigStore, valid_yaml: str):
         store.load(valid_yaml)
@@ -468,7 +491,9 @@ class TestProperties:
                 "rule": [],
                 "fallback_target": "a",
                 "scene": {
-                    "office": [{"display_model": "Dell U27", "resource": "a"}],
+                    "office": {
+                        "bindings": [{"display_model": "Dell U27", "resource": "a"}],
+                    },
                 },
             }
         )
@@ -477,71 +502,99 @@ class TestProperties:
         store.load(str(path))
         scenes = store.scene
         assert "office" in scenes
-        assert scenes["office"][0].display_model == "Dell U27"
-        assert scenes["office"][0].resource == "a"
+        assert scenes["office"].bindings[0].display_model == "Dell U27"
+        assert scenes["office"].bindings[0].resource == "a"
 
     def test_scene_binding_parses_match_display_model(self, store: ConfigStore, tmp_path):
         yaml_str = _make_valid_yaml(
-            scene={"office": [{"match_display_model": "27.*", "resource": "office_view"}]}
+            scene={
+                "office": {
+                    "bindings": [{"match_display_model": "27.*", "resource": "office_view"}]
+                }
+            }
         )
         path = tmp_path / "scene_regex.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
-        binding = store.scene["office"][0]
+        binding = store.scene["office"].bindings[0]
         assert binding.match_display_model == "27.*"
         assert binding.display_model is None
 
     def test_scene_binding_parses_resolution_string(self, store: ConfigStore, tmp_path):
         yaml_str = _make_valid_yaml(
             scene={
-                "office": [
-                    {
-                        "display_model": "U2719D",
-                        "resource": "office_view",
-                        "resolution": "1920x1080",
-                    }
-                ]
+                "office": {
+                    "bindings": [
+                        {
+                            "display_model": "U2719D",
+                            "resource": "office_view",
+                            "resolution": "1920x1080",
+                        }
+                    ]
+                }
             }
         )
         path = tmp_path / "scene_resolution.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
-        assert store.scene["office"][0].resolution == (1920, 1080)
+        assert store.scene["office"].bindings[0].resolution == (1920, 1080)
 
     def test_scene_binding_parses_resolution_list(self, store: ConfigStore, tmp_path):
         yaml_str = _make_valid_yaml(
             scene={
-                "office": [
-                    {
-                        "display_model": "U2719D",
-                        "resource": "office_view",
-                        "resolution": [2560, 1440],
-                    }
-                ]
+                "office": {
+                    "bindings": [
+                        {
+                            "display_model": "U2719D",
+                            "resource": "office_view",
+                            "resolution": [2560, 1440],
+                        }
+                    ]
+                }
             }
         )
         path = tmp_path / "scene_resolution_list.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
-        assert store.scene["office"][0].resolution == (2560, 1440)
+        assert store.scene["office"].bindings[0].resolution == (2560, 1440)
 
     def test_scene_binding_normalizes_decimal_scale(self, store: ConfigStore, tmp_path):
         yaml_str = _make_valid_yaml(
-            scene={"office": [{"display_model": "U2719D", "resource": "office_view", "scale": 1.5}]}
+            scene={
+                "office": {
+                    "bindings": [
+                        {
+                            "display_model": "U2719D",
+                            "resource": "office_view",
+                            "scale": 1.5,
+                        }
+                    ]
+                }
+            }
         )
         path = tmp_path / "scene_scale_decimal.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
-        assert store.scene["office"][0].scale == 150
+        assert store.scene["office"].bindings[0].scale == 150
 
     def test_scene_binding_passes_through_integer_scale(self, store: ConfigStore, tmp_path):
         yaml_str = _make_valid_yaml(
-            scene={"office": [{"display_model": "U2719D", "resource": "office_view", "scale": 150}]}
+            scene={
+                "office": {
+                    "bindings": [
+                        {
+                            "display_model": "U2719D",
+                            "resource": "office_view",
+                            "scale": 150,
+                        }
+                    ]
+                }
+            }
         )
         path = tmp_path / "scene_scale_int.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
-        assert store.scene["office"][0].scale == 150
+        assert store.scene["office"].bindings[0].scale == 150
 
     def test_scene_returns_empty_dict_when_unset(self, store: ConfigStore, valid_yaml: str):
         store.load(valid_yaml)
@@ -571,18 +624,46 @@ class TestAtShutdownValidation:
 class TestSceneValidation:
     """Validation of scene binding fields in ConfigModel."""
 
+    def test_scene_wrapper_show_defaults_to_true(self) -> None:
+        data = dict(_MINIMAL)
+        data["scene"] = {
+            "office": {"bindings": [{"display_model": "Dell U27", "resource": "a"}]}
+        }
+        model = ConfigModel(**data)
+        assert model.scene is not None
+        assert model.scene["office"].show is True
+        assert model.scene["office"].bindings[0].display_model == "Dell U27"
+
+    def test_scene_wrapper_show_false_parses(self) -> None:
+        data = dict(_MINIMAL)
+        data["scene"] = {
+            "office": {
+                "show": False,
+                "bindings": [{"display_model": "Dell U27", "resource": "a"}],
+            }
+        }
+        model = ConfigModel(**data)
+        assert model.scene is not None
+        assert model.scene["office"].show is False
+
     def test_binding_requires_display_key(self):
         data = dict(_MINIMAL)
-        data["scene"] = {"office": [{"resource": "a"}]}
+        data["scene"] = {"office": {"bindings": [{"resource": "a"}]}}
         with pytest.raises(ValueError, match="Either display_model or match_display_model"):
             ConfigModel(**data)
 
     def test_binding_rejects_both_display_keys(self):
         data = dict(_MINIMAL)
         data["scene"] = {
-            "office": [
-                {"display_model": "Dell U27", "match_display_model": "Dell.*", "resource": "a"}
-            ]
+            "office": {
+                "bindings": [
+                    {
+                        "display_model": "Dell U27",
+                        "match_display_model": "Dell.*",
+                        "resource": "a",
+                    }
+                ]
+            }
         }
         with pytest.raises(ValueError, match="Only one of display_model or match_display_model"):
             ConfigModel(**data)
@@ -590,10 +671,12 @@ class TestSceneValidation:
     def test_scene_rejects_duplicate_display_model(self):
         data = dict(_MINIMAL)
         data["scene"] = {
-            "office": [
-                {"display_model": "Dell U27", "resource": "a"},
-                {"display_model": "Dell U27", "resource": "a"},
-            ]
+            "office": {
+                "bindings": [
+                    {"display_model": "Dell U27", "resource": "a"},
+                    {"display_model": "Dell U27", "resource": "a"},
+                ]
+            }
         }
         with pytest.raises(ValueError, match="duplicate display_model"):
             ConfigModel(**data)
@@ -601,10 +684,12 @@ class TestSceneValidation:
     def test_scene_rejects_duplicate_match_display_model(self):
         data = dict(_MINIMAL)
         data["scene"] = {
-            "office": [
-                {"match_display_model": "Dell.*", "resource": "a"},
-                {"match_display_model": "Dell.*", "resource": "a"},
-            ]
+            "office": {
+                "bindings": [
+                    {"match_display_model": "Dell.*", "resource": "a"},
+                    {"match_display_model": "Dell.*", "resource": "a"},
+                ]
+            }
         }
         with pytest.raises(ValueError, match="duplicate match_display_model"):
             ConfigModel(**data)

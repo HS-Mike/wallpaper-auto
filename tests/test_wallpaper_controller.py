@@ -5,8 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wallpaper_auto.models import Rule
+from wallpaper_auto.models import ResourceConfig, Rule
 from wallpaper_auto.resource.base_resource import BaseResource
+from wallpaper_auto.system_tray import TrayMenuItem
 from wallpaper_auto.task import ApplySceneTask, Mode, ModeSwitchTask, QuitTask, UpdateSceneTask
 from wallpaper_auto.wallpaper_controller import WallpaperController
 
@@ -245,11 +246,19 @@ class TestWallpaperControllerEvaluate:
 class TestWallpaperControllerUpdateSystemTray:
     """update_system_tray() delegates to the tray bridge."""
 
+    @staticmethod
+    def _res(show: bool = True) -> ResourceConfig:
+        return ResourceConfig(name="static_wallpaper", config={"path": "x"}, show=show)
+
     def test_delegates_to_bridge_when_tray_set(self, controller):
         mock_tray = MagicMock()
         controller._tray = mock_tray
 
-        _mock_config_store(controller, resource={"r1": MagicMock(), "r2": MagicMock()}, scene={})
+        _mock_config_store(
+            controller,
+            resource={"r1": self._res(), "r2": self._res()},
+            scene={},
+        )
         controller._mode = Mode.AUTO
         controller.active_rule = None
         controller.active_target = "r1"
@@ -257,7 +266,10 @@ class TestWallpaperControllerUpdateSystemTray:
         controller.update_system_tray()
 
         mock_tray.bridge.update_ui.assert_called_once_with(
-            ["r1", "r2"],
+            [
+                TrayMenuItem(id="r1", kind="resource", show=True),
+                TrayMenuItem(id="r2", kind="resource", show=True),
+            ],
             Mode.AUTO,
             None,
             "r1",
@@ -268,7 +280,7 @@ class TestWallpaperControllerUpdateSystemTray:
         rule.name = "my rule"
         mock_tray = MagicMock()
         controller._tray = mock_tray
-        _mock_config_store(controller, resource={"r1": MagicMock()}, scene={})
+        _mock_config_store(controller, resource={"r1": self._res()}, scene={})
         controller._mode = Mode.AUTO
         controller.active_rule = rule
         controller.active_target = "r1"
@@ -276,11 +288,51 @@ class TestWallpaperControllerUpdateSystemTray:
         controller.update_system_tray()
 
         mock_tray.bridge.update_ui.assert_called_once_with(
-            ["r1"],
+            [TrayMenuItem(id="r1", kind="resource", show=True)],
             Mode.AUTO,
             "my rule",
             "r1",
         )
+
+    def test_emits_resources_and_scenes_with_kind(self, controller):
+        """Resources map to kind='resource'; scenes map to kind='scene'."""
+        from wallpaper_auto.models import SceneConfig
+
+        mock_tray = MagicMock()
+        controller._tray = mock_tray
+        _mock_config_store(
+            controller,
+            resource={"r1": self._res()},
+            scene={"s1": SceneConfig(bindings=[], show=True)},
+        )
+        controller._mode = Mode.AUTO
+        controller.active_rule = None
+        controller.active_target = "r1"
+
+        controller.update_system_tray()
+
+        items = mock_tray.bridge.update_ui.call_args.args[0]
+        assert TrayMenuItem(id="r1", kind="resource", show=True) in items
+        assert TrayMenuItem(id="s1", kind="scene", show=True) in items
+
+    def test_emits_hidden_items_unchanged(self, controller):
+        """Items with show=False are still emitted (filtering is the tray's job)."""
+        mock_tray = MagicMock()
+        controller._tray = mock_tray
+        _mock_config_store(
+            controller,
+            resource={"visible": self._res(), "hidden": self._res(show=False)},
+            scene={},
+        )
+        controller._mode = Mode.AUTO
+        controller.active_rule = None
+        controller.active_target = "visible"
+
+        controller.update_system_tray()
+
+        items = mock_tray.bridge.update_ui.call_args.args[0]
+        shows = {item.id: item.show for item in items}
+        assert shows == {"visible": True, "hidden": False}
 
     def test_noop_when_tray_is_none(self, controller):
         controller._tray = None

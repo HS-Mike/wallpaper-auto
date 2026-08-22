@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from wallpaper_auto.models import ResourceConfig, SceneBinding
+from wallpaper_auto.models import ResourceConfig, SceneBinding, SceneConfig
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource_manager import _BUILTIN_RESOURCES, DisplayScene, ResourceManager
 from wallpaper_auto.util.display_util import LUID, DisplayInfo
@@ -100,7 +100,9 @@ class TestResourceManagerEvaluateTarget:
             )
         }
         mock_cs.instance.scene = {
-            "office": [SceneBinding(match_display_model="Dell.*", resource="wp1")]
+            "office": SceneConfig(
+                bindings=[SceneBinding(match_display_model="Dell.*", resource="wp1")]
+            )
         }
 
         result = ResourceManager.evaluate_target("office", [display])
