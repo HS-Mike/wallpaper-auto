@@ -533,9 +533,24 @@ class TestWallpaperControllerTargetSetBranches:
 
 
 class TestWallpaperControllerAtDisplayChange:
-    def test_at_display_change_enqueues_plot_canvas(self, controller):
+    def test_at_display_change_reapplies_active_target(self, controller):
+        """A display change re-applies the current active target to the new topology."""
+        rule = MagicMock(spec=Rule)
+        controller.active_target = "office"
+        controller.active_rule = rule
+
+        with patch.object(controller, "add_update_scene_task") as mock_add:
+            controller.at_display_change(MagicMock())
+
+        mock_add.assert_called_once_with(target="office", matched_rule=rule)
+
+    def test_at_display_change_without_active_target_falls_back_to_plot(self, controller):
+        """With no target active yet, a display change just re-renders the composite."""
+        controller.active_target = None
+
         with patch.object(controller, "add_apply_scene_task") as mock_add:
             controller.at_display_change(MagicMock())
+
         mock_add.assert_called_once()
 
 

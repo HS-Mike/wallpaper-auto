@@ -56,6 +56,7 @@ class WallpaperController:
         self._display_trigger = DisplayTrigger()
         self._display_trigger.add_callback(self.at_display_change)
 
+        self._active_lock = threading.Lock()
         self.active_rule: Rule | None = None
         self.active_target: str | None = None
 
@@ -103,8 +104,9 @@ class WallpaperController:
                             self._display_manager.update_display_scene(
                                 scene.display_id, scene.resource, scene.resolution, scene.scale
                             )
-                        self.active_target = task.target
-                        self.active_rule = task.matched_rule
+                        with self._active_lock:
+                            self.active_target = task.target
+                            self.active_rule = task.matched_rule
                         self.add_apply_scene_task()
                         self.update_system_tray()
                 except Exception as e:
@@ -214,11 +216,14 @@ class WallpaperController:
         ]
         for sid, scene_cfg in self._config_store.scene.items():
             items.append(TrayMenuItem(id=sid, kind="scene", show=scene_cfg.show))
+        with self._active_lock:
+            active_rule_name = self.active_rule.name if self.active_rule is not None else None
+            active_target = self.active_target
         self._tray.bridge.update_ui(
             items,
             self._mode,
-            self.active_rule.name if self.active_rule is not None else None,
-            self.active_target,
+            active_rule_name,
+            active_target,
         )
 
     def add_quit_task(self, priority: int | None = None) -> QuitTask:
@@ -261,8 +266,23 @@ class WallpaperController:
         return t
 
     def at_display_change(self, _trigger: BaseTrigger) -> None:
+        """Re-apply the active target when the display topology changes.
+
+        A display change may add/remove monitors. Re-resolving the current
+        active target against the new topology assigns a resource to any
+        newly-connected display so the SPAN composite covers the full virtual
+        desktop; a bare re-plot leaves the new display without a canvas, so
+        Windows stretches the old composite across it. Falls back to a plain
+        re-plot when no target is active yet.
+        """
         logger.info("Detect display change.")
-        self.add_apply_scene_task()
+        with self._active_lock:
+            target = self.active_target
+            rule = self.active_rule
+        if target is not None:
+            self.add_update_scene_task(target=target, matched_rule=rule)
+        else:
+            self.add_apply_scene_task()
 
     def evaluate(self) -> None:
         """Re-evaluate rules against current conditions and enqueue the resulting target.
