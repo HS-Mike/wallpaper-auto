@@ -67,7 +67,7 @@ class WallpaperController:
         deferred_plots: list[ApplySceneTask] = []
 
         while True:
-            priority, _count, task = self._task_queue.get()
+            priority, count, task = self._task_queue.get()
             logger.debug(
                 f"work loop task: {task.__class__.__name__} (id: {id(task)} priority: {priority})"
             )
@@ -126,7 +126,7 @@ class WallpaperController:
                         key=lambda pair: pair[0],
                         default=None,
                     )
-                if newest_queued is not None:
+                if newest_queued is not None and newest_queued[0] > count:
                     # Deprecated branch: a newer ApplySceneTask is already
                     # queued, so this task is skipped and its completion is
                     # deferred to the superseding render.
@@ -139,8 +139,10 @@ class WallpaperController:
                     deferred_plots.append(task)
                 else:
                     # Renderer branch: this task is the newest, so it renders,
-                    # then finishes the deprecated tasks and pops redundant
-                    # plots enqueued while it ran.
+                    # then finishes the deprecated tasks it served. Plots
+                    # enqueued while it ran are left in the queue: their
+                    # canvas writes happened after this render read the buffer,
+                    # so clearing them would silently drop a newer wallpaper.
                     rendered = False
                     try:
                         self._display_manager.update_display()
@@ -149,31 +151,13 @@ class WallpaperController:
                     except Exception as e:
                         logger.exception(e)
                     if rendered:
-                        with self._task_queue.mutex:
-                            pending = list(self._task_queue.queue)
-                            all_plots = all(isinstance(t, ApplySceneTask) for _p, _c, t in pending)
-                            if all_plots:
-                                self._task_queue.queue.clear()
-                        if all_plots:
-                            # Only plot tasks are queued (no non-plot task that
-                            # would change the canvas buffer next): this render
-                            # already covered the latest canvas — finish the
-                            # deprecated tasks it served (older, logged first),
-                            # then pop the redundant plots enqueued while it ran.
-                            for deferred in deferred_plots:
-                                logger.debug(
-                                    "ApplySceneTask (id: %d) deprecated; finished",
-                                    id(deferred),
-                                )
-                                deferred.mark_finish()
-                            deferred_plots.clear()
-                            for _p, _c, t in pending:
-                                logger.debug(
-                                    "ApplySceneTask (id: %d) redundant; popped",
-                                    id(t),
-                                )
-                                t.mark_finish()
-                                self._task_queue.task_done()
+                        for deferred in deferred_plots:
+                            logger.debug(
+                                "ApplySceneTask (id: %d) deprecated; finished",
+                                id(deferred),
+                            )
+                            deferred.mark_finish()
+                        deferred_plots.clear()
                     task.mark_finish()
 
             self._task_queue.task_done()

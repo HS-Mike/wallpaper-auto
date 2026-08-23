@@ -1,6 +1,5 @@
 """Tests for wallpaper_controller.py — controller lifecycle and task processing."""
 
-import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,7 +8,7 @@ from wallpaper_auto.models import ResourceConfig, Rule
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.system_tray import TrayMenuItem
 from wallpaper_auto.task import ApplySceneTask, Mode, ModeSwitchTask, QuitTask, UpdateSceneTask
-from wallpaper_auto.wallpaper_controller import WallpaperController
+from wallpaper_auto.wallpaper_controller import ThreadSafeCounter, WallpaperController
 
 
 def _mock_config_store(controller, **overrides):
@@ -435,12 +434,13 @@ class TestWallpaperControllerTargetSetBranches:
         controller._display_manager.plot_canvas.assert_called_once()
 
     def test_target_set_skips_plot_when_newer_canvas_queued(self, controller):
-        """If a PLOT_CANVAS is already pending, the controller skips its own plot call."""
+        """An older queued plot is deprecated by the newer plot an update enqueues."""
         self._setup(controller, [MagicMock()])
+        controller._task_counter = ThreadSafeCounter(start=1000)
 
         for t in _quit_after(
-            _make_task(ApplySceneTask(), priority=8),
-            _make_task(UpdateSceneTask(target="r1", matched_rule=None), priority=5),
+            _make_task(ApplySceneTask(), priority=8, counter=1),
+            _make_task(UpdateSceneTask(target="r1", matched_rule=None), priority=5, counter=2),
         ):
             controller._task_queue.put(t)
 
@@ -497,39 +497,54 @@ class TestWallpaperControllerTargetSetBranches:
         assert older.wait(timeout=0)
         assert newer.wait(timeout=0)
 
-    def test_renderer_finishes_deprecated_and_pops_redundant_plots(self, controller):
-        """The newest plot renders, finishing deprecated ones and popping redundant ones."""
+    def test_renderer_finishes_deprecated_and_leaves_queued_plots(self, controller):
+        """The renderer finishes deprecated tasks and leaves later plots queued."""
         self._setup(controller)
         deprecated = ApplySceneTask()
         renderer = ApplySceneTask()
         redundant = ApplySceneTask()
 
+        enqueued = False
+
         def _enqueue_redundant_plot() -> None:
-            controller._task_queue.put(_make_task(redundant, priority=10, counter=2))
+            nonlocal enqueued
+            if not enqueued:
+                enqueued = True
+                controller._task_queue.put(_make_task(redundant, priority=10, counter=2))
 
         controller._display_manager.apply_display_scene.side_effect = _enqueue_redundant_plot
 
-        controller._task_queue.put(_make_task(deprecated, priority=5, counter=0))
-        controller._task_queue.put(_make_task(renderer, priority=10, counter=1))
+        for t in _quit_after(
+            _make_task(deprecated, priority=5, counter=0),
+            _make_task(renderer, priority=10, counter=1),
+        ):
+            controller._task_queue.put(t)
 
-        thread = threading.Thread(target=controller._work_loop)
-        thread.start()
-        try:
-            # The renderer marks itself finished only after the cleanup; wait for
-            # that, then enqueue QUIT so the loop exits instead of blocking.
-            assert renderer.wait(timeout=5)
-            controller._task_queue.put(_make_task(QuitTask(), priority=100))
-            thread.join(timeout=5)
-        finally:
-            if thread.is_alive():
-                controller._task_queue.put(_make_task(QuitTask(), priority=0))
-                thread.join(timeout=1)
+        controller._work_loop()
 
-        assert not thread.is_alive()
         assert deprecated.wait(timeout=0)
         assert renderer.wait(timeout=0)
         assert redundant.wait(timeout=0)
+        # A plot enqueued while the renderer ran was not cleared: it stayed in
+        # the queue and rendered on its own pass afterwards.
+        assert controller._display_manager.apply_display_scene.call_count == 2
         assert controller._task_queue.qsize() == 0
+
+    def test_quit_task_finishes_deferred_plots(self, controller):
+        """A QUIT that interrupts plot churn still finishes the deprecated plots."""
+        self._setup(controller)
+        older = ApplySceneTask()
+        newer = ApplySceneTask()
+
+        # older is deprecated by newer, then QUIT (priority 5) arrives before
+        # newer gets a chance to render; the loop must finish older on exit.
+        controller._task_queue.put(_make_task(older, priority=5, counter=0))
+        controller._task_queue.put(_make_task(newer, priority=10, counter=1))
+        controller._task_queue.put(_make_task(QuitTask(), priority=5, counter=3))
+
+        controller._work_loop()
+
+        assert older.wait(timeout=0)
 
 
 class TestWallpaperControllerAtDisplayChange:
