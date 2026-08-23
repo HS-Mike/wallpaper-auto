@@ -6,6 +6,7 @@ subcommand's dedicated entry function in :mod:`wallpaper_auto.service`:
 
 - ``init-config`` → :func:`wallpaper_auto.service.init_config`
 - ``run`` → :func:`wallpaper_auto.service.run`
+- ``display-capability`` → :func:`wallpaper_auto.service.display_capability`
 
 A subcommand is required; invoking ``wallpaper-auto`` without one prints the
 usage and exits.
@@ -25,7 +26,7 @@ from __future__ import annotations
 
 import argparse
 
-from .service import init_config, run
+from .service import display_capability, init_config, run
 
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
@@ -87,6 +88,12 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("-c", "--config", default="config.yaml", help="Path to config file")
     _add_logging_args(run_parser, suppress_default=True)
 
+    display_capability_parser = subparsers.add_parser(
+        "display-capability",
+        help="Print current display attributes and per-display capabilities",
+    )
+    _add_logging_args(display_capability_parser, suppress_default=True)
+
     return parser
 
 
@@ -107,6 +114,9 @@ def cli() -> None:
     elif args.subcommand == "run":
         with ProcessMutex("wallpaper_auto", raise_error=False):
             run(args.config, log_level=args.log_level, log_file=args.log_file)
+
+    elif args.subcommand == "display-capability":
+        display_capability()
 
     else:
         raise RuntimeError("invalid args")

@@ -14,9 +14,16 @@ from wallpaper_auto.models import LoggingConfig
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource_manager import ResourceManager
 from wallpaper_auto.rule_engine import RuleEngine
-from wallpaper_auto.service import _read_logging_config, _setup_logging, init_config, run
+from wallpaper_auto.service import (
+    _read_logging_config,
+    _setup_logging,
+    display_capability,
+    init_config,
+    run,
+)
 from wallpaper_auto.trigger.base_trigger import BaseTrigger
 from wallpaper_auto.trigger_manager import TriggerManager
+from wallpaper_auto.util.display_util import LUID, DisplayCapability, DisplayInfo
 
 _LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 
@@ -202,3 +209,85 @@ class TestInitConfig:
             init_config("out.yaml")
         assert exc_info.value.code == 1
         assert str(error) in capsys.readouterr().err
+
+
+class TestDisplayCapability:
+    """``display_capability()`` queries display_util and prints a summary."""
+
+    _DISPLAY = DisplayInfo(
+        device_name=r"\\.\DISPLAY1",
+        monitor_device_path=r"\\?\DISPLAY#DELA012#5&123",
+        model="DELL U2723QE",
+        source_resolution=(3840, 2160),
+        position=(0, 0),
+        target_resolution=(3840, 2160),
+        adapter_id=LUID(1, 2),
+        source_id=0,
+        scale=150,
+    )
+
+    def test_prints_attributes_and_capability(self, capsys: pytest.CaptureFixture[str]) -> None:
+        capability = DisplayCapability(
+            scale=(100, 125, 150, 175, 200),
+            reference_scale=150,
+            resolution=((3840, 2160), (2560, 1440)),
+        )
+        with (
+            patch("wallpaper_auto.service.set_process_dpi_aware") as mock_dpi,
+            patch("wallpaper_auto.service.get_display_info", return_value=[self._DISPLAY]),
+            patch("wallpaper_auto.service.get_display_capability", return_value=capability),
+        ):
+            display_capability()
+
+        mock_dpi.assert_called_once_with()
+        out = capsys.readouterr().out
+        assert "Found 1 active display(s)" in out
+        assert "[1]" in out
+        assert "'DELL U2723QE'" in out
+        assert "3840 x 2160" in out
+        assert "0, 0" in out
+        assert "150%" in out
+        assert "1,2" in out
+        assert "reference scale : 150%" in out
+        assert "100%, 125%, 150%, 175%, 200%" in out
+        assert "3840x2160, 2560x1440" in out
+
+    def test_prints_unavailable_when_capability_none(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with (
+            patch("wallpaper_auto.service.set_process_dpi_aware"),
+            patch("wallpaper_auto.service.get_display_info", return_value=[self._DISPLAY]),
+            patch("wallpaper_auto.service.get_display_capability", return_value=None),
+        ):
+            display_capability()
+
+        out = capsys.readouterr().out
+        assert "capability      : unavailable (topology transition / driver)" in out
+
+    def test_prints_unavailable_when_capability_raises(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with (
+            patch("wallpaper_auto.service.set_process_dpi_aware"),
+            patch("wallpaper_auto.service.get_display_info", return_value=[self._DISPLAY]),
+            patch(
+                "wallpaper_auto.service.get_display_capability",
+                side_effect=ValueError("bad"),
+            ),
+        ):
+            display_capability()
+
+        out = capsys.readouterr().out
+        assert "capability      : unavailable (bad)" in out
+
+    def test_prints_cannot_query_when_get_display_info_none(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        with (
+            patch("wallpaper_auto.service.set_process_dpi_aware"),
+            patch("wallpaper_auto.service.get_display_info", return_value=None),
+        ):
+            display_capability()
+
+        assert "cannot query displays" in capsys.readouterr().out

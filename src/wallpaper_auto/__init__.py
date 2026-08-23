@@ -61,6 +61,19 @@ def run(
     )
 
 
+def display_capability() -> None:
+    """Print current display attributes and per-display capabilities.
+
+    Lazy wrapper that defers the full service import (and its Qt
+    dependency) until actually called. See
+    :func:`wallpaper_auto.service.display_capability` for the full
+    documentation.
+    """
+    from .service import display_capability as _display_capability  # noqa: PLC0415
+
+    _display_capability()
+
+
 __all__ = [
     "BaseTrigger",
     "BaseThreadTrigger",
@@ -71,4 +84,5 @@ __all__ = [
     "RuleEngine",
     "init_config",
     "run",
+    "display_capability",
 ]

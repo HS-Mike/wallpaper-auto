@@ -8,6 +8,8 @@ Each CLI subcommand has a dedicated entry function here:
 - :func:`run` — the ``run`` subcommand and the programmatic API:
   configure logging, register optional custom components, then boot the
   controller and system tray.
+- :func:`display_capability` — the ``display-capability`` subcommand:
+  print current display attributes and per-display capabilities.
 
 The CLI entry point that dispatches to these lives in
 :mod:`wallpaper_auto.cli`.
@@ -45,6 +47,13 @@ from .rule_engine import RuleEngine
 from .system_tray import WallpaperSwitchSystemTray
 from .trigger.base_trigger import BaseTrigger
 from .trigger_manager import TriggerManager
+from .util.display_util import (
+    LUID,
+    DisplayInfo,
+    get_display_capability,
+    get_display_info,
+    set_process_dpi_aware,
+)
 from .wallpaper_controller import WallpaperController
 
 _LOG_FORMAT = "%(asctime)s  %(module)-25s  %(levelname)-7s  %(thread)-6d  %(message)s"
@@ -174,3 +183,83 @@ def run(
     controller.set_tray(tray)
     controller.start()
     tray.exec()
+
+
+def display_capability() -> None:
+    """Print current display attributes and per-display capabilities.
+
+    Read-only query of display topology and capability via
+    :mod:`wallpaper_auto.util.display_util`; never changes any display
+    setting.  Declares Per-Monitor DPI awareness first so reported scale
+    values are physical pixels.
+    """
+    set_process_dpi_aware()
+
+    displays = get_display_info()
+    if displays is None:
+        print("cannot query displays")
+        return
+
+    print(f"Found {len(displays)} active display(s)\n")
+    for index, display in enumerate(displays, 1):
+        _print_display(index, display)
+        _print_capability(display)
+        print()
+
+
+def _luid_str(adapter_id: LUID) -> str:
+    """Render an adapter LUID as ``"LowPart,HighPart"``.
+
+    Args:
+        adapter_id: The adapter LUID to render.
+
+    Returns:
+        The formatted LUID string.
+    """
+    return f"{adapter_id.LowPart},{adapter_id.HighPart}"
+
+
+def _print_display(index: int, display: DisplayInfo) -> None:
+    """Print a display's snapshot attributes.
+
+    Args:
+        index: 1-based display index.
+        display: The display snapshot to print.
+    """
+    print(f"  [{index}] {display.device_name}")
+    print(f"    model           : {display.model!r}")
+    print(f"    source res      : {display.source_resolution[0]} x {display.source_resolution[1]}")
+    print(f"    target res      : {display.target_resolution[0]} x {display.target_resolution[1]}")
+    print(f"    position        : {display.position[0]}, {display.position[1]}")
+    scale = f"{display.scale}%" if display.scale is not None else "n/a"
+    print(f"    scale           : {scale}")
+    print(f"    monitor path    : {display.monitor_device_path or 'n/a'}")
+    print(f"    adapter id      : {_luid_str(display.adapter_id)}")
+    print(f"    source id       : {display.source_id}")
+
+
+def _print_capability(display: DisplayInfo) -> None:
+    """Print a display's supported scale percentages and resolutions.
+
+    Args:
+        display: The display whose capability to print.
+    """
+    try:
+        capability = get_display_capability(
+            display.device_name,
+            display.adapter_id,
+            display.source_id,
+        )
+    except (OSError, ValueError) as e:
+        print(f"    capability      : unavailable ({e})")
+        return
+    if capability is None:
+        print("    capability      : unavailable (topology transition / driver)")
+        return
+
+    scales = ", ".join(f"{s}%" for s in capability.scale)
+    resolutions = ", ".join(f"{w}x{h}" for w, h in capability.resolution)
+    print("    capability:")
+    print(f"      reference scale : {capability.reference_scale}%")
+    print(f"      supported scale : {scales}")
+    print(f"      resolutions     : {resolutions}")
