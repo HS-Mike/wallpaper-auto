@@ -86,6 +86,37 @@ The app also applies **resolution** and **scale** alongside the wallpaper. You c
 Each display's original wallpaper, resolution, and DPI scale are captured when the display is added, and its supported resolution/scale modes are cached for snapping on apply. On stop or display removal, every display is reverted to its recorded originals (wallpaper, resolution, and scale). Note: if a new display is plugged in during app runtime, Windows cannot capture its original wallpaper setting because the app's single SPAN wallpaper overrides it — a black background is set as the fallback in that case.
 
 
+## Display Capability
+
+To inspect what the app is working with, run the `display-capability` subcommand. It is read-only — it prints each connected display's current attributes together with the resolution and scale modes that display supports, and never changes any setting.
+
+```bash
+wallpaper-auto display-capability
+```
+
+Example output:
+
+```
+Found 1 active display(s)
+
+  [1] \\.\DISPLAY6
+    model           : '27G7S-Ultra'
+    source res      : 2560 x 1440
+    target res      : 3840 x 2160
+    position        : 0, 0
+    scale           : 125%
+    monitor path    : \\?\DISPLAY#HEC1142#...
+    adapter id      : 89828,0
+    source id       : 0
+    capability:
+      reference scale : 100%
+      supported scale : 100%, 125%, 150%, 175%, 200%, 225%
+      resolutions     : 3840x2160, 2560x1600, ...
+```
+
+The `capability` block lists the values you can actually assign to the display — as described above, resolution and scale must fall within these supported options, so they are the candidates to pick from when configuring a scene binding.
+
+
 ## Configuration
 
 Generate a starter config with all options documented in the current directory:

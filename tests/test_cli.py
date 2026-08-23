@@ -88,6 +88,18 @@ class TestBuildParser:
         assert args.log_level == "INFO"
         assert args.log_file == "app.log"
 
+    def test_display_capability_subcommand(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(["display-capability"])
+        assert args.subcommand == "display-capability"
+
+    def test_log_flags_after_display_capability(self) -> None:
+        parser = _build_parser()
+        args = parser.parse_args(["display-capability", "-l", "INFO", "--log-file", "app.log"])
+        assert args.subcommand == "display-capability"
+        assert args.log_level == "INFO"
+        assert args.log_file == "app.log"
+
     def test_log_flags_before_subcommand(self) -> None:
         parser = _build_parser()
         args = parser.parse_args(["-l", "INFO", "--log-file", "app.log", "run", "-c", "prod.yaml"])
@@ -223,6 +235,15 @@ class TestCli:
 
         mock_init.assert_called_once_with(expected_output, force=expected_force)
         mock_run.assert_not_called()
+
+    def test_display_capability_dispatches_to_entry(self) -> None:
+        with (
+            patch("sys.argv", ["wp", "display-capability"]),
+            patch("wallpaper_auto.cli.display_capability") as mock_entry,
+        ):
+            cli()
+
+        mock_entry.assert_called_once_with()
 
     def test_run_acquires_mutex_with_exit_on_conflict(self) -> None:
         with (
