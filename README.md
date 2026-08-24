@@ -129,10 +129,10 @@ A config file has following sections:
 
    | Section | Required | Remark |
    |----------------|----------|--------|
-   | `resource` | required | |
-   | `scene` | optional | |
-   | `trigger` | required | |
-   | `rule` | required | |
+   | `resource` | required | Wallpaper pool keyed by resource ID |
+   | `scene` | optional | Per-display wallpaper, resolution, and scale bindings |
+   | `trigger` | required | Events that notify the app to re-evaluate the rules |
+   | `rule` | required | Ordered conditions paired with a target; first match wins |
    | `fallback_target` | required | Target applied when no rule matches |
    | `at_shutdown` | optional | Target applied on Windows shutdown or logoff |
    | `cache` | optional | Cache dir and resized-image tuning |
