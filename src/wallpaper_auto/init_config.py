@@ -87,6 +87,11 @@ trigger:
         - "18:00"
   - name: windows_session      # Fires on lock / unlock / resume
   - name: display              # Fires on monitor plug / unplug
+  - name: process              # Fires when a watched process starts or stops
+    config:
+      exe_names:               # Executable identifiers to watch (mixed OK)
+        - "notepad.exe"        # plain basename — matches any process with this name
+        - "C:/Windows/System32/calc.exe"  # full path — matches only that exact path
 
 
 # ---------------------------------------------------------------------------
