@@ -238,7 +238,7 @@ class TestLoadErrors:
         path.write_text(
             _make_minimal_yaml(fallback_target="nonexistent_resource"), encoding="utf-8"
         )
-        with pytest.raises(ValueError, match="Fallback target.*not found"):
+        with pytest.raises(ValueError, match="fallback target.*not found"):
             store.load(str(path))
 
     def test_rule_target_not_found(self, store: ConfigStore, tmp_path):
@@ -697,3 +697,30 @@ class TestSceneValidation:
         data["scene"] = scene
         model = ConfigModel(**data)
         assert model.scene == scene
+
+
+class TestSceneResourceCollision:
+    """Cross-field validation between scene and resource keys in ConfigModel."""
+
+    def test_scene_key_colliding_with_resource_raises(self):
+        """A scene name matching a resource key is rejected as ambiguous.
+
+        ``evaluate_target`` checks resource before scene, so the scene would
+        be unreachable dead config — reject at load time instead.
+        """
+        data = dict(_MINIMAL)
+        data["scene"] = {"a": {"bindings": [{"display_model": "Dell U27", "resource": "a"}]}}
+        with pytest.raises(ValueError, match="duplicate target: a"):
+            ConfigModel(**data)
+
+    def test_scene_binding_unknown_resource_raises(self):
+        """A scene binding referencing an undefined resource is rejected."""
+        data = dict(_MINIMAL)
+        data["scene"] = {
+            "office": {"bindings": [{"display_model": "Dell U27", "resource": "nonexistent"}]}
+        }
+        with pytest.raises(
+            ValueError,
+            match="scene 'office' binding resource 'nonexistent' not found in resource",
+        ):
+            ConfigModel(**data)

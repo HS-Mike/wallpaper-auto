@@ -20,7 +20,7 @@ _TEMPLATE = """\
 #   trigger          events that trigger re-evaluation
 #   rule             ordered condition → target mappings, first match wins
 #   scene            per-display bindings, auto-registered as targets
-#   fallback_target  resource applied when no rule matches
+#   fallback_target  target applied when no rule matches
 #   at_shutdown      optional target applied on shutdown/logoff
 #   cache            cache dir and resized-image tuning; if omitted, uses
 #                    %LOCALAPPDATA%/wallpaper-auto/cache
@@ -110,12 +110,14 @@ trigger:
 #   - ``scale``       — target display scale, e.g. 1.5 (= 150%) or 150
 #
 # Display scene entries are **auto-registered** as wallpaper resources.
-# A rule's ``target`` can reference a scene name directly — no need to
-# add a ``scene`` resource entry in the resource section above.
+# A rule's ``target`` (and ``fallback_target``, ``at_shutdown``) can
+# reference a scene name directly — no need to add a ``scene`` resource
+# entry in the resource section above.
 #
-# Both resource IDs and scene names are valid rule ``target`` values.
-# Targets are resolved against the ``resource`` section first, then
-# ``scene``.
+# Both resource IDs and scene names are valid target values. Targets are
+# resolved against the ``resource`` section first, then ``scene``. Note: a
+# scene used as ``fallback_target`` or ``at_shutdown`` only styles displays
+# matched by its bindings; uncovered displays remain unstyled.
 #
 # Scene wrapper shape:
 #   scene_name:

@@ -2,7 +2,9 @@
 Pydantic data models for the wallpaper auto configuration.
 
 Includes models for triggers, resources, rules (with AND/OR condition trees),
-and the top-level config. Validates that all rule targets reference existing resources.
+and the top-level config. Validates that all targets (rule, fallback,
+at_shutdown) reference existing resources or scenes, and that scene bindings
+resolve to defined resources.
 """
 
 import re
@@ -251,15 +253,30 @@ class ConfigModel(BaseModel):
 
     @model_validator(mode="after")
     def check_target_exist(self) -> "ConfigModel":
-        if self.fallback_target not in self.resource.keys():
-            raise ValueError(f"Fallback target '{self.fallback_target}' not found in resource")
         scene_keys = set(self.scene or {})
+        if duplicate_target := scene_keys & set(self.resource.keys()):
+            raise ValueError(f"duplicate target: {', '.join(duplicate_target)}")
+        target_available = scene_keys | set(self.resource.keys())
+        if self.fallback_target not in target_available:
+            raise ValueError(
+                f"fallback target '{self.fallback_target}' not found in resource or scene"
+            )
         for rule in self.rule:
-            if rule.target not in self.resource and rule.target not in scene_keys:
+            if rule.target not in target_available:
                 msg = f"Rule '{rule.name}' targets unknown resource or scene: {rule.target}"
                 raise ValueError(msg)
-        if self.at_shutdown is not None and self.at_shutdown not in self.resource:
-            raise ValueError(f"at_shutdown target '{self.at_shutdown}' not found in resource")
+        if self.at_shutdown is not None and self.at_shutdown not in target_available:
+            raise ValueError(
+                f"at_shutdown target '{self.at_shutdown}' not found in resource or scene"
+            )
+        if self.scene is not None:
+            for scene_name, scene in self.scene.items():
+                for binding in scene.bindings:
+                    if binding.resource not in self.resource:
+                        raise ValueError(
+                            f"scene '{scene_name}' binding resource "
+                            f"'{binding.resource}' not found in resource"
+                        )
         return self
 
 
