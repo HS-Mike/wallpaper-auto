@@ -8,10 +8,9 @@ on:
 jobs:
   publish-stable:
     runs-on: ubuntu-latest
-    if: github.event.base_ref == 'refs/heads/master'
 
     environment:
-      name: pypi
+      name: PyPI
       url: https://pypi.org/p/wallpaper-auto
 
     permissions:
@@ -40,7 +39,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
     
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
