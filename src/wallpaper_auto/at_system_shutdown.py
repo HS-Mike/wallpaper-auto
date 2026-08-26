@@ -18,10 +18,12 @@ from typing import Any
 import win32con
 import win32gui
 
+from wallpaper_auto.util.singleton_meta import SingletonMeta
+
 logger = logging.getLogger(__name__)
 
 
-class ShutdownHandler:
+class ShutdownHandler(metaclass=SingletonMeta):
     """Hidden window + message pump that catches ``WM_QUERYENDSESSION``."""
 
     def __init__(self) -> None:
@@ -76,10 +78,6 @@ class ShutdownHandler:
         if self._listener_thread is not None:
             self._listener_thread.join(timeout=3)
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     def _start_listener(self) -> None:
         """Start a daemon thread that owns the hidden message window."""
 
@@ -104,7 +102,9 @@ class ShutdownHandler:
 
     def _window_proc(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:  # noqa: N803
         if msg == win32con.WM_QUERYENDSESSION:
+            logger.debug("shutdown handler start invoke registered functions")
             self._run_callbacks()
+            logger.debug("shutdown handler finish invoke registered functions")
             return 1  # TRUE — signal readiness to shut down
         if msg == win32con.WM_CLOSE:
             win32gui.DestroyWindow(hwnd)
@@ -126,7 +126,7 @@ class ShutdownHandler:
         for cb in callbacks:
             try:
                 cb()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("Error in shutdown callback")
 
 

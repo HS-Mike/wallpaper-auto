@@ -4,9 +4,7 @@ import pytest
 import yaml
 
 from wallpaper_auto.config_store import ConfigStore
-from wallpaper_auto.models import ConfigModel, ResourceConfig, Rule
-
-# ── helpers ──────────────────────────────────────────────────────────────
+from wallpaper_auto.models import CacheConfig, ConfigModel, ResourceConfig, Rule
 
 
 def _make_valid_yaml(**overrides) -> str:
@@ -30,7 +28,7 @@ def _make_valid_yaml(**overrides) -> str:
                 "target": "office_view",
             },
         ],
-        "fallback": "office_view",
+        "fallback_target": "office_view",
     }
     data.update(overrides)
     return yaml.dump(data)
@@ -40,7 +38,7 @@ _MINIMAL = {
     "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
     "trigger": [{"name": "windows_session"}],
     "rule": [],
-    "fallback": "a",
+    "fallback_target": "a",
 }
 
 
@@ -60,9 +58,6 @@ def _make_minimal_yaml(**overrides) -> str:
     return yaml.dump(data)
 
 
-# ── fixtures ─────────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def store() -> ConfigStore:
     return ConfigStore()
@@ -76,9 +71,6 @@ def valid_yaml(tmp_path) -> str:
     return str(path)
 
 
-# ── load — happy path ────────────────────────────────────────────────────
-
-
 class TestLoad:
     """Successful config file parsing."""
 
@@ -89,14 +81,13 @@ class TestLoad:
     def test_load_sets_config_model(self, store: ConfigStore, valid_yaml: str):
         store.load(valid_yaml)
         assert store.config is not None
-        assert store.config.fallback == "office_view"
+        assert store.config.fallback_target == "office_view"
         assert "office_view" in store.config.resource
         assert "black" in store.config.resource
         assert len(store.config.trigger) == 2
         assert len(store.config.rule) == 1
 
     def test_load_resource_string_shorthand(self, store: ConfigStore, valid_yaml: str):
-        """String shorthand resources are expanded to ResourceConfig."""
         store.load(valid_yaml)
         assert store.config is not None
         black = store.config.resource["black"]
@@ -112,6 +103,29 @@ class TestLoad:
         assert office.name == "static_wallpaper"
         assert office.config["path"] == "C:/img.png"
         assert office.config["style"] == "fill"
+        assert office.show is True
+
+    def test_load_resource_show_defaults_to_true(self, store: ConfigStore, valid_yaml: str):
+        store.load(valid_yaml)
+        assert store.config is not None
+        assert store.config.resource["office_view"].show is True
+        assert store.config.resource["black"].show is True
+
+    def test_load_resource_show_false_parses(self, store: ConfigStore, tmp_path):
+        yaml_str = _make_valid_yaml(
+            resource={
+                "office_view": {
+                    "name": "static_wallpaper",
+                    "config": {"path": "C:/img.png", "style": "fill"},
+                    "show": False,
+                },
+            }
+        )
+        path = tmp_path / "with_hide.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.config is not None
+        assert store.config.resource["office_view"].show is False
 
     def test_load_trigger_list(self, store: ConfigStore, valid_yaml: str):
         store.load(valid_yaml)
@@ -131,12 +145,10 @@ class TestLoad:
         assert rule.condition.or_conditions[0].evaluator == "network"
 
     def test_resource_config_invalid_type_raises(self):
-        """ResourceConfig raises TypeError for non-dict, non-str input."""
         with pytest.raises(TypeError, match="ResourceConfig data must be a dict or string"):
             ResourceConfig.model_validate(42)
 
     def test_load_complex_nested_conditions(self, store: ConfigStore, tmp_path):
-        """Load a config with nested and/or condition structure."""
         yaml_str = yaml.dump(
             {
                 "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
@@ -158,7 +170,7 @@ class TestLoad:
                         "target": "a",
                     }
                 ],
-                "fallback": "a",
+                "fallback_target": "a",
             }
         )
         path = tmp_path / "complex.yaml"
@@ -176,9 +188,6 @@ class TestLoad:
         assert len(inner_and.and_conditions) == 2
         assert inner_and.and_conditions[0].evaluator == "location"
         assert inner_and.and_conditions[1].evaluator == "workday_only"
-
-
-# ── load — edge cases & error handling ───────────────────────────────────
 
 
 class TestLoadErrors:
@@ -201,9 +210,8 @@ class TestLoadErrors:
             store.load(str(path))
 
     def test_missing_fallback(self, store: ConfigStore, tmp_path):
-        """load should fail when fallback key is missing."""
         path = tmp_path / "no_fallback.yaml"
-        path.write_text(_make_minimal_yaml(fallback=None), encoding="utf-8")
+        path.write_text(_make_minimal_yaml(fallback_target=None), encoding="utf-8")
         with pytest.raises(ValueError):
             store.load(str(path))
 
@@ -227,8 +235,10 @@ class TestLoadErrors:
 
     def test_fallback_target_not_found(self, store: ConfigStore, tmp_path):
         path = tmp_path / "bad_fallback.yaml"
-        path.write_text(_make_minimal_yaml(fallback="nonexistent_resource"), encoding="utf-8")
-        with pytest.raises(ValueError, match="Fallback target.*not found"):
+        path.write_text(
+            _make_minimal_yaml(fallback_target="nonexistent_resource"), encoding="utf-8"
+        )
+        with pytest.raises(ValueError, match="fallback target.*not found"):
             store.load(str(path))
 
     def test_rule_target_not_found(self, store: ConfigStore, tmp_path):
@@ -243,14 +253,10 @@ class TestLoadErrors:
             store.load(str(path))
 
 
-# ── load — validation of structural rules ────────────────────────────────
-
-
 class TestLoadValidation:
     """ConfigModel cross-field validation rules."""
 
     def test_condition_invalid_single_key(self, store: ConfigStore, tmp_path):
-        """A condition dict with more than one key should be rejected."""
         path = tmp_path / "bad_condition.yaml"
         path.write_text(
             _make_minimal_yaml(
@@ -268,7 +274,6 @@ class TestLoadValidation:
             store.load(str(path))
 
     def test_empty_condition_node(self, store: ConfigStore, tmp_path):
-        """An empty condition dict should be rejected."""
         path = tmp_path / "empty_cond.yaml"
         path.write_text(
             _make_minimal_yaml(
@@ -282,11 +287,10 @@ class TestLoadValidation:
             ),
             encoding="utf-8",
         )
-        with pytest.raises(ValueError, match="only one key"):
+        with pytest.raises(ValueError, match="empty node"):
             store.load(str(path))
 
     def test_trigger_with_config(self, store: ConfigStore, tmp_path):
-        """A trigger with extra config data should parse correctly."""
         yaml_str = yaml.dump(
             {
                 "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
@@ -294,7 +298,7 @@ class TestLoadValidation:
                 "rule": [
                     {"name": "r", "condition": {"time_range": ["09:00", "17:00"]}, "target": "a"}
                 ],
-                "fallback": "a",
+                "fallback_target": "a",
             }
         )
         path = tmp_path / "trigger_config.yaml"
@@ -306,7 +310,6 @@ class TestLoadValidation:
         assert t.config == {"start": "09:00", "end": "17:00"}
 
     def test_multiple_rules_evaluated_in_order(self, store: ConfigStore, tmp_path):
-        """Multiple rules should be loaded and maintain order."""
         yaml_str = yaml.dump(
             {
                 "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
@@ -316,7 +319,7 @@ class TestLoadValidation:
                     {"name": "second", "condition": {"network": "X"}, "target": "a"},
                     {"name": "third", "condition": {"network": "Y"}, "target": "a"},
                 ],
-                "fallback": "a",
+                "fallback_target": "a",
             }
         )
         path = tmp_path / "multi_rule.yaml"
@@ -326,15 +329,12 @@ class TestLoadValidation:
         assert [r.name for r in store.config.rule] == ["first", "second", "third"]
 
 
-# ── properties ───────────────────────────────────────────────────────────
-
-
 class TestProperties:
     """Accessor properties after config load."""
 
-    def test_fallback_resource_id(self, store: ConfigStore, valid_yaml: str):
+    def test_fallback_target(self, store: ConfigStore, valid_yaml: str):
         store.load(valid_yaml)
-        assert store.fallback_resource_id == "office_view"
+        assert store.fallback_target == "office_view"
 
     def test_resource(self, store: ConfigStore, valid_yaml: str):
         store.load(valid_yaml)
@@ -356,10 +356,23 @@ class TestProperties:
         assert isinstance(triggers, list)
         assert len(triggers) == 2
 
+    def test_cache_returns_cache_config(self, store: ConfigStore, valid_yaml: str):
+        store.load(valid_yaml)
+        assert isinstance(store.cache, CacheConfig)
+        assert store.cache.path is None
+        assert store.cache.resize.enabled is True
+
+    def test_cache_reflects_configured_path(self, store: ConfigStore, tmp_path):
+        cache_dir = tmp_path / "custom_cache"
+        yaml_str = _make_valid_yaml(cache={"path": str(cache_dir)})
+        path = tmp_path / "with_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.cache.path == str(cache_dir)
+
     def test_properties_before_load_raises(self, store: ConfigStore):
-        """Accessing properties before load() should raise AssertionError."""
         with pytest.raises(AssertionError):
-            _ = store.fallback_resource_id
+            _ = store.fallback_target
         with pytest.raises(AssertionError):
             _ = store.resource
         with pytest.raises(AssertionError):
@@ -367,35 +380,347 @@ class TestProperties:
         with pytest.raises(AssertionError):
             _ = store.trigger
         with pytest.raises(AssertionError):
-            _ = store.at_shutdown_resource_id
+            _ = store.at_shutdown_target
+        with pytest.raises(AssertionError):
+            _ = store.cache
 
-    def test_at_shutdown_resource_id_none_by_default(self, store: ConfigStore, valid_yaml: str):
-        """at_shutdown_resource_id should be None when not in YAML."""
+    def test_at_shutdown_target_none_by_default(self, store: ConfigStore, valid_yaml: str):
         store.load(valid_yaml)
-        assert store.at_shutdown_resource_id is None
+        assert store.at_shutdown_target is None
 
-    def test_at_shutdown_resource_id_from_yaml(self, store: ConfigStore, tmp_path):
-        """at_shutdown_resource_id should return the configured resource."""
+    def test_at_shutdown_target_from_yaml(self, store: ConfigStore, tmp_path):
         yaml_str = _make_valid_yaml(at_shutdown="office_view")
         path = tmp_path / "with_atsd.yaml"
         path.write_text(yaml_str, encoding="utf-8")
         store.load(str(path))
-        assert store.at_shutdown_resource_id == "office_view"
+        assert store.at_shutdown_target == "office_view"
+
+    def test_cache_path_default_when_cache_is_none(self, store: ConfigStore, valid_yaml: str):
+        store.load(valid_yaml)
+        assert store.cache_path.name == "cache"
+
+    def test_cache_path_with_valid_directory(self, store: ConfigStore, tmp_path):
+        cache_dir = tmp_path / "my_cache"
+        cache_dir.mkdir()
+        yaml_str = _make_valid_yaml(cache={"path": str(cache_dir)})
+        path = tmp_path / "with_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.cache_path == cache_dir
+
+    def test_cache_path_allows_missing_directory(self, store: ConfigStore, tmp_path):
+        missing = tmp_path / "does_not_exist"
+        yaml_str = _make_valid_yaml(cache={"path": str(missing)})
+        path = tmp_path / "missing_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.cache_path == missing
+
+    def test_cache_path_raises_when_not_a_directory(self, store: ConfigStore, tmp_path):
+        cache_file = tmp_path / "not_a_dir"
+        cache_file.write_text("", encoding="utf-8")
+        yaml_str = _make_valid_yaml(cache={"path": str(cache_file)})
+        path = tmp_path / "file_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        with pytest.raises(NotADirectoryError, match="is not a directory"):
+            _ = store.cache_path
+
+    def test_cache_defaults_without_cache_block(self, store: ConfigStore, valid_yaml: str):
+        store.load(valid_yaml)
+        assert store.config is not None
+        assert store.config.cache.resize.enabled is True
+        assert store.config.cache.resize.max_size_mb * 1024 * 1024 == 200 * 1024 * 1024
+        assert store.config.cache.resize.evict_ratio == 0.9
+
+    def test_cache_max_size_mb_with_value(self, store: ConfigStore, tmp_path):
+        cache_dir = tmp_path / "size_cache"
+        cache_dir.mkdir()
+        yaml_str = _make_valid_yaml(
+            cache={"path": str(cache_dir), "resize": {"max_size_mb": 42}},
+        )
+        path = tmp_path / "size_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.config is not None
+        assert store.config.cache.resize.max_size_mb * 1024 * 1024 == 42 * 1024 * 1024
+        assert store.config.cache.resize.evict_ratio == 0.9
+
+    def test_cache_evict_ratio_with_value(self, store: ConfigStore, tmp_path):
+        cache_dir = tmp_path / "ratio_cache"
+        cache_dir.mkdir()
+        yaml_str = _make_valid_yaml(
+            cache={"path": str(cache_dir), "resize": {"evict_ratio": 0.5}},
+        )
+        path = tmp_path / "ratio_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.config is not None
+        assert store.config.cache.resize.evict_ratio == 0.5
+        assert store.config.cache.resize.max_size_mb * 1024 * 1024 == 200 * 1024 * 1024
+
+    def test_cache_resize_enabled_false_when_disabled(self, store: ConfigStore, tmp_path):
+        cache_dir = tmp_path / "disable_cache"
+        cache_dir.mkdir()
+        yaml_str = _make_valid_yaml(
+            cache={"path": str(cache_dir), "resize": {"enabled": False}},
+        )
+        path = tmp_path / "disabled_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.config is not None
+        assert store.config.cache.resize.enabled is False
+
+    def test_cache_resize_enabled_true_when_explicit(self, store: ConfigStore, tmp_path):
+        cache_dir = tmp_path / "enable_cache"
+        cache_dir.mkdir()
+        yaml_str = _make_valid_yaml(
+            cache={"path": str(cache_dir), "resize": {"enabled": True}},
+        )
+        path = tmp_path / "enabled_cache.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.config is not None
+        assert store.config.cache.resize.enabled is True
+
+    def test_scene_returns_dict_from_yaml(self, store: ConfigStore, tmp_path):
+        yaml_str = yaml.dump(
+            {
+                "resource": {"a": {"name": "static_wallpaper", "config": {"path": "x"}}},
+                "trigger": [{"name": "windows_session"}],
+                "rule": [],
+                "fallback_target": "a",
+                "scene": {
+                    "office": {
+                        "bindings": [{"display_model": "Dell U27", "resource": "a"}],
+                    },
+                },
+            }
+        )
+        path = tmp_path / "with_scene.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        scenes = store.scene
+        assert "office" in scenes
+        assert scenes["office"].bindings[0].display_model == "Dell U27"
+        assert scenes["office"].bindings[0].resource == "a"
+
+    def test_scene_binding_parses_match_display_model(self, store: ConfigStore, tmp_path):
+        yaml_str = _make_valid_yaml(
+            scene={
+                "office": {"bindings": [{"match_display_model": "27.*", "resource": "office_view"}]}
+            }
+        )
+        path = tmp_path / "scene_regex.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        binding = store.scene["office"].bindings[0]
+        assert binding.match_display_model == "27.*"
+        assert binding.display_model is None
+
+    def test_scene_binding_parses_resolution_string(self, store: ConfigStore, tmp_path):
+        yaml_str = _make_valid_yaml(
+            scene={
+                "office": {
+                    "bindings": [
+                        {
+                            "display_model": "U2719D",
+                            "resource": "office_view",
+                            "resolution": "1920x1080",
+                        }
+                    ]
+                }
+            }
+        )
+        path = tmp_path / "scene_resolution.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.scene["office"].bindings[0].resolution == (1920, 1080)
+
+    def test_scene_binding_parses_resolution_list(self, store: ConfigStore, tmp_path):
+        yaml_str = _make_valid_yaml(
+            scene={
+                "office": {
+                    "bindings": [
+                        {
+                            "display_model": "U2719D",
+                            "resource": "office_view",
+                            "resolution": [2560, 1440],
+                        }
+                    ]
+                }
+            }
+        )
+        path = tmp_path / "scene_resolution_list.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.scene["office"].bindings[0].resolution == (2560, 1440)
+
+    def test_scene_binding_normalizes_decimal_scale(self, store: ConfigStore, tmp_path):
+        yaml_str = _make_valid_yaml(
+            scene={
+                "office": {
+                    "bindings": [
+                        {
+                            "display_model": "U2719D",
+                            "resource": "office_view",
+                            "scale": 1.5,
+                        }
+                    ]
+                }
+            }
+        )
+        path = tmp_path / "scene_scale_decimal.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.scene["office"].bindings[0].scale == 150
+
+    def test_scene_binding_passes_through_integer_scale(self, store: ConfigStore, tmp_path):
+        yaml_str = _make_valid_yaml(
+            scene={
+                "office": {
+                    "bindings": [
+                        {
+                            "display_model": "U2719D",
+                            "resource": "office_view",
+                            "scale": 150,
+                        }
+                    ]
+                }
+            }
+        )
+        path = tmp_path / "scene_scale_int.yaml"
+        path.write_text(yaml_str, encoding="utf-8")
+        store.load(str(path))
+        assert store.scene["office"].bindings[0].scale == 150
+
+    def test_scene_returns_empty_dict_when_unset(self, store: ConfigStore, valid_yaml: str):
+        store.load(valid_yaml)
+        assert store.scene == {}
+
+    def test_scene_raises_before_load(self, store: ConfigStore):
+        with pytest.raises(AssertionError):
+            _ = store.scene
 
 
 class TestAtShutdownValidation:
     """Validation of at_shutdown target in ConfigModel."""
 
     def test_at_shutdown_target_not_found_raises(self):
-        """at_shutdown referencing a nonexistent resource should raise ValueError."""
         data = dict(_MINIMAL)
         data["at_shutdown"] = "nonexistent"
         with pytest.raises(ValueError, match="at_shutdown target.*not found"):
             ConfigModel(**data)
 
     def test_at_shutdown_target_exists_passes(self):
-        """at_shutdown referencing an existing resource should pass validation."""
         data = dict(_MINIMAL)
         data["at_shutdown"] = "a"
         model = ConfigModel(**data)
         assert model.at_shutdown == "a"
+
+
+class TestSceneValidation:
+    """Validation of scene binding fields in ConfigModel."""
+
+    def test_scene_wrapper_show_defaults_to_true(self) -> None:
+        data = dict(_MINIMAL)
+        data["scene"] = {"office": {"bindings": [{"display_model": "Dell U27", "resource": "a"}]}}
+        model = ConfigModel(**data)
+        assert model.scene is not None
+        assert model.scene["office"].show is True
+        assert model.scene["office"].bindings[0].display_model == "Dell U27"
+
+    def test_scene_wrapper_show_false_parses(self) -> None:
+        data = dict(_MINIMAL)
+        data["scene"] = {
+            "office": {
+                "show": False,
+                "bindings": [{"display_model": "Dell U27", "resource": "a"}],
+            }
+        }
+        model = ConfigModel(**data)
+        assert model.scene is not None
+        assert model.scene["office"].show is False
+
+    def test_binding_requires_display_key(self):
+        data = dict(_MINIMAL)
+        data["scene"] = {"office": {"bindings": [{"resource": "a"}]}}
+        with pytest.raises(ValueError, match="Either display_model or match_display_model"):
+            ConfigModel(**data)
+
+    def test_binding_rejects_both_display_keys(self):
+        data = dict(_MINIMAL)
+        data["scene"] = {
+            "office": {
+                "bindings": [
+                    {
+                        "display_model": "Dell U27",
+                        "match_display_model": "Dell.*",
+                        "resource": "a",
+                    }
+                ]
+            }
+        }
+        with pytest.raises(ValueError, match="Only one of display_model or match_display_model"):
+            ConfigModel(**data)
+
+    def test_scene_rejects_duplicate_display_model(self):
+        data = dict(_MINIMAL)
+        data["scene"] = {
+            "office": {
+                "bindings": [
+                    {"display_model": "Dell U27", "resource": "a"},
+                    {"display_model": "Dell U27", "resource": "a"},
+                ]
+            }
+        }
+        with pytest.raises(ValueError, match="duplicate display_model"):
+            ConfigModel(**data)
+
+    def test_scene_rejects_duplicate_match_display_model(self):
+        data = dict(_MINIMAL)
+        data["scene"] = {
+            "office": {
+                "bindings": [
+                    {"match_display_model": "Dell.*", "resource": "a"},
+                    {"match_display_model": "Dell.*", "resource": "a"},
+                ]
+            }
+        }
+        with pytest.raises(ValueError, match="duplicate match_display_model"):
+            ConfigModel(**data)
+
+    @pytest.mark.parametrize("scene", [None, {}])
+    def test_scene_empty_passes(self, scene):
+        """An empty scene (None or {}) is accepted and preserved as-is."""
+        data = dict(_MINIMAL)
+        data["scene"] = scene
+        model = ConfigModel(**data)
+        assert model.scene == scene
+
+
+class TestSceneResourceCollision:
+    """Cross-field validation between scene and resource keys in ConfigModel."""
+
+    def test_scene_key_colliding_with_resource_raises(self):
+        """A scene name matching a resource key is rejected as ambiguous.
+
+        ``evaluate_target`` checks resource before scene, so the scene would
+        be unreachable dead config — reject at load time instead.
+        """
+        data = dict(_MINIMAL)
+        data["scene"] = {"a": {"bindings": [{"display_model": "Dell U27", "resource": "a"}]}}
+        with pytest.raises(ValueError, match="duplicate target: a"):
+            ConfigModel(**data)
+
+    def test_scene_binding_unknown_resource_raises(self):
+        """A scene binding referencing an undefined resource is rejected."""
+        data = dict(_MINIMAL)
+        data["scene"] = {
+            "office": {"bindings": [{"display_model": "Dell U27", "resource": "nonexistent"}]}
+        }
+        with pytest.raises(
+            ValueError,
+            match="scene 'office' binding resource 'nonexistent' not found in resource",
+        ):
+            ConfigModel(**data)

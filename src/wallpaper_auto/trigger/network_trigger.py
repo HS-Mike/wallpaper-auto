@@ -14,6 +14,7 @@ from ctypes import wintypes
 import pythoncom
 import wmi
 
+from ..util.network_util import get_current_ssid
 from .base_trigger import BaseThreadTrigger
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ class NetworkTrigger(BaseThreadTrigger):
         super().__init__()
         self._exit_event = None
         self._last_gateways: set[str] = set()
+        self.current_ssid: str | None = None  # only available in callback
 
     @staticmethod
     def _get_network_fingerprint() -> set[str]:
@@ -77,7 +79,7 @@ class NetworkTrigger(BaseThreadTrigger):
         handles = (wintypes.HANDLE * 2)(net_event, self._exit_event)
 
         try:
-            while not self._stop_event.is_set():
+            while not self.stop_event.is_set():
                 res = IPHLPAPI.NotifyAddrChange(ctypes.byref(handle), ctypes.byref(overlap))
                 if res != 0 and res != 997:
                     logger.error(f"NotifyAddrChange registration failed: {res}")
@@ -91,26 +93,24 @@ class NetworkTrigger(BaseThreadTrigger):
                     if current_gateways != self._last_gateways:
                         logger.info(f"Network change detected: {current_gateways}")
                         self._last_gateways = current_gateways
+                        self.current_ssid = get_current_ssid()
                         self.trigger()
+                        self.current_ssid = None
                 elif result == 1:
-                    logger.debug("Exit signal received, stopping")
                     break
         finally:
             KERNEL32.CloseHandle(net_event)
-            logger.info("NetworkTrigger thread exited safely")
 
-    def activate(self) -> None:
+    def start(self) -> None:
         if self._exit_event:
-            KERNEL32.CloseHandle(self._exit_event)
+            raise RuntimeError(f"{type(self).__name__} is already started")
         self._exit_event = KERNEL32.CreateEventW(None, False, False, None)
-        super().activate()
-        logger.debug(f"{self.__class__.__name__} activate")
+        super().start()
 
-    def deactivate(self) -> None:
+    def stop(self) -> None:
         if self._exit_event:
             KERNEL32.SetEvent(self._exit_event)
-        super().deactivate()
+        super().stop()
         if self._exit_event:
             KERNEL32.CloseHandle(self._exit_event)
             self._exit_event = None
-        logger.debug(f"{self.__class__.__name__} deactivate")

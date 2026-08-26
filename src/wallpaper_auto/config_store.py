@@ -6,15 +6,17 @@ properties for accessing resources, triggers, rules, and fallback settings.
 """
 
 import logging
+from pathlib import Path
 
 import yaml
 
-from .models import ConfigModel, ResourceConfig, Rule, TriggerConfig
+from .models import CacheConfig, ConfigModel, ResourceConfig, Rule, SceneConfig, TriggerConfig
+from .util.singleton_meta import SingletonMeta
 
 logger = logging.getLogger(__name__)
 
 
-class ConfigStore:
+class ConfigStore(metaclass=SingletonMeta):
     def __init__(self) -> None:
         self.config: ConfigModel | None = None
 
@@ -24,12 +26,12 @@ class ConfigStore:
         self.config = ConfigModel(**raw_data)
 
     @property
-    def fallback_resource_id(self) -> str:
+    def fallback_target(self) -> str:
         assert self.config is not None
-        return self.config.fallback
+        return self.config.fallback_target
 
     @property
-    def at_shutdown_resource_id(self) -> str | None:
+    def at_shutdown_target(self) -> str | None:
         assert self.config is not None
         return self.config.at_shutdown
 
@@ -47,3 +49,18 @@ class ConfigStore:
     def trigger(self) -> list[TriggerConfig]:
         assert self.config is not None
         return self.config.trigger
+
+    @property
+    def cache_path(self) -> Path:
+        assert self.config is not None
+        return self.config.cache_path
+
+    @property
+    def cache(self) -> CacheConfig:
+        assert self.config is not None
+        return self.config.cache
+
+    @property
+    def scene(self) -> dict[str, SceneConfig]:
+        assert self.config is not None
+        return self.config.scene or {}

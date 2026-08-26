@@ -10,7 +10,9 @@ import threading
 
 from .models import TriggerConfig
 from .trigger.base_trigger import BaseTrigger
+from .trigger.display_trigger import DisplayTrigger
 from .trigger.network_trigger import NetworkTrigger
+from .trigger.process_trigger import ProcessTrigger
 from .trigger.time_trigger import TimeTrigger
 from .trigger.windows_session_trigger import WindowsSessionTrigger
 from .util.callback_register import CallbackRegister
@@ -22,6 +24,8 @@ _BUILTIN_TRIGGERS: dict[str, type[BaseTrigger]] = {
     "network": NetworkTrigger,
     "time": TimeTrigger,
     "windows_session": WindowsSessionTrigger,
+    "display": DisplayTrigger,
+    "process": ProcessTrigger,
 }
 
 
@@ -70,12 +74,12 @@ class TriggerManager(CallbackRegister[[], None]):
     def activate(self) -> None:
         """Start all triggers."""
         for t in self._triggers:
-            t.activate()
+            t.start()
 
     def deactivate(self) -> None:
         """Stop all triggers."""
         for t in self._triggers:
-            t.deactivate()
+            t.stop()
 
     def pause(self) -> None:
         """Pause triggers (keep thread alive but do not trigger callbacks)."""

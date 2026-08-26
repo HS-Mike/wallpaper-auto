@@ -12,10 +12,6 @@ class TestCallbackRegister:
         cb = CallbackRegister()
         cb.add_callback(lambda: None)
         assert len(cb._callbacks) == 1
-
-    def test_add_multiple_callbacks(self):
-        cb = CallbackRegister()
-        cb.add_callback(lambda: None)
         cb.add_callback(lambda: None)
         assert len(cb._callbacks) == 2
 
@@ -68,7 +64,7 @@ class TestCallbackRegister:
     def test_add_non_callable_raises(self):
         cb = CallbackRegister()
         with pytest.raises(ValueError):
-            cb.add_callback("not a function")
+            cb.add_callback("not a function")  # type: ignore
 
     def test_remove_nonexistent_raises(self):
         cb = CallbackRegister()

@@ -1,5 +1,6 @@
 """Tests for time_trigger.py — interval and fixed-time scheduling."""
 
+import logging
 import threading
 from datetime import datetime as dt
 from datetime import time, timedelta
@@ -22,15 +23,6 @@ def freeze_now():
         mock_dt.time = time
         mock_dt.datetime.combine = dt.combine
         yield mock_dt
-
-
-class TestTimeTriggerInit:
-    def test_initial_state(self, trigger):
-        assert trigger._fixed_times == []
-        assert trigger._interval is None
-        assert trigger._reference_time is None
-        assert hasattr(trigger._lock, "acquire")
-        assert isinstance(trigger._update_event, threading.Event)
 
 
 class TestTimeTriggerInitWithConfig:
@@ -103,44 +95,88 @@ class TestGetNextWaitTime:
     def test_no_times_no_interval_returns_none(self, trigger):
         assert trigger._get_next_wait_time() is None
 
-    def test_fixed_time_today_future(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
+    @pytest.mark.parametrize(
+        "now,fixed_times,interval,ref_time,wait_sec,target",
+        [
+            pytest.param(
+                dt(2024, 1, 1, 10, 0, 0),
+                [time(11, 0)],
+                None,
+                None,
+                3600,
+                dt(2024, 1, 1, 11, 0),
+                id="fixed_time_future",
+            ),
+            pytest.param(
+                dt(2024, 1, 1, 10, 0, 0),
+                [time(9, 0)],
+                None,
+                None,
+                82800,
+                dt(2024, 1, 2, 9, 0),
+                id="fixed_time_past",
+            ),
+            pytest.param(
+                dt(2024, 1, 1, 10, 0, 0),
+                [time(13, 0), time(10, 30)],
+                None,
+                None,
+                1800,
+                dt(2024, 1, 1, 10, 30),
+                id="multiple_fixed_returns_min",
+            ),
+            pytest.param(
+                dt(2024, 1, 1, 10, 5, 0),
+                [],
+                timedelta(minutes=15),
+                dt(2024, 1, 1, 10, 0, 0),
+                600,
+                dt(2024, 1, 1, 10, 15),
+                id="interval_calculation",
+            ),
+            pytest.param(
+                dt(2024, 1, 1, 10, 0, 0),
+                [],
+                timedelta(hours=1),
+                None,
+                3600,
+                dt(2024, 1, 1, 11, 0),
+                id="interval_without_reference",
+            ),
+            pytest.param(
+                dt(2024, 1, 1, 9, 50, 0),
+                [],
+                timedelta(minutes=15),
+                dt(2024, 1, 1, 10, 0, 0),
+                600,
+                dt(2024, 1, 1, 10, 0),
+                id="interval_now_before_reference",
+            ),
+            pytest.param(
+                dt(2024, 1, 1, 10, 0, 0),
+                [time(10, 30)],
+                timedelta(hours=2),
+                dt(2024, 1, 1, 9, 0, 0),
+                1800,
+                dt(2024, 1, 1, 10, 30),
+                id="both_fixed_and_interval_returns_min",
+            ),
+        ],
+    )
+    def test_get_next_wait_time(
+        self, freeze_now, now, fixed_times, interval, ref_time, wait_sec, target
+    ):
+        freeze_now.datetime.now.return_value = now
         trigger = TimeTrigger()
-        trigger.update_fixed_times([time(11, 0)])
-        assert trigger._get_next_wait_time() == pytest.approx(3600, abs=0.1)
-
-    def test_fixed_time_today_past(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
-        trigger = TimeTrigger()
-        trigger.update_fixed_times([time(9, 0)])
-        assert trigger._get_next_wait_time() == pytest.approx(82800, abs=0.1)
-
-    def test_multiple_fixed_times_returns_min(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
-        trigger = TimeTrigger()
-        trigger.update_fixed_times([time(13, 0), time(10, 30)])
-        assert trigger._get_next_wait_time() == pytest.approx(1800, abs=0.1)
-
-    def test_interval_calculation(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 5, 0)
-        trigger = TimeTrigger()
-        trigger._interval = timedelta(minutes=15)
-        trigger._reference_time = dt(2024, 1, 1, 10, 0, 0)
-        assert trigger._get_next_wait_time() == pytest.approx(600, abs=0.1)
-
-    def test_interval_without_reference_uses_now(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
-        trigger = TimeTrigger()
-        trigger._interval = timedelta(hours=1)
-        trigger._reference_time = None
-        assert trigger._get_next_wait_time() == pytest.approx(3600, abs=0.1)
-
-    def test_interval_when_now_before_reference(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 9, 50, 0)
-        trigger = TimeTrigger()
-        trigger._interval = timedelta(minutes=15)
-        trigger._reference_time = dt(2024, 1, 1, 10, 0, 0)
-        assert trigger._get_next_wait_time() == pytest.approx(600, abs=0.1)
+        if fixed_times:
+            trigger.update_fixed_times(fixed_times)
+        if interval:
+            trigger._interval = interval
+            trigger._reference_time = ref_time
+        next_target = trigger._get_next_wait_time()
+        assert next_target is not None
+        assert next_target[0] == pytest.approx(wait_sec, abs=0.1)
+        assert next_target[1] == target
 
     def test_zero_interval_excluded(self, freeze_now):
         freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
@@ -149,53 +185,30 @@ class TestGetNextWaitTime:
         trigger._reference_time = dt(2024, 1, 1, 10, 0, 0)
         assert trigger._get_next_wait_time() is None
 
-    def test_both_fixed_and_interval_returns_min(self, freeze_now):
-        freeze_now.datetime.now.return_value = dt(2024, 1, 1, 10, 0, 0)
-        trigger = TimeTrigger()
-        trigger.set_interval(timedelta(hours=2), reference_time=dt(2024, 1, 1, 9, 0, 0))
-        trigger.update_fixed_times([time(10, 30)])
-        assert trigger._get_next_wait_time() == pytest.approx(1800, abs=0.1)
 
-
-class TestActivateDeactivate:
-    def test_activate_starts_thread(self):
-        trigger = TimeTrigger()
-        with patch("threading.Thread.start") as mock_start:
-            trigger.activate()
-            mock_start.assert_called_once()
-
-    def test_deactivate_sets_stop_and_update_events(self):
+class TestLifecycle:
+    def test_lifecycle_start_stop(self):
         trigger = TimeTrigger()
         trigger.start()
-        trigger.deactivate()
-        assert trigger._stop_event.is_set()
+        assert trigger._thread is not None
+        assert trigger._thread.is_alive()
+
+        trigger.stop()
+        assert trigger.stop_event.is_set()
         assert trigger._update_event.is_set()
+        assert trigger._thread is None
 
 
-class TestBaseThreadTriggerDeactivate:
-    """Tests for BaseThreadTrigger.deactivate() (not overridden by subclasses)."""
-
-    def test_deactivate_stops_thread_and_joins(self):
-        """BaseThreadTrigger.deactivate() stops thread and joins."""
-        from wallpaper_auto.trigger.base_trigger import BaseThreadTrigger
-
-        class _MinimalTrigger(BaseThreadTrigger):
-            def run(self):
-                while not self._stop_event.is_set():
-                    threading.Event().wait(0.05)
-
-        trigger = _MinimalTrigger()
-        trigger.start()
-        assert trigger.is_alive()
-
-        trigger.deactivate()
-        assert trigger._stop_event.is_set()
-        assert not trigger.is_alive()
+class TestLogStatus:
+    def test_log_status_reports_interval(self, trigger, caplog):
+        trigger.set_interval(timedelta(minutes=30), reference_time=dt(2024, 1, 1, 8, 0, 0))
+        with caplog.at_level(logging.INFO):
+            trigger._log_status()
+        assert "interval: 1800.0s (reference time 2024-01-01 08:00:00)" in caplog.text
 
 
 class TestRunLoop:
     def test_run_exits_immediately_when_already_stopped(self):
-        """Thread exits on first iteration when already stopped."""
         trigger = TimeTrigger()
         trigger._request_stop()
         trigger._update_event.set()
@@ -206,9 +219,9 @@ class TestRunLoop:
         assert not t.is_alive()
 
     def test_run_calls_trigger_on_timeout(self):
-        """Natural timeout -> trigger() invoked."""
         trigger = TimeTrigger()
-        with patch.object(trigger, "_get_next_wait_time", return_value=0.02):
+        target = dt(2024, 1, 1, 10, 0, 0)
+        with patch.object(trigger, "_get_next_wait_time", return_value=(0.02, target)):
             with patch.object(trigger, "trigger") as mock_trigger:
                 t = threading.Thread(target=trigger.run, daemon=True)
                 t.start()
@@ -219,9 +232,9 @@ class TestRunLoop:
                 mock_trigger.assert_called()
 
     def test_run_skips_trigger_on_interrupt(self):
-        """Event set before timeout -> trigger() NOT called."""
         trigger = TimeTrigger()
-        with patch.object(trigger, "_get_next_wait_time", return_value=10):
+        target = dt(2024, 1, 1, 10, 0, 10)
+        with patch.object(trigger, "_get_next_wait_time", return_value=(10, target)):
             with patch.object(trigger, "trigger") as mock_trigger:
                 t = threading.Thread(target=trigger.run, daemon=True)
                 t.start()
@@ -234,7 +247,6 @@ class TestRunLoop:
                 mock_trigger.assert_not_called()
 
     def test_run_waits_indefinitely_when_no_next_time(self):
-        """None wait -> blocks on _update_event -> interrupt exits loop."""
         trigger = TimeTrigger()
         with patch.object(trigger, "_get_next_wait_time", return_value=None):
             with patch.object(trigger, "trigger") as mock_trigger:
@@ -246,3 +258,46 @@ class TestRunLoop:
                 t.join(timeout=0.5)
                 assert not t.is_alive()
                 mock_trigger.assert_not_called()
+
+    def test_run_logs_status_when_schedule_added_while_idle(self):
+        trigger = TimeTrigger()
+        target = dt(2024, 1, 1, 10, 0, 0)
+        calls = {"n": 0}
+
+        def get_next():
+            calls["n"] += 1
+            return None if calls["n"] == 1 else (0.02, target)
+
+        with patch.object(trigger, "_get_next_wait_time", side_effect=get_next):
+            with patch.object(trigger, "_log_status") as mock_log:
+                t = threading.Thread(target=trigger.run, daemon=True)
+                t.start()
+                threading.Event().wait(0.1)
+                trigger._update_event.set()
+                threading.Event().wait(0.1)
+                trigger._request_stop()
+                trigger._update_event.set()
+                t.join(timeout=0.5)
+                assert not t.is_alive()
+                assert mock_log.call_count == 2
+
+    def test_run_skips_status_when_idle_wake_has_no_schedule(self):
+        trigger = TimeTrigger()
+        calls = {"n": 0}
+
+        def get_next():
+            calls["n"] += 1
+            return None
+
+        with patch.object(trigger, "_get_next_wait_time", side_effect=get_next):
+            with patch.object(trigger, "_log_status") as mock_log:
+                t = threading.Thread(target=trigger.run, daemon=True)
+                t.start()
+                threading.Event().wait(0.1)
+                trigger._update_event.set()
+                threading.Event().wait(0.1)
+                trigger._request_stop()
+                trigger._update_event.set()
+                t.join(timeout=0.5)
+                assert not t.is_alive()
+                assert mock_log.call_count == 1

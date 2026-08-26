@@ -38,7 +38,7 @@ Repository = "https://github.com/HS-Mike/wallpaper-auto"
 "Bug Tracker" = "https://github.com/HS-Mike/wallpaper-auto/issues"
 
 [project.scripts]
-wallpaper-auto = "wallpaper_auto:run_service"
+wallpaper-auto = "wallpaper_auto.cli:cli"
 
 [project.optional-dependencies]
 dev = [
@@ -48,6 +48,7 @@ dev = [
     "mypy>=1.0",
     "ruff>=0.1",
     "types-PyYAML",
+    "types-pywin32",
 ]
 
 [tool.setuptools.packages.find]

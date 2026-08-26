@@ -1,15 +1,59 @@
 """
 Pydantic data models for the wallpaper auto configuration.
 
-Includes models for triggers, resources, rules (with AND/OR condition trees),
-and the top-level config. Validates that all rule targets reference existing resources.
+Includes models for triggers, resources, rules (with AND/OR/NOT condition trees),
+and the top-level config. Validates that all targets (rule, fallback,
+at_shutdown) reference existing resources or scenes, and that scene bindings
+resolve to defined resources.
 """
 
-from typing import Any
+import re
+from pathlib import Path
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .resource.wallpaper_utils import WallpaperStyle
+from .image_cache import CACHE_EVICT_TARGET_RATIO, CACHE_MAX_SIZE_BYTES
+from .util.wallpaper_util import WallpaperStyle
+
+DEFAULT_CACHE_DIR = Path.home() / "AppData" / "Local" / "wallpaper-auto" / "cache"
+
+LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
+
+
+class CacheResizeConfig(BaseModel):
+    """Tuning knobs for the resized-image cache (``ImageCompressionCache``).
+
+    Defaults derive from the ``image_cache`` module constants, so an empty
+    ``resize`` block enables the cache with standard tuning.
+    """
+
+    enabled: bool = True
+    max_size_mb: int = CACHE_MAX_SIZE_BYTES // (1024 * 1024)
+    evict_ratio: float = CACHE_EVICT_TARGET_RATIO
+
+
+class CacheConfig(BaseModel):
+    """Cache directory plus resized-image cache tuning.
+
+    ``path`` is the shared cache dir used by both the composited wallpaper
+    and the resized per-display images. ``resize`` configures the
+    ``ImageCompressionCache`` component specifically.
+    """
+
+    path: str | None = None
+    resize: CacheResizeConfig = CacheResizeConfig()
+
+
+class LoggingConfig(BaseModel):
+    """Logging settings read from the config file.
+
+    ``run()``/``run_service()`` arguments take precedence over these values,
+    which in turn override the built-in ``"DEBUG"`` / console-only defaults.
+    """
+
+    level: LogLevel = "DEBUG"
+    file: str | None = None
 
 
 class TriggerConfig(BaseModel):
@@ -20,10 +64,22 @@ class TriggerConfig(BaseModel):
 class ResourceConfig(BaseModel):
     name: str
     config: dict[str, Any]
+    show: bool = True
 
     @model_validator(mode="before")
     @classmethod
     def set_single_arg_default(cls, data: Any) -> dict[str, Any]:
+        """Coerce a bare image path string into a ``static_wallpaper`` resource config.
+
+        Args:
+            data: Raw config value — a config dict, or a single image path string.
+
+        Returns:
+            A ``{"name": "static_wallpaper", "config": {...}}`` dict.
+
+        Raises:
+            TypeError: If ``data`` is neither a dict nor a string.
+        """
         if isinstance(data, dict):
             return data
         if isinstance(data, str):
@@ -37,21 +93,30 @@ class ConditionNode(BaseModel):
 
     and_conditions: list["ConditionNode"] | None = Field(default=None, alias="and")
     or_conditions: list["ConditionNode"] | None = Field(default=None, alias="or")
+    not_condition: "ConditionNode | None" = Field(default=None, alias="not")
 
     @model_validator(mode="before")
     @classmethod
     def validate_single_key(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
+        if not data:
+            raise ValueError("empty node")
         if len(data) != 1:
             raise ValueError("must provide only one key")
+        key, value = next(iter(data.items()))
+        if key in ("and", "or", "not") and value is None:
+            raise ValueError(f"'{key}' must not be null")
         return data
 
     @model_validator(mode="after")
     def check_extra_structure(self) -> "ConditionNode":
-        if not self.is_and and not self.is_or:
-            if not self.model_extra:
-                raise ValueError("empty node")
+        if self.is_and:
+            if not self.and_conditions:
+                raise ValueError("'and' must have at least one element")
+        elif self.is_or:
+            if not self.or_conditions:
+                raise ValueError("'or' must have at least one element")
         return self
 
     @property
@@ -63,16 +128,66 @@ class ConditionNode(BaseModel):
         return self.or_conditions is not None
 
     @property
+    def is_not(self) -> bool:
+        return self.not_condition is not None
+
+    @property
     def evaluator(self) -> str:
-        if self.is_and or self.is_or:
-            raise ValueError("and/or node invalid access")
+        if self.is_and or self.is_or or self.is_not:
+            raise ValueError("and/or/not node invalid access")
         return next(iter(self.model_extra.keys()))  # type: ignore
 
     @property
     def evaluator_param(self) -> dict[str, Any]:
-        if self.is_and or self.is_or:
-            raise ValueError("and/or node invalid access")
+        if self.is_and or self.is_or or self.is_not:
+            raise ValueError("and/or/not node invalid access")
         return next(iter(self.model_extra.values()))  # type: ignore
+
+
+class SceneBinding(BaseModel):
+    """A single display-scene binding: which display model → which resource."""
+
+    display_model: str | None = None
+    match_display_model: str | None = None
+    resource: str
+    resolution: tuple[int, int] | None = None
+    scale: int | None = None
+
+    @model_validator(mode="after")
+    def check_display_model(self) -> "SceneBinding":
+        if self.display_model is None and self.match_display_model is None:
+            raise ValueError("Either display_model or match_display_model must be specified")
+        elif self.display_model is not None and self.match_display_model is not None:
+            raise ValueError("Only one of display_model or match_display_model can be specified")
+        return self
+
+    @field_validator("scale", mode="before")
+    @classmethod
+    def validate_scale(cls, v: Any) -> Any:
+        """Normalize a decimal scale factor to its integer percent form.
+
+        A config value like ``1.5`` is stored as ``150`` so the scene can be
+        matched against integer display scale percentages.
+
+        Args:
+            v: Raw ``scale`` value from the config.
+
+        Returns:
+            Integer percent for decimal input; otherwise the value unchanged.
+        """
+        if isinstance(v, float) and 0.99 < v < 5.01:
+            return int(round(v * 100, 0))
+        return v
+
+    @field_validator("resolution", mode="before")
+    @classmethod
+    def parse_resolution(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            # match "1920x1080"、"1920*1080"、"1920, 1080"
+            parts = re.split(r"[xX*,\s]+", v.strip())
+            if len(parts) == 2:
+                return (int(parts[0]), int(parts[1]))
+        return v
 
 
 class Rule(BaseModel):
@@ -81,22 +196,92 @@ class Rule(BaseModel):
     target: str
 
 
+class SceneConfig(BaseModel):
+    """Scene-level metadata: a list of per-display bindings plus a ``show`` flag.
+
+    Used as the value type of :attr:`ConfigModel.scene`. ``show`` controls
+    whether the scene is rendered in the system tray menu (defaults to
+    ``True``).
+    """
+
+    bindings: list[SceneBinding]
+    show: bool = True
+
+    @model_validator(mode="after")
+    def check_unique_display_bindings(self) -> "SceneConfig":
+        """Reject duplicate ``display_model`` / ``match_display_model`` within a scene.
+
+        Two bindings in the same scene cannot target the same monitor via the
+        same matcher — the first match wins, so a duplicate is unreachable
+        dead config.
+
+        Returns:
+            This scene, unchanged.
+
+        Raises:
+            ValueError: If any matcher string appears more than once in ``bindings``.
+        """
+        seen_display: set[str] = set()
+        seen_match: set[str] = set()
+        for item in self.bindings:
+            if item.display_model:
+                if item.display_model in seen_display:
+                    raise ValueError(f"duplicate display_model: '{item.display_model}'")
+                seen_display.add(item.display_model)
+            if item.match_display_model:
+                if item.match_display_model in seen_match:
+                    raise ValueError(f"duplicate match_display_model: '{item.match_display_model}'")
+                seen_match.add(item.match_display_model)
+        return self
+
+
 class ConfigModel(BaseModel):
     resource: dict[str, ResourceConfig] = Field(alias="resource")
+    scene: dict[str, SceneConfig] | None = None
     trigger: list[TriggerConfig]
     rule: list[Rule]
-    fallback: str
+    fallback_target: str
     at_shutdown: str | None = None
+    cache: CacheConfig = CacheConfig()
+    logging: LoggingConfig = LoggingConfig()
+
+    @property
+    def cache_path(self) -> Path:
+        path_str = self.cache.path
+        if path_str is None:
+            return DEFAULT_CACHE_DIR
+        p = Path(path_str)
+        if p.exists() and not p.is_dir():
+            raise NotADirectoryError(f"cache path '{path_str}' is not a directory")
+        # A missing directory is allowed — callers create it on use.
+        return p
 
     @model_validator(mode="after")
     def check_target_exist(self) -> "ConfigModel":
-        if self.fallback not in self.resource.keys():
-            raise ValueError(f"Fallback target '{self.fallback}' not found in resource")
+        scene_keys = set(self.scene or {})
+        if duplicate_target := scene_keys & set(self.resource.keys()):
+            raise ValueError(f"duplicate target: {', '.join(duplicate_target)}")
+        target_available = scene_keys | set(self.resource.keys())
+        if self.fallback_target not in target_available:
+            raise ValueError(
+                f"fallback target '{self.fallback_target}' not found in resource or scene"
+            )
         for rule in self.rule:
-            if rule.target not in self.resource:
-                raise ValueError(f"Rule '{rule.name}' targets unknown resource: {rule.target}")
-        if self.at_shutdown is not None and self.at_shutdown not in self.resource:
-            raise ValueError(f"at_shutdown target '{self.at_shutdown}' not found in resource")
+            if rule.target not in target_available:
+                msg = f"Rule '{rule.name}' targets unknown resource or scene: {rule.target}"
+                raise ValueError(msg)
+        if self.at_shutdown is not None and self.at_shutdown not in target_available:
+            raise ValueError(
+                f"at_shutdown target '{self.at_shutdown}' not found in resource or scene"
+            )
+        if self.scene is not None:
+            for scene_name, scene in self.scene.items():
+                for binding in scene.bindings:
+                    if binding.resource not in self.resource:
+                        raise ValueError(
+                            f"scene '{scene_name}' binding resource "
+                            f"'{binding.resource}' not found in resource"
+                        )
         return self
 
 

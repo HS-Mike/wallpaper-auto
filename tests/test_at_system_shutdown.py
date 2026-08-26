@@ -1,28 +1,24 @@
-"""Tests for atshutdown.py — shutdown detection and callback management."""
+"""Tests for at_system_shutdown.py — shutdown detection and callback management."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from wallpaper_auto.atshutdown import ShutdownHandler
-
-# ── fixtures ──────────────────────────────────────────────────────────────
+from wallpaper_auto.at_system_shutdown import ShutdownHandler
 
 
 @pytest.fixture
 def handler() -> ShutdownHandler:
     """Return a fresh ShutdownHandler (no listener started)."""
+    ShutdownHandler.clear_instance()
     return ShutdownHandler()
 
 
 @pytest.fixture
 def mock_gui():
-    """Patch win32gui in the atshutdown module."""
-    with patch("wallpaper_auto.atshutdown.win32gui") as gui:
+    """Patch win32gui in the at_system_shutdown module."""
+    with patch("wallpaper_auto.at_system_shutdown.win32gui") as gui:
         yield gui
-
-
-# ── register / unregister ─────────────────────────────────────────────────
 
 
 class TestShutdownHandlerRegister:
@@ -119,9 +115,6 @@ class TestShutdownHandlerUnregister:
         assert len(handler._callbacks) == 0
 
 
-# ── _run_callbacks ────────────────────────────────────────────────────────
-
-
 class TestShutdownHandlerRunCallbacks:
     """ShutdownHandler._run_callbacks() — callback invocation."""
 
@@ -155,9 +148,6 @@ class TestShutdownHandlerRunCallbacks:
     def test_empty_list_does_nothing(self, handler):
         """_run_callbacks should not error when no callbacks registered."""
         handler._run_callbacks()  # should not raise
-
-
-# ── _window_proc ──────────────────────────────────────────────────────────
 
 
 class TestShutdownHandlerWindowProc:
@@ -195,9 +185,6 @@ class TestShutdownHandlerWindowProc:
         assert result == 42
 
 
-# ── close ─────────────────────────────────────────────────────────────────
-
-
 class TestShutdownHandlerClose:
     """ShutdownHandler.close() — cleanup."""
 
@@ -220,9 +207,6 @@ class TestShutdownHandlerClose:
         handler.close()
 
         mock_thread.join.assert_called_once_with(timeout=3)
-
-
-# ── _start_listener ───────────────────────────────────────────────────────
 
 
 class TestShutdownHandlerStartListener:
@@ -254,22 +238,16 @@ class TestShutdownHandlerStartListener:
         assert handler._hwnd == 999
 
 
-# ── Module-level convenience API ──────────────────────────────────────────
-
-
 class TestShutdownHandlerModuleAPI:
     """Module-level register/unregister convenience functions."""
 
     def test_module_register_and_unregister_are_bound(self):
-        from wallpaper_auto.atshutdown import register, unregister
+        from wallpaper_auto.at_system_shutdown import register, unregister
 
         assert callable(register)
         assert callable(unregister)
         # They should be bound methods of the module-level handler
         assert register.__self__ is unregister.__self__  # type: ignore[union-attr]
-
-
-# ── Integration: callback fires through window proc ───────────────────────
 
 
 class TestShutdownHandlerIntegration:

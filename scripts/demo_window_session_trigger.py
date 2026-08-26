@@ -1,4 +1,5 @@
-"""Windows Session Monitor Demo Script
+"""
+Windows Session Monitor Demo Script
 
 Demonstrates WindowsSessionMonitor session event monitoring:
 - Monitors user logon/logoff
@@ -10,9 +11,8 @@ Usage:
 """
 
 import logging
-import signal
-import sys
 import threading
+from datetime import datetime
 
 from wallpaper_auto.trigger.windows_session_trigger import (
     WindowsSessionEvent,
@@ -26,10 +26,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def on_session_change(session_id: int, event: WindowsSessionEvent | None) -> None:
+def on_session_change(trigger: WindowsSessionTrigger) -> None:
     """Session change callback"""
+    session_id = trigger.current_session_id
+    event = trigger.current_event
     if event is None:
-        print(f"[Trigger] Session {session_id}: Unknown event")
+        logger.info(f"[Trigger] Session {session_id}: Unknown event")
     else:
         event_names = {
             WindowsSessionEvent.WTS_SESSION_LOGON: "User logged on",
@@ -39,29 +41,37 @@ def on_session_change(session_id: int, event: WindowsSessionEvent | None) -> Non
             WindowsSessionEvent.WTS_REMOTE_CONNECT: "Remote connected",
             WindowsSessionEvent.WTS_REMOTE_DISCONNECT: "Remote disconnected",
         }
-        desc = event_names.get(event, "Unknown")
-        print(f"[Trigger] Session {session_id}: {event.name} ({desc})")
+        desc = event_names.get(event)
+        if desc is None:
+            logger.warning(f"[Trigger] Session {session_id}: Unknown event {event}")
+        else:
+            print(f"\n=== {datetime.now():%H:%M:%S} Session Change Detected ===")
+            print(f"  Session ID: {session_id}")
+            print(f"  Event: {event.name} ({desc})")
+            print("=========================================\n")
 
 
 def main() -> None:
     monitor = WindowsSessionTrigger()
+    monitor.daemon = True
+    monitor.add_callback(on_session_change)
 
-    # Graceful shutdown handler
-    def signal_handler(signum, frame):
-        logger.info("Received signal, shutting down...")
-        monitor.deactivate()
-        sys.exit(0)
+    shutdown_event = threading.Event()
 
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    monitor.add_callback(
-        lambda _: on_session_change(monitor.last_session_id, monitor.last_event)
-    )
+    monitor.start()
     logger.info("Windows session monitor started, press Ctrl+C to exit")
-    monitor.activate()
 
-    threading.Event().wait()
+    try:
+        while not shutdown_event.is_set():
+            shutdown_event.wait(timeout=0.5)
+            
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt received, shutting down...")
+    finally:
+        logger.info("Shutting down WindowsSessionTrigger...")
+        monitor.stop()
+        shutdown_event.set()
+        logger.info("Demo script exited safely.")
 
 
 if __name__ == "__main__":

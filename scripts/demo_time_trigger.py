@@ -1,4 +1,5 @@
-"""Time Monitor Demo Script
+"""
+Time Monitor Demo Script
 
 Demonstrates DynamicTimeMonitor with two trigger modes:
 1. Fixed time triggers - fires at specified times daily
@@ -14,9 +15,7 @@ import time
 import sys
 
 from wallpaper_auto.trigger.time_trigger import TimeTrigger
-from wallpaper_auto.trigger.base_trigger import BaseTrigger
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -24,7 +23,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def on_time_trigger(trigger: BaseTrigger) -> None:
+def on_time_trigger(trigger: TimeTrigger) -> None:
     """Time trigger callback"""
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[Trigger] Current time: {now}")
@@ -49,14 +48,14 @@ def main() -> None:
     # Graceful shutdown handler
     def signal_handler(signum, frame):
         logger.info("Received signal, shutting down...")
-        monitor.deactivate()
+        monitor.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
     logger.info("Time monitor started, press Ctrl+C to exit")
-    monitor.activate()
+    monitor.start()
 
     while True:
         time.sleep(1)

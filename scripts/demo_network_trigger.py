@@ -1,4 +1,5 @@
-"""Network Monitor Demo Script
+"""
+Network Monitor Demo Script
 
 Demonstrates NetworkMonitor network change detection:
 - Monitors WiFi hotspot changes
@@ -9,17 +10,15 @@ Usage:
     python demo_network_monitor.py
 """
 import logging
-import signal
-import sys
-import time
 import threading
+import time
+from datetime import datetime
 
 import pythoncom
 
+from wallpaper_auto.util.network_util import get_current_ssid
 from wallpaper_auto.trigger.network_trigger import NetworkTrigger
-from wallpaper_auto.evaluator.wifi_ssid_evaluator import get_current_ssid
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -27,35 +26,36 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def on_network_change() -> None:
-    """Network change callback"""
-    ssid = get_current_ssid()
-    print(f"Current SSID: {ssid}")
-
+def on_network_change(trigger: NetworkTrigger) -> None:
+    """Network change callback — print current SSID from trigger."""
+    ssid = trigger.current_ssid
+    print(f"\n=== {datetime.now():%H:%M:%S} Network Change Detected ===")
+    print(f"  Current SSID: {ssid}")
+    print("=========================================\n")
 
 
 def main() -> None:
     monitor = NetworkTrigger()
     monitor.add_callback(on_network_change)
 
-    # show initial state
-    ssid = get_current_ssid()
-    logger.info(f"Initial SSID: {ssid}")
+    shutdown_event = threading.Event()
 
-    is_cleared = threading.Event()
-    # shutdown handler
-    def signal_handler(signum, frame):
-        logger.info("Received signal, shutting down...")
-        monitor.deactivate()
-        is_cleared.set()
+    monitor.start()
+    logger.info("NetworkTrigger started, press Ctrl+C to exit")
 
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    logger.info("Network monitor started, press Ctrl+C to exit")
-    monitor.activate()
-    while not is_cleared.is_set():
-        time.sleep(0.2)
+    initial_ssid = get_current_ssid()
+    logger.info(f"Initial SSID: {initial_ssid}")
+    
+    try:
+        while not shutdown_event.is_set():
+            shutdown_event.wait(timeout=0.5)
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt received, shutting down...")
+    finally:
+        logger.info("Shutting down NetworkTrigger...")
+        monitor.stop()
+        shutdown_event.set()
+        logger.info("Demo script exited safely.")
 
 
 if __name__ == "__main__":

@@ -41,6 +41,7 @@ cover/
 # IDE / editor
 .idea/
 .vscode/
+.VSCodeCounter/
 .history/
 *.swp
 *.swo
@@ -71,3 +72,9 @@ temp.py
 
 # version file
 src/wallpaper_auto/_version.py
+
+# temp file
+temp/
+
+# code count
+.VSCodeCounter

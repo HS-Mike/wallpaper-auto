@@ -5,39 +5,8 @@ Checks whether the system is currently connected to a specific WiFi network
 by parsing the output of `netsh wlan show interfaces`.
 """
 
-import re
-import subprocess
-
+from ..util.network_util import get_current_ssid
 from .base_evaluator import BaseEvaluator
-
-
-def get_current_ssid() -> str | None:
-    encodings = ["utf-8", "mbcs", "gbk", "cp936"]
-    result = None
-    for enc in encodings:
-        try:
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0  # SW_HIDE
-            result = subprocess.check_output(
-                ["netsh", "wlan", "show", "interfaces"],
-                encoding=enc,
-                stderr=subprocess.STDOUT,
-                startupinfo=startupinfo,
-            )
-            break
-        except UnicodeDecodeError:
-            continue
-        except subprocess.CalledProcessError:
-            return None
-    if result is None:
-        return None
-
-    match = re.search(r"^\s*SSID\s*:\s*(.*)$", result, re.MULTILINE)
-
-    if match:
-        return match.group(1).strip()
-    return None
 
 
 class WIFISsidEvaluator(BaseEvaluator):

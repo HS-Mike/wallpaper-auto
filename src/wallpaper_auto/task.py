@@ -2,10 +2,13 @@
 Task classes transmit across components.
 """
 
-from enum import Enum
-from typing import Annotated, Literal
+from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+import secrets
+import threading
+from enum import Enum
+
+from .models import Rule
 
 
 class Mode(Enum):
@@ -14,28 +17,70 @@ class Mode(Enum):
     UNSET = "unset"
 
 
-class TaskType(Enum):
-    QUIT = 0
-    MODE_SWITCH = 1
-    RESOURCE_SET = 2
+class BaseTask:
+    """Base class for all tasks with a unique id and completion signaling."""
 
+    def __init__(self, completed_event: threading.Event | None = None) -> None:
+        """Initialize the task with a unique id and a completion event.
 
-class BaseTask(BaseModel):
-    model_config = ConfigDict(extra="allow", frozen=True)
+        Args:
+            completed_event: Optional event signaled when the task finishes;
+                a new event is created when omitted.
+        """
+        self.id = secrets.randbits(63)
+        self.completed_event = completed_event or threading.Event()
+
+    def mark_finish(self) -> None:
+        self.completed_event.set()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """Wait until the task finishes or the timeout elapses.
+
+        Args:
+            timeout: Maximum seconds to wait, or None to wait indefinitely.
+
+        Returns:
+            True if the task finished before the timeout, False otherwise.
+        """
+        return self.completed_event.wait(timeout=timeout)
+
+    def __hash__(self) -> int:
+        return self.id
 
 
 class QuitTask(BaseTask):
-    type: Literal[TaskType.QUIT] = TaskType.QUIT
+    pass
 
 
 class ModeSwitchTask(BaseTask):
-    type: Literal[TaskType.MODE_SWITCH] = TaskType.MODE_SWITCH
-    target_mode: Mode
+    def __init__(self, target_mode: Mode) -> None:
+        super().__init__()
+        self.target_mode = target_mode
 
 
-class ResourceSetTask(BaseTask):
-    type: Literal[TaskType.RESOURCE_SET] = TaskType.RESOURCE_SET
-    target_resource_id: str
+class UpdateSceneTask(BaseTask):
+    def __init__(
+        self,
+        target: str,
+        matched_rule: Rule | None,
+        completed_event: threading.Event | None = None,
+    ) -> None:
+        """Initialize a scene-update task.
+
+        Args:
+            target: Target resource or scene id to apply.
+            matched_rule: Rule that selected the target, or None for a
+                fallback or explicit selection.
+            completed_event: Optional completion event, forwarded to
+                :class:`BaseTask`.
+        """
+        super().__init__(completed_event=completed_event)
+        self.target = target
+        self.matched_rule = matched_rule
 
 
-Task = Annotated[QuitTask | ModeSwitchTask | ResourceSetTask, Field(discriminator="type")]
+class ApplySceneTask(BaseTask):
+    pass
+
+
+Task = QuitTask | ModeSwitchTask | UpdateSceneTask | ApplySceneTask
