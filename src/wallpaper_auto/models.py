@@ -1,7 +1,7 @@
 """
 Pydantic data models for the wallpaper auto configuration.
 
-Includes models for triggers, resources, rules (with AND/OR condition trees),
+Includes models for triggers, resources, rules (with AND/OR/NOT condition trees),
 and the top-level config. Validates that all targets (rule, fallback,
 at_shutdown) reference existing resources or scenes, and that scene bindings
 resolve to defined resources.
@@ -93,6 +93,7 @@ class ConditionNode(BaseModel):
 
     and_conditions: list["ConditionNode"] | None = Field(default=None, alias="and")
     or_conditions: list["ConditionNode"] | None = Field(default=None, alias="or")
+    not_condition: "ConditionNode | None" = Field(default=None, alias="not")
 
     @model_validator(mode="before")
     @classmethod
@@ -104,7 +105,7 @@ class ConditionNode(BaseModel):
         if len(data) != 1:
             raise ValueError("must provide only one key")
         key, value = next(iter(data.items()))
-        if key in ("and", "or") and value is None:
+        if key in ("and", "or", "not") and value is None:
             raise ValueError(f"'{key}' must not be null")
         return data
 
@@ -127,15 +128,19 @@ class ConditionNode(BaseModel):
         return self.or_conditions is not None
 
     @property
+    def is_not(self) -> bool:
+        return self.not_condition is not None
+
+    @property
     def evaluator(self) -> str:
-        if self.is_and or self.is_or:
-            raise ValueError("and/or node invalid access")
+        if self.is_and or self.is_or or self.is_not:
+            raise ValueError("and/or/not node invalid access")
         return next(iter(self.model_extra.keys()))  # type: ignore
 
     @property
     def evaluator_param(self) -> dict[str, Any]:
-        if self.is_and or self.is_or:
-            raise ValueError("and/or node invalid access")
+        if self.is_and or self.is_or or self.is_not:
+            raise ValueError("and/or/not node invalid access")
         return next(iter(self.model_extra.values()))  # type: ignore
 
 

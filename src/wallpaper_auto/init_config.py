@@ -153,6 +153,7 @@ trigger:
 # A condition is either:
 #   - A single evaluator leaf: { <evaluator>: <value> }
 #   - An ``and`` / ``or`` combinator: { and: [ ... ] } / { or: [ ... ] }
+#   - A ``not`` combinator (unary): { not: <node> }
 #
 # Available leaf evaluators:
 #   wifi_ssid_is: <ssid_string>
@@ -217,6 +218,15 @@ rule:
   #   condition:
   #     wifi_ssid_is: "CoffeeShop"
   #   target: "mobile"          # scene name — auto-registered as a resource
+
+  # ── Example 8: NOT combinator (inverts a child node) ──────────────────────
+  # - name: "home_outside_work_hours"
+  #   condition:
+  #     and:
+  #       - wifi_ssid_is: "Home_WiFi"
+  #       - not:
+  #           in_time_range: ["09:00", "18:00"]
+  #   target: "black"
 
 
 # ---------------------------------------------------------------------------

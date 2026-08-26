@@ -399,6 +399,27 @@ rule:
         - in_time_range: ["09:00", "18:00"]
 ```
 
+__not__
+
+Inverts the boolean result of a single child node. `not` is unary — the child may itself be a leaf, `and`, `or`, or another `not`.
+
+```yaml
+rule:
+  - name: "Not at office"
+    target: "home_wallpaper"
+    condition:
+      not:
+        wifi_ssid_is: "OfficeWiFi"
+
+  - name: "At office but outside work hours"
+    target: "home_wallpaper"
+    condition:
+      and:
+        - wifi_ssid_is: "OfficeWiFi"
+        - not:
+            in_time_range: ["09:00", "18:00"]
+```
+
 ---
 
 ### Section - `fallback_target`

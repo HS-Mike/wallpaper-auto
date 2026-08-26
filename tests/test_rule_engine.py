@@ -48,6 +48,10 @@ def make_or(*children: ConditionNode) -> ConditionNode:
     return ConditionNode.model_validate({"or": list(children)})
 
 
+def make_not(child: ConditionNode) -> ConditionNode:
+    return ConditionNode.model_validate({"not": child})
+
+
 class TestConditionNodeValidation:
     """Tests for edge cases in ConditionNode model validation."""
 
@@ -77,12 +81,32 @@ class TestConditionNodeValidation:
 
     def test_evaluator_property_on_and_node_raises(self):
         node = ConditionNode.model_validate({"and": [{"dummy": {}}]})
-        with pytest.raises(ValueError, match="and/or node invalid access"):
+        with pytest.raises(ValueError, match="and/or/not node invalid access"):
             _ = node.evaluator
 
     def test_evaluator_param_property_on_or_node_raises(self):
         node = ConditionNode.model_validate({"or": [{"dummy": {}}]})
-        with pytest.raises(ValueError, match="and/or node invalid access"):
+        with pytest.raises(ValueError, match="and/or/not node invalid access"):
+            _ = node.evaluator_param
+
+    def test_not_leaf_parses(self):
+        node = make_not(make_leaf("dummy"))
+        assert node.is_not is True
+        assert node.is_and is False
+        assert node.is_or is False
+
+    def test_not_null_raises(self):
+        with pytest.raises(ValueError, match="'not' must not be null"):
+            ConditionNode.model_validate({"not": None})
+
+    def test_not_evaluator_property_raises(self):
+        node = make_not(make_leaf("dummy"))
+        with pytest.raises(ValueError, match="and/or/not node invalid access"):
+            _ = node.evaluator
+
+    def test_not_evaluator_param_raises(self):
+        node = make_not(make_leaf("dummy"))
+        with pytest.raises(ValueError, match="and/or/not node invalid access"):
             _ = node.evaluator_param
 
 
@@ -132,8 +156,6 @@ class TestEvaluateNode:
         node = make_or(make_leaf("a"), make_leaf("b"))
         assert evaluate_node(node, {"a": true_ev, "b": false_ev}) is True
 
-    # ── nested ──
-
     @pytest.mark.parametrize(
         ("a_val", "b_val", "expected"),
         [
@@ -148,6 +170,73 @@ class TestEvaluateNode:
         node = make_and(make_or(make_leaf("a"), make_leaf("b")), make_leaf("c"))
         result = evaluate_node(node, {"a": a_ev, "b": b_ev, "c": true_ev})
         assert result is expected
+
+    @pytest.mark.parametrize(
+        ("input_val", "expected"),
+        [
+            (True, False),
+            (False, True),
+        ],
+    )
+    def test_not_node_inverts_evaluator_result(self, input_val, expected):
+        evaluator = _MockEval(return_value=input_val)
+        node = make_not(make_leaf("a"))
+        assert evaluate_node(node, {"a": evaluator}) is expected
+
+    def test_not_propagates_child_param(self):
+        evaluator = _MockEval(return_value=True)
+        node = make_not(make_leaf("a", x=1, y="z"))
+        evaluate_node(node, {"a": evaluator})
+        assert evaluator.last_param == {"x": 1, "y": "z"}
+
+    def test_nested_not_not(self):
+        evaluator = _MockEval(return_value=True)
+        node = make_not(make_not(make_leaf("a")))
+        assert evaluate_node(node, {"a": evaluator}) is True
+
+    @pytest.mark.parametrize(
+        ("a_val", "b_val", "expected"),
+        [
+            (True, True, False),
+            (True, False, True),
+            (False, True, True),
+            (False, False, True),
+        ],
+    )
+    def test_not_of_and(self, a_val, b_val, expected):
+        a_ev = _MockEval(return_value=a_val)
+        b_ev = _MockEval(return_value=b_val)
+        node = make_not(make_and(make_leaf("a"), make_leaf("b")))
+        assert evaluate_node(node, {"a": a_ev, "b": b_ev}) is expected
+
+    @pytest.mark.parametrize(
+        ("a_val", "b_val", "expected"),
+        [
+            (True, True, False),
+            (True, False, False),
+            (False, True, False),
+            (False, False, True),
+        ],
+    )
+    def test_not_of_or(self, a_val, b_val, expected):
+        a_ev = _MockEval(return_value=a_val)
+        b_ev = _MockEval(return_value=b_val)
+        node = make_not(make_or(make_leaf("a"), make_leaf("b")))
+        assert evaluate_node(node, {"a": a_ev, "b": b_ev}) is expected
+
+    def test_and_with_not_children(self):
+        true_ev = _MockEval(return_value=True)
+        false_ev = _MockEval(return_value=False)
+        node = make_and(make_not(make_leaf("a")), make_leaf("b"))
+        assert evaluate_node(node, {"a": false_ev, "b": true_ev}) is True
+        assert evaluate_node(node, {"a": true_ev, "b": true_ev}) is False
+
+    def test_or_with_not_children(self):
+        true_ev = _MockEval(return_value=True)
+        false_ev = _MockEval(return_value=False)
+        node = make_or(make_not(make_leaf("a")), make_leaf("b"))
+        assert evaluate_node(node, {"a": false_ev, "b": false_ev}) is True
+        assert evaluate_node(node, {"a": true_ev, "b": false_ev}) is False
 
 
 class TestRuleEngine:
@@ -235,3 +324,18 @@ class TestRuleEngine:
         engine.init([rule])
         assert engine.evaluate() is rule
         assert ev.last_param == {"foo": 1}
+
+    @pytest.mark.parametrize(
+        ("input_returns", "should_match"),
+        [
+            (False, True),
+            (True, False),
+        ],
+    )
+    def test_evaluate_with_not_condition(self, input_returns, should_match):
+        engine = RuleEngine()
+        rule = Rule(name="r", condition=make_not(make_leaf("a")), target="t")
+        engine.init([rule])
+        ev = _MockEval(return_value=input_returns)
+        with patch.object(RuleEngine, "_evaluators", {"a": ev}):
+            assert (engine.evaluate() is rule) is should_match

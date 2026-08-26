@@ -1,7 +1,7 @@
 """
 Rule evaluation engine.
 
-Recursively evaluates AND/OR condition trees against built-in evaluators
+Recursively evaluates AND/OR/NOT condition trees against built-in evaluators
 and returns the first matching rule.
 """
 
@@ -67,9 +67,10 @@ def evaluate_node(node: ConditionNode, evaluators: dict[str, BaseEvaluator]) -> 
     """
     Recursively evaluate a condition node tree.
 
-    Handles three node types:
+    Handles four node types:
       - AND nodes: all child conditions must be True
       - OR nodes: at least one child condition must be True
+      - NOT nodes: invert the boolean result of the single child
       - Leaf nodes: evaluated by the appropriate evaluator
     """
     if node.is_and:
@@ -78,6 +79,9 @@ def evaluate_node(node: ConditionNode, evaluators: dict[str, BaseEvaluator]) -> 
     elif node.is_or:
         assert node.or_conditions is not None
         return any(evaluate_node(i, evaluators) for i in node.or_conditions)
+    elif node.is_not:
+        assert node.not_condition is not None
+        return not evaluate_node(node.not_condition, evaluators)
     else:
         evaluator = evaluators.get(node.evaluator)
         if evaluator is None:
