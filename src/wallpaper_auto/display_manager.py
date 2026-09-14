@@ -58,8 +58,8 @@ class DisplayState:
     original_wallpaper: tuple[WallpaperStyle, Path] | None = None
     canvas: tuple[WallpaperStyle, Path | Image.Image] | None = None
     # Resolution/scale the app has applied; None = display still at its original
-    # value. Restore bookkeeping for stop()/remove_display(), and the idempotency
-    # short-circuit in the setters.
+    # value. Restore bookkeeping for stop()/remove_display(): only displays the
+    # app modified are restored.
     current_resolution: tuple[int, int] | None = None
     current_scale: int | None = None
     # Resolution/scale recorded by update_display_scene() not yet applied by
@@ -492,9 +492,10 @@ class DisplayManager:
 
         The requested ``(width, height)`` is snapped to the nearest supported
         resolution from the display's cached capability; a warning is logged
-        when the resolved value differs from the request.  The change is
-        persisted to the registry (``CDS_UPDATEREGISTRY``) and the pre-change
-        resolution is recorded so it can be restored.
+        when the resolved value differs from the request.  Nothing is applied
+        when the display is already at the resolved value, as reported by the
+        live display state.  The change is persisted to the registry
+        (``CDS_UPDATEREGISTRY``).
 
         Args:
             display_id: Opaque id of the display.
@@ -502,71 +503,107 @@ class DisplayManager:
             height: Requested pixel height.
 
         Returns:
-            True on success, False (logged) when the display is unknown, its
-            metadata is unavailable, or the system call failed.
+            True on success or when no change is needed, False (logged) when
+            the display is unknown or the system call failed.
         """
         with self._lock:
-            state = self._displays[display_id]
-            resolved = resolve_target_resolution((width, height), list(state.capability.resolution))
-            if resolved != (width, height):
-                logger.warning(
-                    "resolution %dx%d not supported on %s; snapping to %dx%d",
-                    width,
-                    height,
-                    state.display_info.monitor_device_path,
-                    resolved[0],
-                    resolved[1],
-                )
-            if state.current_resolution == resolved:
-                return True
-            ok = set_display_resolution(state.display_info.device_name, resolved[0], resolved[1])
-            if ok:
-                state.current_resolution = resolved
-                logger.info(f"display manager set resolution to {resolved[0]}*{resolved[1]}")
-            return ok
+            return self._apply_resolution(self._displays[display_id], width, height)
 
     def set_display_scale(self, display_id: DisplayId, scale: int) -> bool:
         """Set a display's DPI scale, snapping to a supported step.
 
         The requested percentage is snapped to the nearest supported scale from
         the display's cached capability (a warning is logged when they differ),
-        then applied as a relative step from the reference scale.  The change
-        is session-only and the pre-change scale is recorded for restore.
+        then applied as a relative step from the reference scale.  Nothing is
+        applied when the display is already at the resolved scale, as reported
+        by the live display state.  The change is session-only.
 
         Args:
             display_id: Opaque id of the display.
             scale: Requested scale percentage (e.g. 150).
 
         Returns:
-            True on success, False (logged) when the display is unknown, has no
-            cached capability, or the system call failed.
+            True on success or when no change is needed, False (logged) when
+            the display is unknown or the system call failed.
         """
         with self._lock:
-            state = self._displays[display_id]
-            scale_rel = resolve_target_scale_step(
-                state.capability.reference_scale, scale, state.capability.scale
+            return self._apply_scale(self._displays[display_id], scale)
+
+    def _apply_resolution(self, state: DisplayState, width: int, height: int) -> bool:
+        """Snap and apply a resolution, skipping the set when already there.
+
+        A failed live read is never taken as "no change needed": the set is
+        attempted anyway, so a transient read failure still retries.  Must be
+        called with ``self._lock`` held.
+
+        Args:
+            state: Display to modify.
+            width: Requested pixel width.
+            height: Requested pixel height.
+
+        Returns:
+            True on success or when the display is already at the resolved
+            value, False (logged) when the system call failed.
+        """
+        resolved = resolve_target_resolution((width, height), list(state.capability.resolution))
+        if resolved != (width, height):
+            logger.warning(
+                "resolution %dx%d not supported on %s; snapping to %dx%d",
+                width,
+                height,
+                state.display_info.monitor_device_path,
+                resolved[0],
+                resolved[1],
             )
-            reference_index = state.capability.scale.index(state.capability.reference_scale)
-            resolved = state.capability.scale[reference_index + scale_rel]
-            if resolved != scale:
-                logger.warning(
-                    "scale %d%% not supported on %s; snapping to %d%%",
-                    scale,
-                    state.display_info.monitor_device_path,
-                    resolved,
-                )
-            if state.current_scale == resolved:
-                return True
-            ok = set_display_scale(
-                state.display_info.device_name,
-                state.display_info.adapter_id,
-                state.display_info.source_id,
-                scale_rel,
+        live = get_display_resolution(state.display_info.device_name)
+        if live is not None and live == resolved:
+            return True
+        ok = set_display_resolution(state.display_info.device_name, resolved[0], resolved[1])
+        if ok:
+            state.current_resolution = resolved
+            logger.info(f"display manager set resolution to {resolved[0]}*{resolved[1]}")
+        return ok
+
+    def _apply_scale(self, state: DisplayState, scale: int) -> bool:
+        """Snap and apply a DPI scale, skipping the set when already there.
+
+        A failed live read is never taken as "no change needed": the set is
+        attempted anyway, so a transient read failure still retries.  Must be
+        called with ``self._lock`` held.
+
+        Args:
+            state: Display to modify.
+            scale: Requested scale percentage.
+
+        Returns:
+            True on success or when the display is already at the resolved
+            value, False (logged) when the system call failed.
+        """
+        scale_rel = resolve_target_scale_step(
+            state.capability.reference_scale, scale, state.capability.scale
+        )
+        reference_index = state.capability.scale.index(state.capability.reference_scale)
+        resolved = state.capability.scale[reference_index + scale_rel]
+        if resolved != scale:
+            logger.warning(
+                "scale %d%% not supported on %s; snapping to %d%%",
+                scale,
+                state.display_info.monitor_device_path,
+                resolved,
             )
-            if ok:
-                state.current_scale = resolved
-                logger.info(f"display manager set scale to {resolved}")
-            return ok
+        live = get_display_scale(state.display_info.device_name)
+        if live is not None and live == resolved:
+            return True
+        ok = set_display_scale(
+            state.display_info.device_name,
+            state.display_info.adapter_id,
+            state.display_info.source_id,
+            scale_rel,
+        )
+        if ok:
+            state.current_scale = resolved
+            logger.info(f"display manager set scale to {resolved}")
+        return ok
 
     def _restore_resolution(self, state: DisplayState) -> None:
         """Revert a display's resolution to its original value.
@@ -581,17 +618,8 @@ class DisplayManager:
         """
         if state.current_resolution is None:
             return
-        ok = set_display_resolution(
-            state.display_info.device_name,
-            state.original_resolution[0],
-            state.original_resolution[1],
-        )
-        if ok:
+        if self._apply_resolution(state, *state.original_resolution):
             state.current_resolution = None
-            logger.info(
-                f"display manager restore resolution to "
-                f"{state.original_resolution[0]}*{state.original_resolution[1]}"
-            )
         else:
             logger.warning(
                 "cannot restore resolution on %s: display may be disconnected",
@@ -611,20 +639,8 @@ class DisplayManager:
         """
         if state.current_scale is None:
             return
-        scale_rel = resolve_target_scale_step(
-            state.capability.reference_scale,
-            state.original_scale,
-            state.capability.scale,
-        )
-        ok = set_display_scale(
-            state.display_info.device_name,
-            state.display_info.adapter_id,
-            state.display_info.source_id,
-            scale_rel,
-        )
-        if ok:
+        if self._apply_scale(state, state.original_scale):
             state.current_scale = None
-            logger.info(f"display manager restore scale to {state.original_scale}")
         else:
             logger.warning(
                 "cannot restore scale on %s: display may be disconnected",

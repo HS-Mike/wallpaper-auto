@@ -1269,6 +1269,44 @@ def _add_with_capability(dm: DisplayManager) -> tuple[DisplayId, DisplayInfo]:
         return dm.add_display(info), info
 
 
+class _LiveDisplay:
+    """Live resolution/scale of a display, shared by the patched reader and writer.
+
+    The setters early-exit when the live state already matches the target, so a
+    test must keep the live value consistent with what the app applied.  Passing
+    ``get_resolution``/``get_scale``/``set_resolution``/``set_scale`` as mock
+    ``side_effect``s makes the patched readers and writers drive this one object:
+    a set updates the live value, and the next read reports it.
+    """
+
+    def __init__(
+        self,
+        resolution: tuple[int, int],
+        scale: int,
+        reference_scale: int = 100,
+        supported_scales: tuple[int, ...] = (100, 125, 150),
+    ) -> None:
+        self.resolution = resolution
+        self.scale = scale
+        self._reference_scale = reference_scale
+        self._supported_scales = supported_scales
+
+    def get_resolution(self, device_name: str) -> tuple[int, int]:
+        return self.resolution
+
+    def get_scale(self, device_name: str) -> int:
+        return self.scale
+
+    def set_resolution(self, device_name: str, width: int, height: int) -> bool:
+        self.resolution = (width, height)
+        return True
+
+    def set_scale(self, device_name: str, adapter_id: LUID, source_id: int, scale_rel: int) -> bool:
+        index = self._supported_scales.index(self._reference_scale) + scale_rel
+        self.scale = self._supported_scales[index]
+        return True
+
+
 class TestDisplayManagerResolution:
     """Per-display resolution setters, snapping, and restore."""
 
@@ -1325,11 +1363,19 @@ class TestDisplayManagerResolution:
     def test_set_display_resolution_snaps_and_calls_setter(self):
         dm = DisplayManager()
         did, _info = _add_with_capability(dm)
-        with patch(
-            "wallpaper_auto.display_manager.set_display_resolution", return_value=True
-        ) as mock_res:
+        live = _LiveDisplay(resolution=(1280, 720), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ) as mock_res,
+        ):
             assert dm.set_display_resolution(did, 1921, 1080) is True
-            assert dm.set_display_resolution(did, 1920, 1080) is True  # idempotent
+            assert dm.set_display_resolution(did, 1920, 1080) is True  # already there
         mock_res.assert_called_once_with("\\\\.\\DISPLAY1", 1920, 1080)
         assert dm._displays[did].current_resolution == (1920, 1080)
 
@@ -1343,15 +1389,28 @@ class TestDisplayManagerResolution:
         dm = DisplayManager()
         did, info = _add_with_capability(dm)
         dm.update_resource(did, _make_resource())
-        with patch(
-            "wallpaper_auto.display_manager.set_display_resolution", return_value=True
-        ) as mock_res:
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ),
+        ):
             assert dm.set_display_resolution(did, 800, 600) is True
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=[info]),
             patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
             patch(
-                "wallpaper_auto.display_manager.set_display_resolution", return_value=True
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
             ) as mock_res,
         ):
             mock_static.return_value = _make_resource()
@@ -1366,7 +1425,17 @@ class TestDisplayManagerResolution:
         dm = DisplayManager()
         did, _info = _add_with_capability(dm)
         dm.update_resource(did, _make_resource())
-        with patch("wallpaper_auto.display_manager.set_display_resolution", return_value=True):
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ),
+        ):
             assert dm.set_display_resolution(did, 800, 600) is True
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=[]),
@@ -1380,7 +1449,17 @@ class TestDisplayManagerResolution:
         dm = DisplayManager()
         did, info = _add_with_capability(dm)
         dm.update_resource(did, _make_resource())
-        with patch("wallpaper_auto.display_manager.set_display_resolution", return_value=True):
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ),
+        ):
             assert dm.set_display_resolution(did, 800, 600) is True
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=[info]),
@@ -1389,7 +1468,12 @@ class TestDisplayManagerResolution:
             patch("wallpaper_auto.display_manager.set_wallpaper_style"),
             patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
             patch(
-                "wallpaper_auto.display_manager.set_display_resolution", return_value=True
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
             ) as mock_res,
         ):
             _mock_com_session(mock_session)
@@ -1401,9 +1485,17 @@ class TestDisplayManagerResolution:
         dm = DisplayManager()
         did, _info = _add_with_capability(dm)
         state = dm._displays[did]
-        with patch(
-            "wallpaper_auto.display_manager.set_display_resolution", return_value=True
-        ) as mock_res:
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ) as mock_res,
+        ):
             assert dm.set_display_resolution(did, 800, 600) is True
             assert mock_res.call_count == 1
             dm._restore_resolution(state)
@@ -1417,10 +1509,26 @@ class TestDisplayManagerResolution:
         dm = DisplayManager()
         did, _info = _add_with_capability(dm)
         state = dm._displays[did]
-        with patch("wallpaper_auto.display_manager.set_display_resolution", return_value=True):
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ),
+        ):
             assert dm.set_display_resolution(did, 800, 600) is True
         assert state.current_resolution is not None
-        with patch("wallpaper_auto.display_manager.set_display_resolution", return_value=False):
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch("wallpaper_auto.display_manager.set_display_resolution", return_value=False),
+        ):
             dm._restore_resolution(state)
         assert state.current_resolution is not None  # kept for a later retry
 
@@ -1431,9 +1539,17 @@ class TestDisplayManagerScale:
     def test_set_display_scale_snaps_and_computes_step(self):
         dm = DisplayManager()
         did, _info = _add_with_capability(dm)
-        with patch(
-            "wallpaper_auto.display_manager.set_display_scale", return_value=True
-        ) as mock_scale:
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
+            ) as mock_scale,
+        ):
             assert dm.set_display_scale(did, 140) is True
         args = mock_scale.call_args.args
         assert args[0] == "\\\\.\\DISPLAY1"
@@ -1446,12 +1562,20 @@ class TestDisplayManagerScale:
         """Re-applying the current target scale returns True without a setter call."""
         dm = DisplayManager()
         did, _info = _add_with_capability(dm)
-        with patch(
-            "wallpaper_auto.display_manager.set_display_scale", return_value=True
-        ) as mock_scale:
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
+            ) as mock_scale,
+        ):
             assert dm.set_display_scale(did, 150) is True
             assert mock_scale.call_count == 1
-            assert dm.set_display_scale(did, 150) is True  # idempotent short-circuit
+            assert dm.set_display_scale(did, 150) is True  # live scale now matches
             assert mock_scale.call_count == 1
 
     def test_set_display_scale_resolves_relative_to_reference(self):
@@ -1481,9 +1605,17 @@ class TestDisplayManagerScale:
             ),
         ):
             did = dm.add_display(info)
-        with patch(
-            "wallpaper_auto.display_manager.set_display_scale", return_value=True
-        ) as mock_scale:
+        live = _LiveDisplay(resolution=(1920, 1080), scale=125, reference_scale=125)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
+            ) as mock_scale,
+        ):
             assert dm.set_display_scale(did, 150) is True
             assert dm.set_display_scale(did, 100) is True
         args = mock_scale.call_args_list
@@ -1496,15 +1628,28 @@ class TestDisplayManagerScale:
         dm = DisplayManager()
         did, info = _add_with_capability(dm)
         dm.update_resource(did, _make_resource())
-        with patch(
-            "wallpaper_auto.display_manager.set_display_scale", return_value=True
-        ) as mock_scale:
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
+            ),
+        ):
             assert dm.set_display_scale(did, 200) is True
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=[info]),
             patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
             patch(
-                "wallpaper_auto.display_manager.set_display_scale", return_value=True
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
             ) as mock_scale,
         ):
             mock_static.return_value = _make_resource()
@@ -1522,7 +1667,17 @@ class TestDisplayManagerScale:
         dm = DisplayManager()
         did, _info = _add_with_capability(dm)
         dm.update_resource(did, _make_resource())
-        with patch("wallpaper_auto.display_manager.set_display_scale", return_value=True):
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
+            ),
+        ):
             assert dm.set_display_scale(did, 200) is True
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=[]),
@@ -1536,7 +1691,17 @@ class TestDisplayManagerScale:
         dm = DisplayManager()
         did, info = _add_with_capability(dm)
         dm.update_resource(did, _make_resource())
-        with patch("wallpaper_auto.display_manager.set_display_scale", return_value=True):
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
+            ),
+        ):
             assert dm.set_display_scale(did, 200) is True
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=[info]),
@@ -1545,7 +1710,12 @@ class TestDisplayManagerScale:
             patch("wallpaper_auto.display_manager.set_wallpaper_style"),
             patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
             patch(
-                "wallpaper_auto.display_manager.set_display_scale", return_value=True
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
             ) as mock_scale,
         ):
             _mock_com_session(mock_session)
@@ -1561,9 +1731,17 @@ class TestDisplayManagerScale:
         dm = DisplayManager()
         did, _info = _add_with_capability(dm)
         state = dm._displays[did]
-        with patch(
-            "wallpaper_auto.display_manager.set_display_scale", return_value=True
-        ) as mock_scale:
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
+            ) as mock_scale,
+        ):
             assert dm.set_display_scale(did, 200) is True
             assert mock_scale.call_count == 1
             dm._restore_scale(state)
@@ -1577,10 +1755,26 @@ class TestDisplayManagerScale:
         dm = DisplayManager()
         did, _info = _add_with_capability(dm)
         state = dm._displays[did]
-        with patch("wallpaper_auto.display_manager.set_display_scale", return_value=True):
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
+            ),
+        ):
             assert dm.set_display_scale(did, 150) is True
         assert state.current_scale is not None
-        with patch("wallpaper_auto.display_manager.set_display_scale", return_value=False):
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch("wallpaper_auto.display_manager.set_display_scale", return_value=False),
+        ):
             dm._restore_scale(state)
         assert state.current_scale is not None  # kept for a later retry
 
@@ -1607,10 +1801,25 @@ class TestDisplayManagerScene:
         did, _info = _add_with_capability(dm)
         resource = _make_resource()
         dm.update_display_scene(did, resource, (1920, 1080), 150)
+        live = _LiveDisplay(resolution=(1280, 720), scale=100)
         with (
             patch.object(dm, "plot_canvas") as mock_plot,
-            patch("wallpaper_auto.display_manager.set_display_resolution", return_value=True),
-            patch("wallpaper_auto.display_manager.set_display_scale", return_value=True),
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
+            ),
         ):
             dm.apply_display_scene()
         mock_plot.assert_called_once()
@@ -1623,26 +1832,49 @@ class TestDisplayManagerScene:
         dm = DisplayManager()
         did, _info = _add_with_capability(dm)
         resource = _make_resource()
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
         # First apply a non-original resolution/scale.
-        with patch.object(dm, "plot_canvas"):
+        with (
+            patch.object(dm, "plot_canvas"),
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
+            ),
+        ):
             dm.update_display_scene(did, resource, (1280, 720), 125)
-            with (
-                patch("wallpaper_auto.display_manager.set_display_resolution", return_value=True),
-                patch("wallpaper_auto.display_manager.set_display_scale", return_value=True),
-            ):
-                dm.apply_display_scene()
+            dm.apply_display_scene()
         assert dm._displays[did].current_resolution == (1280, 720)
         assert dm._displays[did].current_scale == 125
         # Then a scene that restores both to their originals (1920x1080 @100).
         with (
             patch.object(dm, "plot_canvas"),
             patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
                 "wallpaper_auto.display_manager.set_display_resolution",
-                return_value=True,
+                side_effect=live.set_resolution,
             ) as mock_res,
             patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
                 "wallpaper_auto.display_manager.set_display_scale",
-                return_value=True,
+                side_effect=live.set_scale,
             ) as mock_scale,
         ):
             dm.update_display_scene(did, resource, None, None)
