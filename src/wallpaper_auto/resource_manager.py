@@ -14,6 +14,7 @@ from .models import ResourceConfig, SceneBinding
 from .resource.base_resource import BaseResource
 from .resource.resource_cycle import ResourceCycle
 from .resource.static_wallpaper import StaticWallpaper
+from .resource.wallpaper_engine_resource import WallpaperEngineResource
 from .util.display_util import DisplayId, DisplayInfo
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 _BUILTIN_RESOURCES: dict[str, type[BaseResource]] = {
     "static_wallpaper": StaticWallpaper,
     "cycle": ResourceCycle,
+    "wallpaper_engine": WallpaperEngineResource,
 }
 
 
