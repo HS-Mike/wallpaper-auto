@@ -208,6 +208,10 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
         """Resolve the exe path, enforce monitor detection, and close any other
         running Wallpaper Engine instance so the new setting takes effect.
 
+        When no Wallpaper Engine was running, registers
+        :meth:`close_started_wallpaper_engine` so the instance this app causes to
+        start is closed again at process exit.
+
         Raises:
             FileNotFoundError: No Wallpaper Engine exe was found and none was
                 supplied, or the resolved exe's directory has no ``config.json``.
@@ -238,6 +242,29 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
             for pid, path in matches:
                 if os.path.normpath(os.path.normcase(str(path))) == chosen_norm:
                     continue
+                close_process_by_pid(pid)
+
+        # atexit runs LIFO: registering this last makes it run *before*
+        # restore_monitor_detection, so a closing Wallpaper Engine cannot
+        # overwrite the restored monitordetection.
+        if not matches:
+            atexit.register(self.close_started_wallpaper_engine)
+
+    def close_started_wallpaper_engine(self) -> None:
+        """Close the Wallpaper Engine instance this app started.
+
+        Registered with :mod:`atexit` by :meth:`start` only when no Wallpaper
+        Engine was running at that point, so an instance the user launched is
+        never closed. Running processes are re-scanned at exit and only those
+        whose executable matches :attr:`exe_path`, compared case- and
+        separator-insensitively, receive a close request.
+
+        Does not wait for the process to exit; see :func:`close_process_by_pid`.
+        """
+        assert self.exe_path is not None
+        chosen_norm = os.path.normpath(os.path.normcase(str(self.exe_path)))
+        for pid, path in _find_running_wallpaper_engines():
+            if os.path.normpath(os.path.normcase(str(path))) == chosen_norm:
                 close_process_by_pid(pid)
 
     def apply_cli(self, cmd: list[str]) -> None:
