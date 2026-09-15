@@ -2,14 +2,15 @@ import atexit
 import getpass
 import json
 import logging
-import os
 import re
 import subprocess
+import time
 import winreg
 from pathlib import Path
 from typing import ClassVar
 
 import win32con
+import win32event
 import win32gui
 import win32process
 
@@ -21,6 +22,31 @@ logger = logging.getLogger(__name__)
 
 #: Executable basenames Wallpaper Engine ships; checked in this order.
 _WE_EXE_NAMES = ("wallpaper32.exe", "wallpaper64.exe")
+
+#: Seconds to wait for a Wallpaper Engine CLI client to return before giving up.
+_WE_CLI_TIMEOUT_SECONDS = 10.0
+
+#: Seconds to wait for a running Wallpaper Engine to exit after a close request.
+#: Bounded so neither :meth:`WallpaperEngineApp.start` nor
+#: :meth:`WallpaperEngineApp.stop` can hang.
+_WE_EXIT_TIMEOUT_SECONDS = 5.0
+
+#: Seconds between close requests while waiting for that exit. Wallpaper Engine's
+#: windows do not exist for the first ~300ms of its life, and a close request
+#: posted before then has no window to go to and is lost, so it must be retried.
+_WE_CLOSE_RETRY_SECONDS = 0.25
+
+#: Seconds to wait for the two-candidate race in :meth:`WallpaperEngineApp._resolve_host_race`
+#: to leave a single host. The loser exits ~0.1s after the winner takes the
+#: single-instance slot (measured on a cold start); the budget covers a slower one.
+_WE_HOST_RACE_TIMEOUT_SECONDS = 3.0
+
+#: Seconds to keep waiting, after one candidate has exited, for the survivor to
+#: exit as well. A forwarder exits as soon as it finds a host, so of two
+#: simultaneous candidates the survivor is a forwarder too only when an instance
+#: this app did not start already owns the desktop — and then it exits about as
+#: fast as the first did. A host never exits, so this window tells them apart.
+_WE_HOST_SETTLE_SECONDS = 0.25
 
 
 def get_steam_libraries() -> list[Path]:
@@ -161,7 +187,12 @@ def _find_running_wallpaper_engines() -> list[tuple[int, Path]]:
 
 
 def close_process_by_pid(pid: int) -> None:
-    """Post ``WM_CLOSE`` to every visible top-level window of ``pid``.
+    """Post ``WM_CLOSE`` to every top-level window of ``pid``.
+
+    Hidden windows are included on purpose: the only window Wallpaper Engine
+    honors the close request on is its hidden ``WPEEventWindow``. Its visible
+    window and ``WPETrayWindow`` ignore it, and a running instance started
+    without its UI has no visible window at all.
 
     Does not wait for exit; the target process decides whether to honor the
     close request.
@@ -171,8 +202,6 @@ def close_process_by_pid(pid: int) -> None:
     """
 
     def enum_windows_callback(hwnd: int, extra: object) -> None:
-        if not win32gui.IsWindowVisible(hwnd):
-            return
         _, found_pid = win32process.GetWindowThreadProcessId(hwnd)
         if found_pid == pid:
             win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
@@ -203,14 +232,19 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
         """
         self.exe_path: Path | None = Path(exe_path) if exe_path is not None else None
         self._original_monitor_detection: str | None = None
+        self._popen: subprocess.Popen[bytes] | None = None
 
     def start(self) -> None:
-        """Resolve the exe path, enforce monitor detection, and close any other
-        running Wallpaper Engine instance so the new setting takes effect.
+        """Resolve the exe path, enforce monitor detection, then restart Wallpaper
+        Engine and hold the new instance.
 
-        When no Wallpaper Engine was running, registers
-        :meth:`close_started_wallpaper_engine` so the instance this app causes to
-        start is closed again at process exit.
+        Every running instance is closed, unconditionally, and two are launched
+        with ``-silent`` (no main window) and raced against each other; the one
+        that takes the single-instance slot is observed and kept on
+        :attr:`_popen`, so :meth:`stop` closes exactly that process.
+        ``monitordetection`` only takes effect on the next launch, and a launch
+        while an instance is still alive would only forward to it and exit, so
+        the instances go first and the new one starts once none is left.
 
         Raises:
             FileNotFoundError: No Wallpaper Engine exe was found and none was
@@ -235,50 +269,196 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
             raise FileNotFoundError("wallpaper engine config file (config.json) not found")
         self.config_path: Path = config_path
 
-        if self.enforce_monitor_detection_devicepath():
-            atexit.register(self.restore_monitor_detection)
+        self.enforce_monitor_detection_devicepath()
 
-            chosen_norm = os.path.normpath(os.path.normcase(str(exe_path)))
-            for pid, path in matches:
-                if os.path.normpath(os.path.normcase(str(path))) == chosen_norm:
-                    continue
+        # A changed monitordetection only takes effect on the next launch, and a
+        # spawn while an instance is still alive would just forward to it and
+        # exit, so every instance is closed first and the new one is started only
+        # once none is left.
+        self._popen = None
+        remaining = matches
+        deadline = time.monotonic() + _WE_EXIT_TIMEOUT_SECONDS
+        while remaining:
+            for pid, _ in remaining:
                 close_process_by_pid(pid)
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "wallpaper engine: %d instance(s) did not close within %ss",
+                    len(remaining),
+                    _WE_EXIT_TIMEOUT_SECONDS,
+                )
+                break
+            time.sleep(_WE_CLOSE_RETRY_SECONDS)
+            remaining = _find_running_wallpaper_engines()
 
-        # atexit runs LIFO: registering this last makes it run *before*
-        # restore_monitor_detection, so a closing Wallpaper Engine cannot
-        # overwrite the restored monitordetection.
-        if not matches:
-            atexit.register(self.close_started_wallpaper_engine)
+        self._ensure_instance()
 
-    def close_started_wallpaper_engine(self) -> None:
-        """Close the Wallpaper Engine instance this app started.
+    def _ensure_instance(self) -> None:
+        """Start and hold a Wallpaper Engine instance when none is running.
 
-        Registered with :mod:`atexit` by :meth:`start` only when no Wallpaper
-        Engine was running at that point, so an instance the user launched is
-        never closed. Running processes are re-scanned at exit and only those
-        whose executable matches :attr:`exe_path`, compared case- and
-        separator-insensitively, receive a close request.
+        The only place that can bring a new instance into existence. An instance
+        already running — ours, or one the user launched — is reused and never
+        owned.
 
-        Does not wait for the process to exit; see :func:`close_process_by_pid`.
+        Wallpaper Engine's ``-control`` commands require an already running
+        instance, so this is a precondition of every command.
+
+        ``-silent`` is undocumented but real — it is the flag Wallpaper Engine's
+        own ``Run`` autostart entry uses — and starts it without a main window.
         """
-        assert self.exe_path is not None
-        chosen_norm = os.path.normpath(os.path.normcase(str(self.exe_path)))
-        for pid, path in _find_running_wallpaper_engines():
-            if os.path.normpath(os.path.normcase(str(path))) == chosen_norm:
-                close_process_by_pid(pid)
+        if self._popen is not None and self._popen.poll() is None:
+            return
+        self._popen = None
+        if _find_running_wallpaper_engines():
+            logger.info("wallpaper engine: an instance is already running, not claimed")
+            return
+        exe_path = self.exe_path
+        assert exe_path is not None
+        # Two launches race for the single-instance slot. The winner becomes the
+        # host; the loser finds it, forwards and exits, so the loser's exit is
+        # itself the proof that the host is reachable — which is what a
+        # `-control` client needs before it can hand a command over. `-silent`
+        # carries no command, so the losing candidate has no effect on playback.
+        candidates = [
+            subprocess.Popen(
+                [str(exe_path), "-silent"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.DETACHED_PROCESS,
+            )
+            for _ in range(2)
+        ]
+        self._popen = self._resolve_host_race(candidates)
+
+    def _resolve_host_race(
+        self, candidates: list[subprocess.Popen[bytes]]
+    ) -> subprocess.Popen[bytes] | None:
+        """Return the candidate that became the host, or ``None``.
+
+        Wallpaper Engine is single-instance, so of two simultaneous launches one
+        takes the slot and lives on while the other reaches it, forwards and
+        exits. That exit is the signal: it proves the survivor is the host and is
+        reachable, which is what :meth:`apply_cli` depends on.
+
+        Args:
+            candidates: The simultaneously spawned ``-silent`` processes.
+
+        Returns:
+            The surviving host, or ``None`` when every candidate exited — they
+            all reached an instance that was already running.
+        """
+        # Waiting on the process handles returns the moment a candidate dies
+        # instead of discovering it on a poll, and reports which one it was.
+        # ``_handle`` is private but stable for the ``Popen``'s lifetime on
+        # Windows (``_internal_poll`` never closes it) and a process handle stays
+        # signaled once its process has exited, so this wait is exact. An
+        # unusable handle raises out of pywin32; that is not recoverable, since
+        # every handle here belongs to a process this method just spawned.
+        handles = [p._handle for p in candidates]  # type: ignore[attr-defined]
+        result = win32event.WaitForMultipleObjects(
+            handles,
+            False,
+            int(_WE_HOST_RACE_TIMEOUT_SECONDS * 1000),
+        )
+        if result == win32event.WAIT_TIMEOUT:
+            # No candidate yielded, so the race cannot tell the host from a
+            # straggler stuck waiting for it. Hold the first and close the rest:
+            # every candidate is a process this app started, so none of them may
+            # outlive us unowned.
+            for extra in candidates[1:]:
+                logger.warning("wallpaper engine: closing redundant instance %s", extra.pid)
+                close_process_by_pid(extra.pid)
+            logger.warning(
+                "wallpaper engine: race unresolved after %ss, holding %s",
+                _WE_HOST_RACE_TIMEOUT_SECONDS,
+                candidates[0].pid,
+            )
+            return candidates[0]
+        # The wait reports the lowest-indexed candidate that exited; with two
+        # candidates the other one is the survivor. An immediate liveness check
+        # is not enough to call it a host, because a second forwarder exits a
+        # moment after the first does — so it gets its own short wait. Only a
+        # process that stays alive through both is a host.
+        exited = result - win32event.WAIT_OBJECT_0
+        survivor_index = next(i for i in range(len(candidates)) if i != exited)
+        if (
+            win32event.WaitForMultipleObjects(
+                [handles[survivor_index]],
+                False,
+                int(_WE_HOST_SETTLE_SECONDS * 1000),
+            )
+            != win32event.WAIT_TIMEOUT
+        ):
+            logger.warning(
+                "wallpaper engine: every spawned candidate exited; another "
+                "instance owns the desktop"
+            )
+            return None
+        survivor = candidates[survivor_index]
+        logger.info("wallpaper engine: holding host process %s", survivor.pid)
+        return survivor
+
+    def stop(self) -> None:
+        """Close the instance this app started, then restore ``monitordetection``.
+
+        Only the process launched by :meth:`_ensure_instance` is closed; an
+        instance that was already running, or one the user launched, is left
+        alone. The close request is retried every :data:`_WE_CLOSE_RETRY_SECONDS`
+        until the process exits or the :data:`_WE_EXIT_TIMEOUT_SECONDS` budget is
+        spent — the request is lost when it has no window to go to yet, which is
+        the normal case for an instance started moments ago. Waiting on that exit
+        lets it flush ``config.json`` before ``monitordetection`` is written back.
+
+        Safe to call more than once, and before :meth:`start`.
+        """
+        popen, self._popen = self._popen, None
+        if popen is not None:
+            deadline = time.monotonic() + _WE_EXIT_TIMEOUT_SECONDS
+            while popen.poll() is None:
+                close_process_by_pid(popen.pid)
+                try:
+                    popen.wait(timeout=_WE_CLOSE_RETRY_SECONDS)
+                except subprocess.TimeoutExpired:
+                    if time.monotonic() >= deadline:
+                        logger.warning(
+                            "wallpaper engine process %s did not exit within %ss",
+                            popen.pid,
+                            _WE_EXIT_TIMEOUT_SECONDS,
+                        )
+                        break
+        # Restored even when nothing was owned: a foreign host is then still
+        # alive while its config.json is written back. Deliberate — our edit has
+        # to be reverted either way, and leaving it in place would be worse.
+        self.restore_monitor_detection()
 
     def apply_cli(self, cmd: list[str]) -> None:
-        """Launch a Wallpaper Engine CLI command, detached from this process.
+        """Run a Wallpaper Engine CLI command, waiting on it only up to a timeout.
 
         Args:
             cmd: Full argv list, starting with the Wallpaper Engine executable.
         """
-        subprocess.Popen(
+        self._ensure_instance()
+        logger.debug("wallpaper engine cli: %s", cmd)
+        process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
+            creationflags=subprocess.DETACHED_PROCESS,
         )
+        try:
+            process.wait(timeout=_WE_CLI_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "wallpaper engine cli did not return within %ss (pid=%s): %s",
+                _WE_CLI_TIMEOUT_SECONDS,
+                process.pid,
+                cmd,
+            )
+            held = self._popen
+            if held is None or held.poll() is not None:
+                # The command started the instance itself: hold it so stop()
+                # can close it instead of leaking an unowned process.
+                self._popen = process
 
     def open_wallpaper(
         self,
@@ -456,12 +636,24 @@ class WallpaperEngineResource(BaseResource):
     def _ensure_app(cls) -> WallpaperEngineApp:
         """Return the shared :class:`WallpaperEngineApp`, starting it on first use.
 
+        :meth:`WallpaperEngineApp.stop` is registered with :mod:`atexit` here, as
+        the owner of the shared instance, so the Wallpaper Engine process this
+        resource caused to start is closed and ``monitordetection`` restored when
+        the process exits. One callback does both, in order, so nothing depends
+        on ``atexit`` registration order.
+
+        Registered *before* :meth:`WallpaperEngineApp.start`, because ``start`` is
+        what may rewrite ``config.json``: the teardown must be armed before
+        anything can change, so a ``start`` that raises part-way still gets its
+        change reverted. Registration happens once, with the instance.
+
         Returns:
             The shared :class:`WallpaperEngineApp` instance stored on
             :attr:`app`.
         """
         if cls.app is None:
             cls.app = WallpaperEngineApp()
+            atexit.register(cls.app.stop)
             cls.app.start()
             logger.info(
                 "wallpaper engine integration initialized: exe=%s",
@@ -485,7 +677,7 @@ class WallpaperEngineResource(BaseResource):
         No-op when the shared app was never initialized or no display is bound.
         """
         if WallpaperEngineResource.app is None or self.display is None:
-            return
+            raise RuntimeError()
         WallpaperEngineResource.app.close_wallpaper(
             monitor=self.display.monitor_device_path,
         )
