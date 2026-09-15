@@ -19,10 +19,6 @@ from .base_resource import BaseResource
 
 logger = logging.getLogger(__name__)
 
-# Sentinel meaning "the monitordetection key was absent in the original config".
-# Distinct from None, which is a legitimate JSON value the user may have set.
-_MISSING = object()
-
 #: Executable basenames Wallpaper Engine ships; checked in this order.
 _WE_EXE_NAMES = ("wallpaper32.exe", "wallpaper64.exe")
 
@@ -30,9 +26,8 @@ _WE_EXE_NAMES = ("wallpaper32.exe", "wallpaper64.exe")
 def get_steam_libraries() -> list[Path]:
     """Find all Steam library directories on the system.
 
-    Sources, in order: the Windows registry, common default installation
-    locations across drives, and additional libraries listed in
-    ``libraryfolders.vdf``.
+    Searches the Windows registry, common default install locations across
+    drives, and ``libraryfolders.vdf``.
 
     Returns:
         Every discovered Steam library root (a directory containing
@@ -94,18 +89,16 @@ def get_steam_libraries() -> list[Path]:
 def find_wallpaper_engine_executables_in_library(lib_path: Path) -> list[Path]:
     """Search a Steam library and return every Wallpaper Engine exe found.
 
-    Checks both ``wallpaper32.exe`` and ``wallpaper64.exe`` inside the default
-    ``wallpaper_engine/`` folder and inside the custom folder resolved via the
-    Wallpaper Engine ``appmanifest_431960.acf`` ``installdir`` entry (when the
-    user has renamed their Steam install folder). Returns all candidates that
-    actually exist on disk; the caller decides which one to invoke.
+    Looks in the default ``wallpaper_engine/`` folder and, when the user
+    renamed their Steam install folder, in the ``installdir`` recorded by
+    ``appmanifest_431960.acf``.
 
     Args:
         lib_path: Root of a Steam library (directory containing ``steamapps/``).
 
     Returns:
-        List of paths to ``wallpaper32.exe`` / ``wallpaper64.exe`` that exist
-        on disk. Empty list if no install is present in this library.
+        Paths to ``wallpaper32.exe`` / ``wallpaper64.exe`` that exist on disk.
+        Empty when no install is present in this library.
     """
     common_dir = lib_path / "steamapps" / "common"
     found: list[Path] = []
@@ -136,8 +129,8 @@ def resolve_wallpaper_engine_executables() -> list[Path]:
     """Find every Wallpaper Engine exe across all discovered Steam libraries.
 
     Returns:
-        Every ``wallpaper32.exe`` / ``wallpaper64.exe`` path found, one entry
-        per exe per Steam library. Empty when no install is present.
+        Every ``wallpaper32.exe`` / ``wallpaper64.exe`` path found. Empty when
+        no install is present.
     """
     libraries = get_steam_libraries()
     all_exes: list[Path] = []
@@ -149,14 +142,9 @@ def resolve_wallpaper_engine_executables() -> list[Path]:
 def _find_running_wallpaper_engines() -> list[tuple[int, Path]]:
     """Return ``(pid, exe_path)`` for every running Wallpaper Engine instance.
 
-    Scans the live process list once for processes whose basename matches
-    one of :data:`_WE_EXE_NAMES` (case-insensitive) and resolves each match
-    to its full exe path via :func:`get_executable_path`.
-
     Returns:
-        One ``(pid, exe_path)`` pair per matching process, in snapshot order.
-        Empty when no matching process is running or the process snapshot
-        cannot be created.
+        One pair per matching process, in snapshot order. Empty when none is
+        running or the process snapshot cannot be created.
     """
     processes = get_running_processes()
     if processes is None:
@@ -175,10 +163,8 @@ def _find_running_wallpaper_engines() -> list[tuple[int, Path]]:
 def close_process_by_pid(pid: int) -> None:
     """Post ``WM_CLOSE`` to every visible top-level window of ``pid``.
 
-    Walks every top-level window via :func:`win32gui.EnumWindows` and,
-    for each visible window owned by ``pid``, posts ``WM_CLOSE``. The
-    target process decides whether to honor the close request; this
-    function does not wait for exit.
+    Does not wait for exit; the target process decides whether to honor the
+    close request.
 
     Args:
         pid: PID whose windows should receive the close request.
@@ -198,9 +184,10 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
     """Control a Wallpaper Engine installation through its command line.
 
     Wraps the ``wallpaper32.exe`` / ``wallpaper64.exe`` CLI: locating the
-    executable, normalizing its ``config.json``, and issuing ``-control``
-    commands. Wallpaper Engine must already be running for a command to take
-    effect.
+    executable, normalizing its ``config.json``, and issuing
+    ``-control <command> [flags]`` commands (e.g. ``-control play``,
+    ``-control openWallpaper -file <path>``) to a running instance. Wallpaper
+    Engine must already be running for a command to take effect.
 
     A process-wide singleton (see :class:`SingletonMeta`) — there is one
     installation and one ``config.json`` per machine. Call :meth:`start`
@@ -210,44 +197,20 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
     def __init__(self, exe_path: Path | str | None = None) -> None:
         """Record the user-supplied exe path; resolution happens in :meth:`start`.
 
-        When ``exe_path`` is provided it is stored verbatim on
-        ``self.exe_path`` (no discovery, no process inspection). When it
-        is ``None``, ``self.exe_path`` is left unset and :meth:`start` is
-        responsible for picking one via running-process inspection or
-        Steam-library discovery.
-
         Args:
             exe_path: Explicit ``wallpaper32.exe`` / ``wallpaper64.exe``
                 path, or ``None`` to defer the choice to :meth:`start`.
         """
         self.exe_path: Path | None = Path(exe_path) if exe_path is not None else None
-        self._original_monitor_detection: object = _MISSING
+        self._original_monitor_detection: str | None = None
 
     def start(self) -> None:
-        """Resolve ``self.exe_path``, enforce monitor detection, and clean up strays.
-
-        Steps:
-
-        1. If ``self.exe_path`` is ``None`` (the user did not pass one to
-           :meth:`__init__`), pick one now: prefer a currently-running WE
-           instance's full path; otherwise fall back to
-           :func:`resolve_wallpaper_engine_executables` and take the first
-           candidate. Raises ``FileNotFoundError`` if neither yields a path.
-        2. Resolve ``self.config_path`` next to the exe, raising
-           ``FileNotFoundError`` if ``config.json`` is absent.
-        3. Force ``monitordetection`` to ``devicepath`` via
-           :meth:`enforce_monitor_detection_devicepath` and register
-           :meth:`restore_monitor_detection` with :mod:`atexit`, so the
-           original value is put back on interpreter exit.
-        4. Post ``WM_CLOSE`` to every running ``wallpaper32.exe`` /
-           ``wallpaper64.exe`` whose normalized full path does not match
-           ``self.exe_path``. Matching instances are preserved — the
-           "use it directly" semantic.
+        """Resolve the exe path, enforce monitor detection, and close any other
+        running Wallpaper Engine instance so the new setting takes effect.
 
         Raises:
-            FileNotFoundError: No Wallpaper Engine exe was found AND the
-                user did not supply one, OR the resolved exe's directory
-                does not contain ``config.json``.
+            FileNotFoundError: No Wallpaper Engine exe was found and none was
+                supplied, or the resolved exe's directory has no ``config.json``.
         """
         exe_path = self.exe_path
         matches = _find_running_wallpaper_engines()
@@ -268,21 +231,17 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
             raise FileNotFoundError("wallpaper engine config file (config.json) not found")
         self.config_path: Path = config_path
 
-        self.enforce_monitor_detection_devicepath()
-        atexit.register(self.restore_monitor_detection)
+        if self.enforce_monitor_detection_devicepath():
+            atexit.register(self.restore_monitor_detection)
 
-        chosen_norm = os.path.normpath(os.path.normcase(str(exe_path)))
-        for pid, path in matches:
-            if os.path.normpath(os.path.normcase(str(path))) == chosen_norm:
-                continue
-            close_process_by_pid(pid)
+            chosen_norm = os.path.normpath(os.path.normcase(str(exe_path)))
+            for pid, path in matches:
+                if os.path.normpath(os.path.normcase(str(path))) == chosen_norm:
+                    continue
+                close_process_by_pid(pid)
 
     def apply_cli(self, cmd: list[str]) -> None:
         """Launch a Wallpaper Engine CLI command, detached from this process.
-
-        The subprocess is started with ``DETACHED_PROCESS | CREATE_NO_WINDOW``
-        and its stdio discarded, then left to run — the command is
-        fire-and-forget and its exit code is not collected.
 
         Args:
             cmd: Full argv list, starting with the Wallpaper Engine executable.
@@ -306,7 +265,9 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
         y: int | None = None,
         preset: str | None = None,
     ) -> None:
-        """Send the -control openWallpaper command to a running Wallpaper Engine instance.
+        """Open a wallpaper on the monitor chosen by ``location`` or ``monitor``.
+
+        When neither is given, Wallpaper Engine loads it on the first monitor.
 
         Args:
             file: Path to the project.json of the wallpaper to open, or a direct
@@ -343,20 +304,13 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
                 cmd.extend([flag, str(value)])
         self.apply_cli(cmd)
 
-    def play(self) -> None:
-        """Send the -control play command to a running Wallpaper Engine instance.
-
-        Resumes all wallpapers from a paused or stopped state.
-        """
+    def play_wallpaper(self) -> None:
+        """Resume all wallpapers from pause or stop."""
         cmd = [str(self.exe_path), "-control", "play"]
         self.apply_cli(cmd)
 
-    def stop(self) -> None:
-        """Send the -control stop command to a running Wallpaper Engine instance.
-
-        Tells Wallpaper Engine to stop rendering the current wallpaper.
-        The Wallpaper Engine process itself is left running.
-        """
+    def stop_wallpaper(self) -> None:
+        """Stop all wallpapers, leaving the Wallpaper Engine process running."""
         cmd = [str(self.exe_path), "-control", "stop"]
         self.apply_cli(cmd)
 
@@ -365,20 +319,16 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
         location: str | None = None,
         monitor: str | int | None = None,
     ) -> None:
-        """Send the -control closeWallpaper command to a running Wallpaper Engine instance.
+        """Remove the wallpaper from a monitor or window.
 
-        Removes a wallpaper from a specified monitor or window, or removes
-        all wallpapers when neither flag is given (Wallpaper Engine's
-        default behaviour).
+        When neither ``location`` nor ``monitor`` is given, Wallpaper Engine
+        removes all wallpapers (its default behaviour).
 
         Args:
             location: Internal identifier of the monitor or window name from
-                Wallpaper Engine's config.json. When None, the flag is
-                omitted and Wallpaper Engine falls back to its default
-                behaviour (remove all wallpapers).
+                Wallpaper Engine's config.json.
             monitor: Index of the monitor to close the wallpaper from,
-                beginning at 0. When None, the flag is omitted and Wallpaper
-                Engine falls back to its default behaviour.
+                beginning at 0.
         """
         cmd: list[str] = [str(self.exe_path), "-control", "closeWallpaper"]
         for flag, value in (
@@ -389,92 +339,81 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
                 cmd.extend([flag, str(value)])
         self.apply_cli(cmd)
 
-    def enforce_monitor_detection_devicepath(self) -> None:
-        """Ensure Wallpaper Engine's config.json has monitordetection set to "devicepath".
+    def enforce_monitor_detection_devicepath(self) -> bool:
+        """Ensure ``monitordetection`` in Wallpaper Engine's config.json is "devicepath".
 
-        Reads the current value under the current OS user's general.user.monitordetection, logs it,
-        and overwrites it with "devicepath". The original value (or a sentinel if
-        the key was absent) is saved on self._original_monitor_detection so
-        restore_monitor_detection() can revert it.
+        When the value is already "devicepath" the file is left untouched.
+        Otherwise the original is saved on ``self._original_monitor_detection``
+        (for :meth:`restore_monitor_detection`) and overwritten.
+
+        Returns:
+            True when the config file was changed, False when monitordetection
+            was already "devicepath".
 
         Raises:
-            KeyError: The config.json does not contain the expected
-                current OS user's general.user path (config has been edited by hand or by
-                Wallpaper Engine itself into an unexpected shape).
+            KeyError: The config has no ``general.user`` section for the current
+                OS user, or that section has no ``monitordetection`` key.
             json.JSONDecodeError: The config.json is not valid JSON.
         """
         config_data = json.loads(self.config_path.read_text(encoding="utf-8"))
         user_section = config_data[getpass.getuser()]["general"]["user"]
-        original = user_section.get("monitordetection", _MISSING)
-        if original is _MISSING:
-            logger.info("wallpaper engine monitordetection: <absent> -> 'devicepath'")
-        else:
-            logger.info("wallpaper engine monitordetection: %r -> 'devicepath'", original)
+        if "monitordetection" not in user_section:
+            raise KeyError("wallpaper engine config: no 'monitordetection' in the user section")
+        original = user_section["monitordetection"]
+        if original == "devicepath":
+            # Already correct: do not edit the file. Nothing to restore, nothing to restart.
+            logger.info("wallpaper engine monitordetection: already 'devicepath', no change")
+            return False
+        logger.info("wallpaper engine monitordetection: %r -> 'devicepath'", original)
         user_section["monitordetection"] = "devicepath"
         self.config_path.write_text(
             json.dumps(config_data, indent="\t"),
             encoding="utf-8",
         )
         self._original_monitor_detection = original
+        return True
 
     def restore_monitor_detection(self) -> None:
-        """Restore the original monitordetection captured by enforce_monitor_detection_devicepath().
+        """Restore the ``monitordetection`` captured by
+        :meth:`enforce_monitor_detection_devicepath`.
 
-        No-op if enforce_monitor_detection_devicepath() was never called on this
-        instance, or if it was already restored once. If the original value was
-        the _MISSING sentinel (key absent), the key is removed from the JSON.
+        No-op if nothing was captured (``self._original_monitor_detection`` is
+        None).
 
         Raises:
-            KeyError: The config.json does not contain the expected
-                current OS user's general.user path.
+            KeyError: The config has no ``general.user`` section for the current
+                OS user.
             json.JSONDecodeError: The config.json is not valid JSON.
         """
-        if self._original_monitor_detection is _MISSING:
+        if self._original_monitor_detection is None:
             logger.debug(
                 "wallpaper engine monitordetection restore: no original captured, skipping"
             )
             return
         config_data = json.loads(self.config_path.read_text(encoding="utf-8"))
         user_section = config_data[getpass.getuser()]["general"]["user"]
-        original = self._original_monitor_detection
-        if original is _MISSING:
-            user_section.pop("monitordetection", None)
-            logger.info("wallpaper engine monitordetection: removed (was absent)")
-        else:
-            user_section["monitordetection"] = original
-            logger.info("wallpaper engine monitordetection: restored to %r", original)
+        user_section["monitordetection"] = self._original_monitor_detection
+        logger.info(
+            "wallpaper engine monitordetection: restored to %r",
+            self._original_monitor_detection,
+        )
         self.config_path.write_text(
             json.dumps(config_data, indent="\t"),
             encoding="utf-8",
         )
-        self._original_monitor_detection = _MISSING
+        self._original_monitor_detection = None
 
 
 class WallpaperEngineResource(BaseResource):
     """Wallpaper resource that delegates to a running Wallpaper Engine.
 
-    The first time :meth:`mount` is called on any
-    ``WallpaperEngineResource`` instance, a single
-    :class:`WallpaperEngineApp` is instantiated and stashed in the class
-    attribute :attr:`app`. All subsequent mount calls (on this or any
-    other instance) reuse that same instance. This matches the
-    process-singleton nature of Wallpaper Engine — there is one
-    installation per machine and one config file.
-
-    The target monitor is taken from ``self.display.monitor_device_path``
-    (set by :meth:`_bind_display`) and passed to Wallpaper Engine's CLI as
-    the ``-monitor`` selector.
+    The shared :class:`WallpaperEngineApp` is created lazily on the first
+    :meth:`mount` and reused by every instance — Wallpaper Engine is a
+    process-wide singleton with one install and one config file per machine.
 
     Args:
         path: Path to the wallpaper file (``.mp4`` video, ``scene.pkg``
             scene, or any format Wallpaper Engine understands).
-
-    Note:
-        :meth:`demount` closes the wallpaper on this resource's bound
-        monitor via Wallpaper Engine's ``-control closeWallpaper``
-        command, scoped by ``-monitor`` so wallpapers on other monitors
-        are unaffected. If the resource was never mounted (``app`` is
-        still None), or no display is bound, :meth:`demount` is a no-op.
     """
 
     #: Shared :class:`WallpaperEngineApp` instance. Lazily created on
@@ -488,14 +427,7 @@ class WallpaperEngineResource(BaseResource):
 
     @classmethod
     def _ensure_app(cls) -> WallpaperEngineApp:
-        """Lazily instantiate the shared :class:`WallpaperEngineApp`.
-
-        On first call, creates the singleton and runs
-        :meth:`WallpaperEngineApp.start` to resolve the exe path, force
-        ``monitordetection`` to ``devicepath``, and close any other running
-        Wallpaper Engine instances; the resolved exe path is then logged.
-        Subsequent calls return the already-initialised instance without
-        re-running any of those steps.
+        """Return the shared :class:`WallpaperEngineApp`, starting it on first use.
 
         Returns:
             The shared :class:`WallpaperEngineApp` instance stored on
@@ -511,24 +443,19 @@ class WallpaperEngineResource(BaseResource):
         return cls.app
 
     def mount(self) -> None:
-        """Open the wallpaper on the bound display and resume playback.
-
-        Lazily initialises the shared :class:`WallpaperEngineApp` on first
-        call, then sends ``openWallpaper`` scoped to the display's
-        ``monitor_device_path`` followed by a ``play`` command.
-        """
+        """Open the wallpaper on the bound display and resume playback."""
         app = WallpaperEngineResource._ensure_app()
         assert self.display is not None
         app.open_wallpaper(
             file=self.image_path,
             monitor=self.display.monitor_device_path,
         )
-        app.play()
+        app.play_wallpaper()
 
     def demount(self) -> None:
         """Close the wallpaper on the bound display, leaving other monitors alone.
 
-        No-op when the shared app was never initialised or no display is bound.
+        No-op when the shared app was never initialized or no display is bound.
         """
         if WallpaperEngineResource.app is None or self.display is None:
             return
