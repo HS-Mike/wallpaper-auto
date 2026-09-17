@@ -298,6 +298,10 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
 
         Args:
             cmd: Full argv list, starting with the Wallpaper Engine executable.
+
+        Raises:
+            subprocess.TimeoutExpired: The client did not return within
+                ``_WE_CLI_TIMEOUT_SECONDS``, so no host answered it.
         """
         process = subprocess.Popen(
             cmd,
@@ -305,16 +309,7 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
             stderr=subprocess.DEVNULL,
             creationflags=subprocess.DETACHED_PROCESS,
         )
-        try:
-            process.wait(timeout=_WE_CLI_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
-            logger.warning(
-                f"wallpaper engine cli did not return within {_WE_CLI_TIMEOUT_SECONDS}s "
-                f"(pid={process.pid}): {cmd}"
-            )
-            held = self._popen
-            if held is None or held.poll() is not None:
-                self._popen = process
+        process.wait(timeout=_WE_CLI_TIMEOUT_SECONDS)
 
     def open_wallpaper(
         self,
@@ -510,10 +505,17 @@ class WallpaperEngineResource(BaseResource):
     def demount(self) -> None:
         """Close the wallpaper on the bound display, leaving other monitors alone.
 
-        No-op when the shared app was never initialized or no display is bound.
+        Raises:
+            RuntimeError: The shared app was never initialized, or no display is
+                bound. Both are unreachable through the lifecycle
+                :class:`BaseResource` guarantees — ``mount()`` always runs first,
+                and it initializes the app and binds the display — so either one
+                means an internal error rather than "nothing to close".
         """
-        if WallpaperEngineResource.app is None or self.display is None:
-            raise RuntimeError()
+        if WallpaperEngineResource.app is None:
+            raise RuntimeError("wallpaper engine app not initialized")
+        if self.display is None:
+            raise RuntimeError("display not bound")
         WallpaperEngineResource.app.close_wallpaper(
             monitor=self.display.monitor_device_path,
         )
