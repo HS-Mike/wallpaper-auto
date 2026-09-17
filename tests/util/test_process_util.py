@@ -1,8 +1,11 @@
 """Tests for process_util.py — Win32 executable path resolution and enumeration."""
 
 import ctypes
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
+
+import pytest
 
 from wallpaper_auto.util.process_util import (
     PROCESSENTRY32W,
@@ -68,7 +71,7 @@ class TestGetExecutablePath:
             ),
             patch(f"{_PROCESS_UTIL}._CloseHandle") as mock_close,
         ):
-            assert get_executable_path(1234) == expected_path
+            assert get_executable_path(1234) == Path(expected_path)
         mock_close.assert_called_once_with(fake_handle)
 
     def test_query_failure_returns_none_and_closes_handle(self) -> None:
@@ -135,8 +138,8 @@ class TestGetRunningProcesses:
             assert get_running_processes() == entries
         mock_close.assert_called_once_with(fake_snapshot)
 
-    def test_snapshot_failure_returns_none(self) -> None:
-        """An ``INVALID_HANDLE_VALUE`` snapshot returns None without enumerating or closing."""
+    def test_snapshot_failure_raises(self) -> None:
+        """An ``INVALID_HANDLE_VALUE`` snapshot raises without enumerating or closing."""
         with (
             patch(
                 f"{_PROCESS_UTIL}._CreateToolhelp32Snapshot",
@@ -145,17 +148,19 @@ class TestGetRunningProcesses:
             patch(f"{_PROCESS_UTIL}._Process32FirstW") as mock_first,
             patch(f"{_PROCESS_UTIL}._CloseHandle") as mock_close,
         ):
-            assert get_running_processes() is None
+            with pytest.raises(RuntimeError, match="Toolhelp32"):
+                get_running_processes()
         mock_first.assert_not_called()
         mock_close.assert_not_called()
 
-    def test_null_snapshot_returns_none(self) -> None:
+    def test_null_snapshot_raises(self) -> None:
         """A NULL (``None``-valued) snapshot handle is also treated as a failure."""
         with (
             patch(f"{_PROCESS_UTIL}._CreateToolhelp32Snapshot", return_value=ctypes.c_void_p()),
             patch(f"{_PROCESS_UTIL}._Process32FirstW") as mock_first,
             patch(f"{_PROCESS_UTIL}._CloseHandle") as mock_close,
         ):
-            assert get_running_processes() is None
+            with pytest.raises(RuntimeError, match="Toolhelp32"):
+                get_running_processes()
         mock_first.assert_not_called()
         mock_close.assert_not_called()

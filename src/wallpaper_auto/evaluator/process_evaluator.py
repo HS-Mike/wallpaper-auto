@@ -9,7 +9,6 @@ resolve full paths on demand.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from ..util.process_util import get_executable_path, get_running_processes
@@ -30,11 +29,11 @@ class ProcessEvaluator(BaseEvaluator):
                 case-insensitive.
 
         Returns:
-            True if a matching process is running, False otherwise. Also False
-            when the process snapshot cannot be taken (transient failure).
+            True if a matching process is running, False otherwise.
 
         Raises:
             ValueError: If ``param`` is not a string.
+            RuntimeError: The process snapshot could not be taken.
         """
         if not isinstance(param, str):
             raise ValueError(f"invalid {self.__class__.__name__} param")
@@ -43,19 +42,18 @@ class ProcessEvaluator(BaseEvaluator):
             return False
         p = Path(identifier)
         processes = get_running_processes()
-        if processes is None:
-            return False
         # An entry with no directory component is treated as a basename;
         # anything with at least one separator is treated as a full path.
         if p.parent == Path(".") or str(p.parent) == "":
             basename = p.name.lower()
             return any(name.lower() == basename for _, name in processes)
 
-        target = os.path.normpath(os.path.normcase(identifier))
+        # ``Path`` equality normcases on Windows, so the comparison is
+        # case-insensitive without an explicit normalization step.
         target_base = p.name.lower()
         for pid, name in processes:
             if name.lower() == target_base:
                 exe = get_executable_path(pid)
-                if exe and os.path.normpath(os.path.normcase(exe)) == target:
+                if exe is not None and exe == p:
                     return True
         return False
