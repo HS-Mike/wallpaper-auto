@@ -2,7 +2,8 @@
 System tray UI.
 
 Provides a PySide6-based system tray icon and menu for manual wallpaper
-selection, mode switching (AUTO/MANUAL), and shutdown.
+selection, mode switching (AUTO/MANUAL), pausing/resuming automated
+switching, and shutdown.
 """
 
 import logging
@@ -52,12 +53,13 @@ class SystemTrayBridge(QObject):
     """
 
     # Signal: Logic layer -> UI layer (for updating the interface)
-    # Params: menu items, mode, active_rule_id, active_target
-    update_ui_signal = Signal(list, object, object, object)
+    # Params: menu items, mode, active_rule_id, active_target, paused
+    update_ui_signal = Signal(list, object, object, object, object)
 
     def __init__(self) -> None:
         super().__init__()
         self._on_set_mode_handler: Callable[[Mode], None] | None = None
+        self._on_set_pause_handler: Callable[[bool], None] | None = None
         self._on_select_target_handler: Callable[[str], None] | None = None
         self._on_quit_handler: Callable[[], None] | None = None
         self._on_update_ui_handler: Callable[[], None] | None = None
@@ -68,6 +70,7 @@ class SystemTrayBridge(QObject):
         mode: object,
         active_rule_id: str | None,
         active_target: str | None,
+        paused: bool,
     ) -> None:
         """Emit update_ui_signal with the current UI state.
 
@@ -78,8 +81,9 @@ class SystemTrayBridge(QObject):
             mode: Current mode.
             active_rule_id: ID of the matching rule, or None.
             active_target: ID of the active target, or None.
+            paused: Whether the controller is paused.
         """
-        self.update_ui_signal.emit(available_items, mode, active_rule_id, active_target)
+        self.update_ui_signal.emit(available_items, mode, active_rule_id, active_target, paused)
 
     def register_set_mode_handler(self, cb: Callable[[Mode], None]) -> None:
         """Register the callback invoked by request_set_mode.
@@ -88,6 +92,14 @@ class SystemTrayBridge(QObject):
             cb: Handler receiving the requested mode.
         """
         self._on_set_mode_handler = cb
+
+    def register_set_pause_handler(self, cb: Callable[[bool], None]) -> None:
+        """Register the callback invoked by request_set_pause.
+
+        Args:
+            cb: Handler receiving the requested paused state.
+        """
+        self._on_set_pause_handler = cb
 
     def register_select_target_handler(self, cb: Callable[[str], None]) -> None:
         """Register the callback invoked by request_select_target.
@@ -131,6 +143,15 @@ class SystemTrayBridge(QObject):
         if self._on_set_mode_handler:
             self._on_set_mode_handler(mode)
 
+    def request_set_pause(self, paused: bool) -> None:
+        """Request a pause-state change through the registered handler.
+
+        Args:
+            paused: Whether the controller should be paused.
+        """
+        if self._on_set_pause_handler:
+            self._on_set_pause_handler(paused)
+
     def request_update_ui(self) -> None:
         """Request a UI refresh through the registered handler."""
         if self._on_update_ui_handler:
@@ -146,8 +167,9 @@ class WallpaperSwitchSystemTray:
     """
     PySide6 system tray icon and context menu.
 
-    Provides manual wallpaper selection, AUTO/MANUAL mode switching, and quit,
-    bridging menu actions to the logic layer via SystemTrayBridge.
+    Provides manual wallpaper selection, AUTO/MANUAL mode switching,
+    pausing/resuming automated switching, and quit, bridging menu actions to
+    the logic layer via SystemTrayBridge.
     """
 
     def __init__(self) -> None:
@@ -203,6 +225,7 @@ class WallpaperSwitchSystemTray:
         mode: Mode,
         active_rule_id: str | None,
         active_target: str | None,
+        paused: bool,
     ) -> None:
         """Rebuild the context menu from the current UI state.
 
@@ -215,6 +238,9 @@ class WallpaperSwitchSystemTray:
             mode: Current mode.
             active_rule_id: ID of the matching rule, or None.
             active_target: ID of the active target, or None.
+            paused: Whether the controller is paused. While paused the AUTO
+                and target items are disabled — nothing would be applied —
+                and the pause action renders as resume.
 
         Raises:
             RuntimeError: If show() has not been called to initialize the menu.
@@ -226,6 +252,8 @@ class WallpaperSwitchSystemTray:
 
         auto_switch_action = QAction("AUTO", self._menu)
         auto_switch_action.triggered.connect(lambda: self.bridge.request_set_mode(Mode.AUTO))
+        if paused:
+            auto_switch_action.setEnabled(False)
         self._menu.addAction(auto_switch_action)
 
         self._menu.addSeparator()
@@ -254,6 +282,8 @@ class WallpaperSwitchSystemTray:
             action.triggered.connect(
                 lambda checked, t=target_id: self.bridge.request_select_target(t)
             )
+            if paused:
+                action.setEnabled(False)
             self._menu.addAction(action)
             self._action_groups[item.id] = action
 
@@ -273,6 +303,10 @@ class WallpaperSwitchSystemTray:
                 active_action.setEnabled(False)
 
         self._menu.addSeparator()
+
+        pause_action = QAction("resume" if paused else "pause", self._menu)
+        pause_action.triggered.connect(lambda: self.bridge.request_set_pause(not paused))
+        self._menu.addAction(pause_action)
 
         quit_action = QAction("quit", self._menu)
         quit_action.triggered.connect(self.bridge.request_quit)

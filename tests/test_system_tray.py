@@ -67,6 +67,7 @@ def tray_app():
 # (handler_id, sample_values) for handlers that take an argument
 _VALUE_HANDLERS = [
     pytest.param("set_mode", [Mode.AUTO, Mode.MANUAL, Mode.UNSET], id="set_mode"),
+    pytest.param("set_pause", [True, False], id="set_pause"),
     pytest.param("select_target", ["a", "b", ""], id="select_target"),
 ]
 
@@ -78,6 +79,7 @@ _NOARG_HANDLERS = [
 
 _ALL_HANDLERS = [
     pytest.param("set_mode", Mode.AUTO, id="set_mode"),
+    pytest.param("set_pause", True, id="set_pause"),
     pytest.param("select_target", "x", id="select_target"),
     pytest.param("quit", None, id="quit"),
     pytest.param("update_ui", None, id="update_ui"),
@@ -85,7 +87,7 @@ _ALL_HANDLERS = [
 
 
 class TestHandlerLifecycle:
-    """Parametrized tests for all four register/request handler pairs."""
+    """Parametrized tests for all register/request handler pairs."""
 
     @pytest.mark.parametrize("hid,values", _VALUE_HANDLERS)
     def test_register_and_invoke(
@@ -208,7 +210,7 @@ class TestBridgeSignals:
         tray.show()
         try:
             with qtbot.waitSignal(tray.bridge.update_ui_signal):
-                tray.bridge.update_ui(_items("res1"), Mode.AUTO, None, "res1")
+                tray.bridge.update_ui(_items("res1"), Mode.AUTO, None, "res1", False)
         finally:
             tray.hide()
 
@@ -255,16 +257,17 @@ class TestBridgeUpdateUiSignal:
     """The update_ui() method emits signals with correct payload."""
 
     @pytest.mark.parametrize(
-        "items,mode,rule,active",
+        "items,mode,rule,active,paused",
         [
             pytest.param(
                 _items("r1", "r2"),
                 Mode.AUTO,
                 "test",
                 "r1",
+                False,
                 id="all_args",
             ),
-            pytest.param([], Mode.MANUAL, None, "", id="no_rule"),
+            pytest.param([], Mode.MANUAL, None, "", True, id="paused"),
         ],
     )
     def test_update_ui_emits_signal_with_payload(  # type: ignore[no-untyped-def]
@@ -275,14 +278,16 @@ class TestBridgeUpdateUiSignal:
         mode: Mode,
         rule: str | None,
         active: str | None,
+        paused: bool,
     ) -> None:
         with qtbot.waitSignal(bridge.update_ui_signal, timeout=200) as blocker:
-            bridge.update_ui(items, mode, rule, active)
+            bridge.update_ui(items, mode, rule, active, paused)
         args = blocker.args
         assert args[0] == items
         assert args[1] == mode
         assert args[2] is rule
         assert args[3] == active
+        assert args[4] is paused
 
     def test_multiple_emissions_collected(self, qtbot) -> None:  # type: ignore[no-untyped-def]
         bridge = SystemTrayBridge()
@@ -292,12 +297,12 @@ class TestBridgeUpdateUiSignal:
             received.append(args)
 
         bridge.update_ui_signal.connect(collect)
-        bridge.update_ui(_items("a"), Mode.AUTO, None, "a")
-        bridge.update_ui(_items("b", "c"), Mode.MANUAL, None, "b")
+        bridge.update_ui(_items("a"), Mode.AUTO, None, "a", True)
+        bridge.update_ui(_items("b", "c"), Mode.MANUAL, None, "b", False)
 
         assert len(received) == 2
-        assert received[0] == (_items("a"), Mode.AUTO, None, "a")
-        assert received[1] == (_items("b", "c"), Mode.MANUAL, None, "b")
+        assert received[0] == (_items("a"), Mode.AUTO, None, "a", True)
+        assert received[1] == (_items("b", "c"), Mode.MANUAL, None, "b", False)
 
 
 class TestBridgeEdgeCases:
@@ -340,6 +345,7 @@ class TestMenuRendering:
                 target="random_target",
             ).name,
             active_target,
+            False,
         )
 
         actions = tray_app._menu.actions()
@@ -355,7 +361,7 @@ class TestMenuRendering:
         assert wp1_action.isEnabled()
 
     def test_menu_rendering_manual_mode_with_active_target(self, tray_app, qtbot):
-        tray_app.bridge.update_ui(_items("res1", "res2"), Mode.MANUAL, None, "res1")
+        tray_app.bridge.update_ui(_items("res1", "res2"), Mode.MANUAL, None, "res1", False)
 
         actions = tray_app._menu.actions()
         action_texts = [a.text() for a in actions]
@@ -368,10 +374,43 @@ class TestMenuRendering:
         res2_action = tray_app._action_groups["res2"]
         assert res2_action.isEnabled()
 
+    def test_menu_rendering_paused_disables_selection(self, tray_app) -> None:
+        """While paused nothing would be applied, so mode/target items are disabled."""
+        tray_app.bridge.update_ui(_items("res1", "res2"), Mode.MANUAL, None, "res1", True)
+
+        actions = tray_app._menu.actions()
+        action_texts = [a.text() for a in actions]
+        assert "resume" in action_texts
+        assert "pause" not in action_texts
+
+        auto_action = [a for a in actions if a.text() == "AUTO"][0]
+        assert not auto_action.isEnabled()
+        assert not tray_app._action_groups["res2"].isEnabled()
+
+    def test_pause_action_requests_pause(self, tray_app) -> None:
+        requested: list[bool] = []
+        tray_app.bridge.register_set_pause_handler(requested.append)
+        tray_app.bridge.update_ui(_items("res1"), Mode.AUTO, None, "res1", False)
+
+        pause_action = [a for a in tray_app._menu.actions() if a.text() == "pause"][0]
+        pause_action.trigger()
+
+        assert requested == [True]
+
+    def test_resume_action_requests_resume(self, tray_app) -> None:
+        requested: list[bool] = []
+        tray_app.bridge.register_set_pause_handler(requested.append)
+        tray_app.bridge.update_ui(_items("res1"), Mode.AUTO, None, "res1", True)
+
+        resume_action = [a for a in tray_app._menu.actions() if a.text() == "resume"][0]
+        resume_action.trigger()
+
+        assert requested == [False]
+
     def test_menu_omits_hidden_inactive_items(self, tray_app) -> None:
         """Items with show=False that aren't the active target don't render."""
         items = _items("vis1") + _items("hidden1", show=False)
-        tray_app.bridge.update_ui(items, Mode.AUTO, "rule", "vis1")
+        tray_app.bridge.update_ui(items, Mode.AUTO, "rule", "vis1", False)
 
         action_texts = [a.text() for a in tray_app._menu.actions()]
         assert "vis1" in action_texts
@@ -381,7 +420,7 @@ class TestMenuRendering:
     def test_menu_renders_hidden_active_target_as_indicator(self, tray_app) -> None:
         """Hidden active target renders as a non-clickable active_hidden_indicator."""
         items = _items("vis1") + _items("hidden1", show=False)
-        tray_app.bridge.update_ui(items, Mode.AUTO, "rule", "hidden1")
+        tray_app.bridge.update_ui(items, Mode.AUTO, "rule", "hidden1", False)
 
         actions = tray_app._menu.actions()
         indicator_action = next((a for a in actions if "hidden1" in a.text()), None)
@@ -397,7 +436,7 @@ class TestMenuRendering:
             TrayMenuItem(id="res1", kind="resource"),
             TrayMenuItem(id="scene1", kind="scene"),
         ]
-        tray_app.bridge.update_ui(items, Mode.AUTO, "rule", None)
+        tray_app.bridge.update_ui(items, Mode.AUTO, "rule", None, False)
 
         action_texts = [a.text() for a in tray_app._menu.actions()]
         assert "res1" in action_texts
@@ -421,7 +460,7 @@ class TestCallbacks:
         tray_app.bridge.register_quit_handler(lambda: mock_called.update({"quit": True}))
 
         # 1. In MANUAL mode, click a resource action (also sets mode to MANUAL)
-        tray_app.bridge.update_ui(_items("res_a"), Mode.MANUAL, None, None)
+        tray_app.bridge.update_ui(_items("res_a"), Mode.MANUAL, None, None, False)
         res_action = tray_app._action_groups["res_a"]
         res_action.trigger()
         assert mock_called["mode"] == Mode.MANUAL
@@ -478,7 +517,7 @@ class TestEdgeCases:
     def test_update_menu_runtime_error(self):
         tray = _make_tray()
         with pytest.raises(RuntimeError, match="menu not initialized"):
-            tray.update_menu([], Mode.AUTO, None, "")  # type: ignore[arg-type]
+            tray.update_menu([], Mode.AUTO, None, "", False)  # type: ignore[arg-type]
 
     def test_exec_starts_event_loop(self, monkeypatch):
         exec_called = []

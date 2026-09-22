@@ -66,6 +66,9 @@ class DisplayState:
     # apply_display_scene(). None = no scene pending; (None, None) still counts
     # as pending (a scene that restores both).
     pending: tuple[tuple[int, int] | None, int | None] | None = None
+    # suspend() demounted the resource on purpose and mounted nothing in its
+    # place. The wallpaper stays as last composited until a scene is applied.
+    suspended: bool = False
 
 
 class DisplayManager:
@@ -96,7 +99,9 @@ class DisplayManager:
     The "patch" mechanism tracks whether a display is showing its original
     (pre-app) wallpaper (``is_patch == True``) or a resource the app set.
     This ensures original wallpapers are restored when the app stops or
-    a display is removed.
+    a display is removed.  :meth:`suspend` — the app-level pause — demounts
+    every resource without mounting a replacement, leaving the last composite
+    on screen until a scene is applied again.
 
     Resolution changes persist to the registry (``CDS_UPDATEREGISTRY``);
     scale changes are session-only.  Either way the original values are
@@ -223,6 +228,32 @@ class DisplayManager:
                 self._applied_canvas_hash = None
         logger.info("display manager stop: done")
 
+    def suspend(self) -> None:
+        """Demount every display's resource without applying a replacement.
+
+        Drops the resolution/scale recorded but not yet applied, so a composite
+        rendered while suspended can no longer set display settings.  Each
+        display's active resource is demounted — stopping cycling threads and
+        closing Wallpaper Engine wallpapers — and nothing is mounted in its
+        place: the last composite stays on screen until a scene is applied,
+        which mounts a fresh resource in :meth:`update_resource`.  Idempotent;
+        patch displays are left alone.
+        """
+        with self._lock:
+            for state in self._displays.values():
+                state.pending = None
+            active = [
+                (state, state.resource)
+                for state in self._displays.values()
+                if not state.is_patch and not state.suspended
+            ]
+        for state, resource in active:
+            resource.demount()  # outside lock (may join a cycling thread)
+            # Flag only after its own demount returned, so a raising demount
+            # leaves the display retryable instead of permanently suspended.
+            with self._lock:
+                state.suspended = True
+
     def update_display(self) -> list[DisplayInfo] | None:
         """Detect monitor hotplug events and add/remove displays accordingly.
 
@@ -347,7 +378,8 @@ class DisplayManager:
                 del self._displays[display_id]
                 return
             resource_to_demount = state.resource
-            demount_resource = True
+            # A resource already demounted by suspend() must not be demounted twice.
+            demount_resource = not state.suspended
             if state.original_wallpaper is None:
                 # Hotplugged display with a resource: drop it; a re-plug re-adds
                 # via add_display().  Restore res/scale while it may still be
@@ -477,7 +509,8 @@ class DisplayManager:
     def update_resource(self, display_id: DisplayId, resource: BaseResource) -> None:
         """Replace the active resource on a display with a new one.
 
-        Demounts the previous resource, binds the new one, and mounts it.
+        Demounts the previous resource, binds the new one, and mounts it.  A
+        resource demounted by :meth:`suspend` is not demounted again.
 
         Args:
             display_id: Opaque id of the display.
@@ -486,9 +519,12 @@ class DisplayManager:
         with self._lock:
             state = self._displays[display_id]
             prev = state.resource
+            was_suspended = state.suspended
             state.resource = resource
             state.is_patch = False
-        prev.demount()  # outside lock (may join a cycling thread)
+            state.suspended = False
+        if not was_suspended:
+            prev.demount()  # outside lock (may join a cycling thread)
         resource.mount()  # outside lock (→ update_canvas takes the lock)
 
     def set_display_resolution(self, display_id: DisplayId, width: int, height: int) -> bool:

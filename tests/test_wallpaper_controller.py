@@ -7,7 +7,15 @@ import pytest
 from wallpaper_auto.models import ResourceConfig, Rule
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.system_tray import TrayMenuItem
-from wallpaper_auto.task import ApplySceneTask, Mode, ModeSwitchTask, QuitTask, UpdateSceneTask
+from wallpaper_auto.task import (
+    ApplySceneTask,
+    Mode,
+    ModeSwitchTask,
+    PauseTask,
+    QuitTask,
+    ResumeTask,
+    UpdateSceneTask,
+)
 from wallpaper_auto.wallpaper_controller import ThreadSafeCounter, WallpaperController
 
 
@@ -202,6 +210,88 @@ class TestWallpaperControllerWorkLoop:
         # Called after TARGET_SET processing, *not* after QUIT.
         mock_update.assert_called_once()
 
+    def test_pause_releases_resources_and_stops_triggers(self, controller):
+        """PAUSE demounts the desktop; QUIT still gets through while paused."""
+        controller._display_manager = MagicMock()
+        controller._trigger_manager = MagicMock()
+        for t in _quit_after(_make_task(PauseTask(), priority=1)):
+            controller._task_queue.put(t)
+
+        controller._work_loop()
+
+        assert controller._paused.is_set()
+        controller._display_manager.suspend.assert_called_once()
+        controller._trigger_manager.pause.assert_called_once()
+
+    def test_pause_error_escapes_the_work_loop(self, controller):
+        """A failing demount is not caught; it propagates, with the pause already set."""
+        controller._display_manager = MagicMock()
+        controller._display_manager.suspend.side_effect = RuntimeError("demount failed")
+        controller._trigger_manager = MagicMock()
+        for t in _quit_after(_make_task(PauseTask(), priority=1)):
+            controller._task_queue.put(t)
+
+        with pytest.raises(RuntimeError, match="demount failed"):
+            controller._work_loop()
+
+        assert controller._paused.is_set()
+
+    def test_pause_skips_update_scene_task(self, controller):
+        """A paused controller ignores scene updates but still finishes the task."""
+        controller._display_manager = MagicMock()
+        controller._trigger_manager = MagicMock()
+        controller._resource_manager = MagicMock()
+        skipped = UpdateSceneTask(target="res_x", matched_rule=None)
+        for t in _quit_after(_make_task(PauseTask(), priority=1), _make_task(skipped)):
+            controller._task_queue.put(t)
+
+        controller._work_loop()
+
+        controller._resource_manager.evaluate_target.assert_not_called()
+        assert skipped.wait(timeout=0) is True
+
+    def test_resume_reapplies_stored_target_in_manual_mode(self, controller):
+        controller._display_manager = MagicMock()
+        controller._display_manager.update_display.return_value = []
+        controller._trigger_manager = MagicMock()
+        controller._resource_manager = MagicMock()
+        controller._resource_manager.evaluate_target.return_value = []
+        controller._paused.set()
+        controller._mode = Mode.MANUAL
+        controller.active_target = "manual_res"
+        for t in _quit_after(_make_task(ResumeTask(), priority=1)):
+            controller._task_queue.put(t)
+
+        controller._work_loop()
+
+        assert not controller._paused.is_set()
+        controller._trigger_manager.resume.assert_not_called()
+        controller._resource_manager.evaluate_target.assert_called_once_with(
+            target="manual_res", display_info=[]
+        )
+
+    def test_resume_reapplies_conditions_in_auto_mode(self, controller):
+        controller._display_manager = MagicMock()
+        controller._display_manager.update_display.return_value = []
+        controller._trigger_manager = MagicMock()
+        controller._rule_engine = MagicMock()
+        controller._rule_engine.evaluate.return_value = None
+        controller._resource_manager = MagicMock()
+        controller._resource_manager.evaluate_target.return_value = []
+        _mock_config_store(controller, fallback_target="fallback_res")
+        controller._paused.set()
+        controller._mode = Mode.AUTO
+        for t in _quit_after(_make_task(ResumeTask(), priority=1)):
+            controller._task_queue.put(t)
+
+        controller._work_loop()
+
+        assert not controller._paused.is_set()
+        controller._trigger_manager.resume.assert_called_once()
+        controller._resource_manager.evaluate_target.assert_called_once_with(
+            target="fallback_res", display_info=[]
+        )
+
 
 class TestWallpaperControllerEvaluate:
     """evaluate() – condition evaluation & resource dispatch."""
@@ -272,6 +362,7 @@ class TestWallpaperControllerUpdateSystemTray:
             Mode.AUTO,
             None,
             "r1",
+            False,
         )
 
     def test_passes_rule_name_when_active_rule_is_set(self, controller):
@@ -291,6 +382,7 @@ class TestWallpaperControllerUpdateSystemTray:
             Mode.AUTO,
             "my rule",
             "r1",
+            False,
         )
 
     def test_emits_resources_and_scenes_with_kind(self, controller):
@@ -337,6 +429,17 @@ class TestWallpaperControllerUpdateSystemTray:
         controller._tray = None
         controller.update_system_tray()  # should not raise
 
+    def test_passes_paused_flag(self, controller):
+        """The paused state reaches the tray as the last update_ui argument."""
+        mock_tray = MagicMock()
+        controller._tray = mock_tray
+        _mock_config_store(controller, resource={"r1": self._res()}, scene={})
+        controller._paused.set()
+
+        controller.update_system_tray()
+
+        assert mock_tray.bridge.update_ui.call_args.args[-1] is True
+
 
 class TestWallpaperControllerSetTray:
     """set_tray() wires up all tray → controller callbacks."""
@@ -347,9 +450,23 @@ class TestWallpaperControllerSetTray:
 
         assert controller._tray is mock_tray
         mock_tray.bridge.register_set_mode_handler.assert_called_once()
+        mock_tray.bridge.register_set_pause_handler.assert_called_once()
         mock_tray.bridge.register_select_target_handler.assert_called_once()
         mock_tray.bridge.register_quit_handler.assert_called_once()
         mock_tray.bridge.register_update_ui_handler.assert_called_once()
+
+    def test_set_pause_handler_wraps_pause_and_resume_tasks(self, controller):
+        mock_tray = MagicMock()
+        controller.set_tray(mock_tray)
+        handler = mock_tray.bridge.register_set_pause_handler.call_args[0][0]
+
+        handler(True)
+        _prio, _cnt, task = controller._task_queue.get_nowait()
+        assert isinstance(task, PauseTask)
+
+        handler(False)
+        _prio, _cnt, task = controller._task_queue.get_nowait()
+        assert isinstance(task, ResumeTask)
 
     def test_set_mode_handler_wraps_add_set_mode_task(self, controller):
         mock_tray = MagicMock()
@@ -384,6 +501,19 @@ class TestWallpaperControllerTaskHelpers:
         _prio, _cnt, task = controller._task_queue.get_nowait()
         assert isinstance(task, UpdateSceneTask)
         assert task.target == "my_res"
+
+    def test_add_pause_task_enqueues_at_priority_one(self, controller):
+        """Pause outranks scene work so it takes effect ahead of a backlog."""
+        controller.add_pause_task()
+        prio, _cnt, task = controller._task_queue.get_nowait()
+        assert isinstance(task, PauseTask)
+        assert prio == 1
+
+    def test_add_resume_task_enqueues_at_priority_one(self, controller):
+        controller.add_resume_task()
+        prio, _cnt, task = controller._task_queue.get_nowait()
+        assert isinstance(task, ResumeTask)
+        assert prio == 1
 
     def test_add_apply_scene_task_respects_explicit_priority(self, controller):
         controller.add_apply_scene_task(priority=3)
@@ -690,6 +820,26 @@ class TestWallpaperControllerAtShutdown:
             patch("threading.Event.wait"),
         ):
             controller.at_shutdown()
+        mock_add.assert_called_once_with(
+            target="shutdown_res",
+            matched_rule=None,
+            priority=1,
+        )
+
+    def test_applies_target_while_paused(self, controller):
+        """The shutdown wallpaper applies even when paused, and the pause survives.
+
+        WM_QUERYENDSESSION can be vetoed, so a paused service must stay paused.
+        """
+        _mock_config_store(controller, at_shutdown_target="shutdown_res")
+        controller._paused.set()
+        with (
+            patch.object(controller, "add_update_scene_task") as mock_add,
+            patch("threading.Event.wait"),
+        ):
+            controller.at_shutdown()
+
+        assert controller._paused.is_set()
         mock_add.assert_called_once_with(
             target="shutdown_res",
             matched_rule=None,

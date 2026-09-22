@@ -83,4 +83,12 @@ class ApplySceneTask(BaseTask):
     pass
 
 
-Task = QuitTask | ModeSwitchTask | UpdateSceneTask | ApplySceneTask
+class PauseTask(BaseTask):
+    pass
+
+
+class ResumeTask(BaseTask):
+    pass
+
+
+Task = QuitTask | ModeSwitchTask | UpdateSceneTask | ApplySceneTask | PauseTask | ResumeTask

@@ -373,6 +373,13 @@ class TestDisplayManager:
             dm.stop()  # must not raise
         assert mock_set_wp.call_count >= 1
 
+    def test_composite_timestamp_bumps_past_a_repeated_clock_reading(self):
+        """A clock that has not advanced must not hand out a filename twice."""
+        dm = DisplayManager()
+        dm._composite_last_time = 100
+        with patch("wallpaper_auto.display_manager.time.time_ns", return_value=100):
+            assert dm._next_composite_timestamp() == 101
+
 
 class TestDisplayManagerAddRemove:
     """add_display, remove_display, update_resource, update_canvas."""
@@ -606,6 +613,116 @@ class TestDisplayManagerAddRemove:
         dm.remove_display(_did(_DEVICE_A))  # pops the display
         with pytest.raises(KeyError):
             dm.update_canvas(_did(_DEVICE_A), WallpaperStyle.FILL, Image.new("RGB", (10, 10)))
+
+
+class TestDisplayManagerSuspend:
+    """suspend() demounts every resource and drops unapplied scene settings."""
+
+    def test_demounts_each_active_resource(self):
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        _add_display(dm, _DEVICE_B)
+        res_a = _make_resource()
+        res_b = _make_resource()
+        dm.update_resource(_did(_DEVICE_A), res_a)
+        dm.update_resource(_did(_DEVICE_B), res_b)
+
+        dm.suspend()
+
+        res_a.demount.assert_called_once()
+        res_b.demount.assert_called_once()
+        assert dm._displays[_did(_DEVICE_A)].suspended is True
+        assert dm._displays[_did(_DEVICE_B)].suspended is True
+
+    def test_a_failing_demount_leaves_the_display_retryable(self):
+        """A raising demount propagates and does not permanently suspend the display."""
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        _add_display(dm, _DEVICE_B)
+        failing = _make_resource()
+        following = _make_resource()
+        failing.demount.side_effect = RuntimeError("demount failed")
+        dm.update_resource(_did(_DEVICE_A), failing)
+        dm.update_resource(_did(_DEVICE_B), following)
+
+        with pytest.raises(RuntimeError, match="demount failed"):
+            dm.suspend()
+
+        assert dm._displays[_did(_DEVICE_A)].suspended is False
+        assert dm._displays[_did(_DEVICE_B)].suspended is False
+
+        # Retrying demounts the failed display again, then finishes the rest.
+        failing.demount.side_effect = None
+        dm.suspend()
+
+        assert failing.demount.call_count == 2
+        following.demount.assert_called_once()
+        assert dm._displays[_did(_DEVICE_A)].suspended is True
+        assert dm._displays[_did(_DEVICE_B)].suspended is True
+
+    def test_drops_pending_resolution_and_scale(self):
+        """A composite rendered while suspended must not set display settings."""
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        dm.update_display_scene(_did(_DEVICE_A), _make_resource(), (50, 50), 150)
+        assert dm._displays[_did(_DEVICE_A)].pending is not None
+
+        dm.suspend()
+
+        assert dm._displays[_did(_DEVICE_A)].pending is None
+
+    def test_is_idempotent(self):
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        resource = _make_resource()
+        dm.update_resource(_did(_DEVICE_A), resource)
+
+        dm.suspend()
+        dm.suspend()
+
+        resource.demount.assert_called_once()
+
+    def test_leaves_patch_displays_alone(self):
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        patch_resource = dm._displays[_did(_DEVICE_A)].resource
+        assert dm._displays[_did(_DEVICE_A)].is_patch is True
+
+        with patch.object(patch_resource, "demount") as mock_demount:
+            dm.suspend()
+
+        mock_demount.assert_not_called()
+        assert dm._displays[_did(_DEVICE_A)].suspended is False
+
+    def test_suspended_resource_is_not_demounted_again(self):
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        resource = _make_resource()
+        dm.update_resource(_did(_DEVICE_A), resource)
+        dm.suspend()
+
+        new_resource = _make_resource()
+        dm.update_resource(_did(_DEVICE_A), new_resource)
+
+        resource.demount.assert_called_once()
+        new_resource.mount.assert_called_once()
+        assert dm._displays[_did(_DEVICE_A)].suspended is False
+
+    def test_remove_display_does_not_demount_a_suspended_resource(self):
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        resource = _make_resource()
+        dm.update_resource(_did(_DEVICE_A), resource)
+        dm.suspend()
+
+        with (
+            patch("wallpaper_auto.display_manager.get_display_info", return_value=None),
+            patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
+        ):
+            mock_static.return_value = _make_resource()
+            dm.remove_display(_did(_DEVICE_A))
+
+        resource.demount.assert_called_once()
 
 
 @pytest.mark.usefixtures("_config_store_with_cache")
