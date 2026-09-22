@@ -119,6 +119,9 @@ class DisplayManager:
     def __init__(self) -> None:
         self._displays: dict[DisplayId, DisplayState] = {}
         self._wallpaper_applied: bool = False
+        # Hash of the buffer/geometry behind the currently applied composite.
+        # None = the composite on screen is not one the app just wrote.
+        self._applied_canvas_hash: int | None = None
         self._image_cache: ImageCompressionCache | None = None
         self._lock = threading.Lock()
         # Dedicated mutex for the time-based composite suffix, so concurrent
@@ -217,6 +220,7 @@ class DisplayManager:
                         self._black_wallpaper_path(),
                     )
                 self._wallpaper_applied = False
+                self._applied_canvas_hash = None
         logger.info("display manager stop: done")
 
     def update_display(self) -> list[DisplayInfo] | None:
@@ -775,6 +779,10 @@ class DisplayManager:
     def _composite_and_apply(self) -> None:
         """Composite the buffered images and apply the result as wallpaper.
 
+        Returns early when the buffer and the connected displays' geometry are
+        unchanged since the last apply (see :meth:`_canvas_hash`): that would
+        rewrite identical bytes and re-apply the same image.
+
         Must be called with ``self._lock`` held.
         """
         buffer: dict[DisplayId, tuple[WallpaperStyle, Path | Image.Image]] = {
@@ -785,6 +793,11 @@ class DisplayManager:
 
         displays = get_display_info()
         if displays is None:
+            return
+
+        canvas_hash = self._canvas_hash(buffer, displays)
+        if canvas_hash == self._applied_canvas_hash:
+            logger.debug("canvas composite skipped: unchanged")
             return
 
         canvas = self._build_canvas(buffer, displays)
@@ -807,7 +820,64 @@ class DisplayManager:
         with com_session():
             set_wallpaper_style(WallpaperStyle.SPAN)
             set_wallpaper(None, temp_path)
+        self._applied_canvas_hash = canvas_hash
         logger.info("canvas composite applied")
+
+    def _canvas_hash(
+        self,
+        buffer: dict[DisplayId, tuple[WallpaperStyle, Path | Image.Image]],
+        displays: list[DisplayInfo],
+    ) -> int:
+        """Return a hash of the inputs :meth:`_build_canvas` composites from.
+
+        One record per buffered entry — its display's current geometry paired
+        with the image buffered for it.  Entries keep ``buffer``'s insertion
+        order and every entry is included, even one whose display is not
+        connected: :meth:`_build_canvas` pastes in that order (overlapping
+        monitors resolve by it) and picks the first ``SPAN`` entry from the
+        whole buffer.  The geometry comes from *displays*, not from the
+        (possibly stale) ``state.display_info``.
+
+        Equal hashes mean the same composite would be written, with one blind
+        spot: a buffered ``Path`` is recorded as ``(path, size, mtime)`` and its
+        content is never read, so an edit that preserves both the file size and
+        the modification time goes undetected and its composite is not
+        re-applied.  A buffered ``Image`` is recorded from its pixels instead.
+
+        Must be called with ``self._lock`` held.
+
+        Args:
+            buffer: Per-monitor buffered ``(style, image)`` entries.
+            displays: Current display topology snapshot.
+
+        Returns:
+            A hash of the records described above.
+        """
+
+        def _image_signature(image: Path | Image.Image) -> tuple[str, int, int] | str | int:
+            if isinstance(image, Path):
+                try:
+                    stat = image.stat()
+                except OSError:
+                    # Transient (file replaced/removed mid-plot): fall back to
+                    # the path alone rather than raising out of the composite.
+                    return str(image)
+                return (str(image), stat.st_size, stat.st_mtime_ns)
+            return hash((image.mode, image.size, image.tobytes()))
+
+        display_map = {d.display_id: d for d in displays}
+        entries = tuple(
+            (
+                display_id,
+                style,
+                _image_signature(image),
+                (display.position, display.source_resolution)
+                if (display := display_map.get(display_id)) is not None
+                else None,
+            )
+            for display_id, (style, image) in buffer.items()
+        )
+        return hash(entries)
 
     def _build_canvas(
         self,

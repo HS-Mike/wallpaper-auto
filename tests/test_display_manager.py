@@ -144,6 +144,32 @@ def _latest_composite() -> Path:
     return files[-1]
 
 
+def _composites() -> list[Path]:
+    """Return every composite file written under cache_path/composite/."""
+    return sorted((ConfigStore.instance.cache_path / "composite").glob("_composite_*.png"))
+
+
+def _plot_with_displays(dm: DisplayManager, displays: list[DisplayInfo]) -> MagicMock:
+    """Run one ``plot_canvas()`` with *displays* as the queried topology.
+
+    Args:
+        dm: Manager to plot on.
+        displays: Topology ``get_display_info`` should report.
+
+    Returns:
+        The ``set_wallpaper`` mock, so the caller can count applies.
+    """
+    with (
+        patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
+        patch("wallpaper_auto.display_manager.com_session") as mock_session,
+        patch("wallpaper_auto.display_manager.set_wallpaper") as mock_set_wp,
+        patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+    ):
+        _mock_com_session(mock_session)
+        dm.plot_canvas()
+    return mock_set_wp
+
+
 class TestDisplayManager:
     """Constructor, start/stop, and active_display_ids."""
 
@@ -257,6 +283,18 @@ class TestDisplayManager:
             _mock_com_session(mock_session)
             dm.stop()
         assert dm._wallpaper_applied is False
+
+    def test_stop_clears_applied_canvas_hash(self):
+        """A restart after stop() must composite again, not skip as unchanged."""
+        dm = DisplayManager()
+        dm._wallpaper_applied = True
+        dm._applied_canvas_hash = 12345
+        with (
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+        ):
+            _mock_com_session(mock_session)
+            dm.stop()
+        assert dm._applied_canvas_hash is None
 
     def test_stop_restores_genuine_and_blacks_hotplugged(self):
         """A genuine display is restored; a hotplugged display is filled black."""
@@ -853,10 +891,14 @@ class TestDisplayManagerPlotCanvas:
 
         def buffer_updater() -> None:
             # Update a buffer entry concurrently with compositing snapshots.
-            for _ in range(50):
+            # Pixels vary per iteration so the canvas hash changes and each
+            # plot really hits the composite write path.
+            for i in range(50):
                 try:
                     dm.update_canvas(
-                        _did(_DEVICE_B, 10, 10), WallpaperStyle.FILL, Image.new("RGB", (10, 10))
+                        _did(_DEVICE_B, 10, 10),
+                        WallpaperStyle.FILL,
+                        Image.new("RGB", (10, 10), (i % 256, 0, 0)),
                     )
                 except Exception as exc:  # noqa: BLE001
                     errors.append(exc)
@@ -954,10 +996,14 @@ class TestDisplayManagerPlotCanvas:
                     errors.append(exc)
 
         def buffer_updater() -> None:
-            for _ in range(50):
+            # Varying pixels keep the canvas hash moving, so the plots above
+            # keep exercising the composite write path.
+            for i in range(50):
                 try:
                     dm.update_canvas(
-                        _did(_DEVICE_A, 50, 50), WallpaperStyle.FILL, Image.new("RGB", (10, 10))
+                        _did(_DEVICE_A, 50, 50),
+                        WallpaperStyle.FILL,
+                        Image.new("RGB", (10, 10), (0, i % 256, 0)),
                     )
                 except Exception as exc:  # noqa: BLE001
                     errors.append(exc)
@@ -975,6 +1021,146 @@ class TestDisplayManagerPlotCanvas:
         assert errors == []
         composite = Image.open(_latest_composite())
         assert composite.size == (50, 50)
+
+
+@pytest.mark.usefixtures("_config_store_with_cache")
+class TestDisplayManagerCanvasHash:
+    """The canvas hash skips a composite that would rewrite identical bytes."""
+
+    def test_repeated_plot_with_unchanged_buffer_skips_apply(self):
+        dm = DisplayManager()
+        _put_canvas(
+            dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10), (1, 2, 3)), w=10, h=10
+        )
+        displays = [_make_display(_DEVICE_A, 0, 0, 10, 10)]
+        first = _plot_with_displays(dm, displays)
+        second = _plot_with_displays(dm, displays)
+        assert first.call_count == 1
+        assert second.call_count == 0
+        assert dm._applied_canvas_hash is not None
+        assert len(_composites()) == 1  # no second file was written
+
+    def test_canvas_hash_stable_for_equal_state(self):
+        """Distinct Image objects with equal pixels hash equal — the cycle-repeat case."""
+        dm = DisplayManager()
+        display = _make_display(_DEVICE_A, 0, 0, 10, 10)
+        buffer_a: dict[DisplayId, tuple[WallpaperStyle, Path | Image.Image]] = {
+            display.display_id: (WallpaperStyle.FILL, Image.new("RGB", (10, 10), (7, 7, 7)))
+        }
+        buffer_b: dict[DisplayId, tuple[WallpaperStyle, Path | Image.Image]] = {
+            display.display_id: (WallpaperStyle.FILL, Image.new("RGB", (10, 10), (7, 7, 7)))
+        }
+        with dm._lock:
+            assert dm._canvas_hash(buffer_a, [display]) == dm._canvas_hash(buffer_b, [display])
+
+    def test_plot_reapplies_when_image_content_changes(self):
+        dm = DisplayManager()
+        displays = [_make_display(_DEVICE_A, 0, 0, 10, 10)]
+        _put_canvas(
+            dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10), (1, 2, 3)), w=10, h=10
+        )
+        _plot_with_displays(dm, displays)
+        _put_canvas(
+            dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10), (4, 5, 6)), w=10, h=10
+        )
+        second = _plot_with_displays(dm, displays)
+        assert second.call_count == 1
+
+    def test_plot_reapplies_when_style_changes(self):
+        dm = DisplayManager()
+        displays = [_make_display(_DEVICE_A, 0, 0, 10, 10)]
+        img = Image.new("RGB", (10, 10), (1, 2, 3))
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, img, w=10, h=10)
+        _plot_with_displays(dm, displays)
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.CENTER, img, w=10, h=10)
+        second = _plot_with_displays(dm, displays)
+        assert second.call_count == 1
+
+    def test_plot_reapplies_when_display_geometry_changes(self):
+        """A display moving without a re-buffer still changes the composite."""
+        dm = DisplayManager()
+        _put_canvas(
+            dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10), (1, 2, 3)), w=10, h=10
+        )
+        _plot_with_displays(dm, [_make_display(_DEVICE_A, 0, 0, 10, 10)])
+        second = _plot_with_displays(dm, [_make_display(_DEVICE_A, 5, 0, 10, 10)])
+        assert second.call_count == 1
+
+    def test_plot_reapplies_when_buffered_file_changes(self):
+        """A file rewritten under the same path is detected by size/mtime."""
+        dm = DisplayManager()
+        displays = [_make_display(_DEVICE_A, 0, 0, 10, 10)]
+        src = ConfigStore.instance.cache_path / "buffered.png"
+        Image.new("RGB", (10, 10), (1, 2, 3)).save(src)
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, src, w=10, h=10)
+        _plot_with_displays(dm, displays)
+        Image.new("RGB", (30, 30), (9, 9, 9)).save(src)
+        second = _plot_with_displays(dm, displays)
+        assert second.call_count == 1
+
+    def test_non_relevant_span_entry_change_reapplies(self):
+        """A SPAN entry for a disconnected display still drives the composite.
+
+        _build_canvas scans the whole buffer for the first SPAN entry, so the
+        hash must cover every buffered entry, not just the connected ones.
+        """
+        dm = DisplayManager()
+        _put_canvas(
+            dm, _DEVICE_B, WallpaperStyle.SPAN, Image.new("RGB", (10, 10), (1, 1, 1)), w=10, h=10
+        )
+        _put_canvas(
+            dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10), (2, 2, 2)), w=10, h=10
+        )
+        displays = [_make_display(_DEVICE_A, 0, 0, 10, 10)]  # B is not connected
+        first = _plot_with_displays(dm, displays)
+        _put_canvas(
+            dm, _DEVICE_B, WallpaperStyle.SPAN, Image.new("RGB", (10, 10), (9, 9, 9)), w=10, h=10
+        )
+        second = _plot_with_displays(dm, displays)
+        assert first.call_count == 1
+        assert second.call_count == 1
+
+    def test_no_matching_display_does_not_store_hash(self):
+        """Nothing was applied, so nothing may be recorded as applied."""
+        dm = DisplayManager()
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10)), w=10, h=10)
+        _plot_with_displays(dm, [_make_display(_DEVICE_B, 0, 0, 10, 10)])
+        assert dm._applied_canvas_hash is None
+
+    def test_failed_apply_does_not_store_hash(self):
+        """A raised COM apply must not be recorded as an applied composite."""
+        dm = DisplayManager()
+        _put_canvas(
+            dm, _DEVICE_A, WallpaperStyle.FILL, Image.new("RGB", (10, 10), (1, 2, 3)), w=10, h=10
+        )
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_info",
+                return_value=[_make_display(_DEVICE_A, 0, 0, 10, 10)],
+            ),
+            patch("wallpaper_auto.display_manager.com_session") as mock_session,
+            patch(
+                "wallpaper_auto.display_manager.set_wallpaper",
+                side_effect=OSError("display disconnected"),
+            ),
+            patch("wallpaper_auto.display_manager.set_wallpaper_style"),
+            pytest.raises(OSError, match="disconnected"),
+        ):
+            _mock_com_session(mock_session)
+            dm.plot_canvas()
+        assert dm._applied_canvas_hash is None
+
+    def test_canvas_hash_tolerates_unstatable_path(self):
+        """A missing buffered file falls back to the path instead of raising."""
+        dm = DisplayManager()
+        missing = ConfigStore.instance.cache_path / "gone.png"
+        buffer: dict[DisplayId, tuple[WallpaperStyle, Path | Image.Image]] = {
+            _did(_DEVICE_A, 10, 10): (WallpaperStyle.FILL, missing)
+        }
+        with dm._lock:
+            assert isinstance(
+                dm._canvas_hash(buffer, [_make_display(_DEVICE_A, 0, 0, 10, 10)]), int
+            )
 
 
 class TestDisplayManagerRenderImageForRegion:
@@ -1169,7 +1355,10 @@ class TestDisplayManagerCacheIntegration:
         filename = next(iter(cache._entries))
         assert cache._entries[filename]["access_count"] == 1
 
-        # Second call — cache hit, access_count incremented.
+        # Second call with a different style: the same source is rendered again
+        # (an unchanged buffer would now be skipped as an identical composite),
+        # so the cache is hit and access_count incremented.
+        _put_canvas(dm, _DEVICE_A, WallpaperStyle.STRETCH, src, w=50, h=50)
         with (
             patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
             patch("wallpaper_auto.display_manager.com_session") as mock_session,
