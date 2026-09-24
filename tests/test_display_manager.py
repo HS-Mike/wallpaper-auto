@@ -2085,6 +2085,119 @@ class TestDisplayManagerScale:
         assert state.current_scale is not None  # kept for a later retry
 
 
+class TestDisplayManagerAppliedSetting:
+    """applied_setting/live_setting — what the app put in effect, for the controller."""
+
+    def test_applied_setting_records_the_snapped_value(self):
+        dm = DisplayManager()
+        did, _info = _add_with_capability(dm)
+        live = _LiveDisplay(resolution=(1280, 720), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ),
+        ):
+            assert dm.set_display_resolution(did, 1921, 1080) is True
+        assert dm.applied_setting(did) == ((1920, 1080), None)
+
+    def test_applied_setting_records_a_value_already_in_effect(self):
+        """A value the app found already live is reported too, so the next revert is caught."""
+        dm = DisplayManager()
+        did, _info = _add_with_capability(dm)
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ) as mock_res,
+        ):
+            assert dm.set_display_resolution(did, 1920, 1080) is True
+        mock_res.assert_not_called()
+        assert dm.applied_setting(did) == ((1920, 1080), None)
+
+    def test_applied_setting_records_the_scale(self):
+        dm = DisplayManager()
+        did, _info = _add_with_capability(dm)
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
+            ),
+        ):
+            assert dm.set_display_scale(did, 150) is True
+        assert dm.applied_setting(did) == (None, 150)
+
+    def test_live_setting_reads_the_display(self):
+        dm = DisplayManager()
+        did, _info = _add_with_capability(dm)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                return_value=(1280, 720),
+            ) as mock_res,
+            patch("wallpaper_auto.display_manager.get_display_scale", return_value=125),
+        ):
+            assert dm.live_setting(did) == ((1280, 720), 125)
+        mock_res.assert_called_once_with("\\\\.\\DISPLAY1")
+
+    def test_unreadable_live_setting_is_reported_as_none(self):
+        dm = DisplayManager()
+        did, _info = _add_with_capability(dm)
+        with (
+            patch("wallpaper_auto.display_manager.get_display_resolution", return_value=None),
+            patch("wallpaper_auto.display_manager.get_display_scale", return_value=None),
+        ):
+            assert dm.live_setting(did) == (None, None)
+
+    def test_clear_applied_forgets_every_display(self):
+        dm = DisplayManager()
+        did, _info = _add_with_capability(dm)
+        live = _LiveDisplay(resolution=(1280, 720), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_scale",
+                side_effect=live.set_scale,
+            ),
+        ):
+            dm.set_display_resolution(did, 1920, 1080)
+            dm.set_display_scale(did, 150)
+        assert dm.applied_setting(did) == ((1920, 1080), 150)
+        dm.clear_applied()
+        assert dm.applied_setting(did) == (None, None)
+
+    @pytest.mark.parametrize("method", ["applied_setting", "live_setting"])
+    def test_unknown_display_raises_key_error(self, method):
+        dm = DisplayManager()
+        with pytest.raises(KeyError):
+            getattr(dm, method)(DisplayId(999999))
+
+
 class TestDisplayManagerScene:
     """update_display_scene records res/scale + mounts; apply_display_scene applies + plots."""
 

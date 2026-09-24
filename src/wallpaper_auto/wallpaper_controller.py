@@ -36,6 +36,7 @@ from .task import (
 from .trigger.base_trigger import BaseTrigger
 from .trigger.display_trigger import DisplayTrigger
 from .trigger_manager import TriggerManager
+from .util.display_util import DisplayId
 
 logger = logging.getLogger(__name__)
 
@@ -173,8 +174,19 @@ class WallpaperController:
                     rendered = False
                     try:
                         self._display_manager.update_display()
-                        self._display_manager.apply_display_scene()
-                        rendered = True
+                        # ApplySceneTask is not gated, so a plot can still arrive
+                        # while paused; the pause is already in effect then.
+                        reverted = self._reverted_displays() if not self._paused.is_set() else []
+                        if reverted:
+                            # Another writer reverted a display setting the app
+                            # applied. Re-applying it is what closes the loop —
+                            # each write re-triggers the other — so release the
+                            # desktop instead and wait for a manual resume.
+                            logger.warning("display setting reverted by another writer; pausing")
+                            self.add_pause_task()
+                        else:
+                            self._display_manager.apply_display_scene()
+                            rendered = True
                     except Exception as e:
                         logger.exception(e)
                     if rendered:
@@ -209,8 +221,12 @@ class WallpaperController:
         In AUTO mode the rules are re-evaluated, so conditions that changed
         while paused are honoured.  In MANUAL mode the user's selection is
         re-applied instead — evaluating would replace it with a rule target.
+        Either way the app takes the displays back: forgetting what it applied
+        lets it write again rather than reading the other writer's value as a
+        revert of its own.
         """
         self._paused.clear()
+        self._display_manager.clear_applied()
         if self._mode == Mode.AUTO:
             self._trigger_manager.resume()
             self.evaluate()
@@ -220,6 +236,34 @@ class WallpaperController:
             if target is not None:
                 self.add_update_scene_task(target=target)
         self.update_system_tray()
+
+    def _reverted_displays(self) -> list[DisplayId]:
+        """Return the displays whose live setting differs from what the app applied.
+
+        The app is not the only writer of a display's resolution and scale, and
+        every write re-triggers the other writer's, so a live value that differs
+        from the one the app put in effect means another writer reverted it and
+        the app must not write again.  A display the app has nothing applied to,
+        and a value that cannot be read, are never evidence of a revert.
+
+        Returns:
+            The reverted displays, possibly empty.
+        """
+        reverted: list[DisplayId] = []
+        for display_id in self._display_manager.active_display_ids:
+            applied = self._display_manager.applied_setting(display_id)
+            if applied == (None, None):
+                continue
+            live = self._display_manager.live_setting(display_id)
+            if any(a is not None and v is not None and a != v for a, v in zip(applied, live)):
+                logger.warning(
+                    "display %s reverted by another writer: applied %s, live %s",
+                    display_id,
+                    applied,
+                    live,
+                )
+                reverted.append(display_id)
+        return reverted
 
     def load_config(self, config_path: str) -> None:
         """Load and verify the YAML config, initializing managers accordingly.
@@ -388,9 +432,11 @@ class WallpaperController:
         logger.info(f"apply at shutdown target {target}")
         # Clear the pause so the shutdown target is applied even while paused;
         # restore it afterwards, since WM_QUERYENDSESSION may be vetoed by
-        # another app and the service then keeps running.
+        # another app and the service then keeps running.  Forget the applied
+        # settings too: this apply is unconditional, not a writer fight.
         was_paused = self._paused.is_set()
         self._paused.clear()
+        self._display_manager.clear_applied()
         try:
             update_task = self.add_update_scene_task(target=target, matched_rule=None, priority=1)
             plot_task = self.add_apply_scene_task(priority=2)

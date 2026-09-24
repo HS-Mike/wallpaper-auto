@@ -16,6 +16,7 @@ from wallpaper_auto.task import (
     ResumeTask,
     UpdateSceneTask,
 )
+from wallpaper_auto.util.display_util import DisplayId
 from wallpaper_auto.wallpaper_controller import ThreadSafeCounter, WallpaperController
 
 
@@ -293,6 +294,104 @@ class TestWallpaperControllerWorkLoop:
         )
 
 
+class TestWallpaperControllerSettingRevert:
+    """A display setting another writer reverted pauses instead of being re-applied."""
+
+    def _setup(
+        self,
+        controller,
+        applied=((1920, 1080), 100),
+        live=((1280, 720), 100),
+    ):
+        """Mock a display manager holding *applied* while the display is at *live*."""
+        controller._display_manager = MagicMock()
+        controller._display_manager.active_display_ids = {DisplayId(1)}
+        controller._display_manager.applied_setting.return_value = applied
+        controller._display_manager.live_setting.return_value = live
+        return controller
+
+    def _run_one_plot(self, controller):
+        for t in _quit_after(_make_task(ApplySceneTask())):
+            controller._task_queue.put(t)
+        controller._work_loop()
+
+    def test_reverted_setting_pauses_instead_of_rendering(self, controller):
+        """The render is skipped — writing again is what closes the loop."""
+        self._setup(controller)
+        with patch("wallpaper_auto.wallpaper_controller.logger") as mock_logger:
+            self._run_one_plot(controller)
+
+        controller._display_manager.apply_display_scene.assert_not_called()
+        controller._display_manager.suspend.assert_called_once()
+        assert controller._paused.is_set()
+        assert any(
+            "reverted by another writer" in str(c) for c in mock_logger.warning.call_args_list
+        )
+
+    def test_live_setting_matching_applied_renders(self, controller):
+        """The app's own value is still live — nothing was reverted."""
+        self._setup(controller, live=((1920, 1080), 100))
+        self._run_one_plot(controller)
+
+        controller._display_manager.apply_display_scene.assert_called_once()
+        assert not controller._paused.is_set()
+
+    def test_unreadable_live_setting_is_not_a_revert(self, controller):
+        """A failed live read is never evidence that another writer reverted the app."""
+        self._setup(controller, live=(None, None))
+        self._run_one_plot(controller)
+
+        controller._display_manager.apply_display_scene.assert_called_once()
+        assert not controller._paused.is_set()
+
+    def test_reverted_scale_pauses(self, controller):
+        """The scale alone can be the value another writer reverted."""
+        self._setup(controller, applied=((1920, 1080), 150), live=((1920, 1080), 100))
+        self._run_one_plot(controller)
+
+        controller._display_manager.apply_display_scene.assert_not_called()
+        assert controller._paused.is_set()
+
+    def test_value_the_app_never_applied_is_not_a_revert(self, controller):
+        """A scale the app never set is not compared, so a different one is not a revert."""
+        self._setup(controller, applied=((1920, 1080), None), live=((1920, 1080), 100))
+        self._run_one_plot(controller)
+
+        controller._display_manager.apply_display_scene.assert_called_once()
+        assert not controller._paused.is_set()
+
+    def test_display_with_nothing_applied_is_not_a_revert(self, controller):
+        """A display the app never applied to is not read at all."""
+        self._setup(controller, applied=(None, None))
+        self._run_one_plot(controller)
+
+        controller._display_manager.live_setting.assert_not_called()
+        controller._display_manager.apply_display_scene.assert_called_once()
+        assert not controller._paused.is_set()
+
+    def test_pause_is_not_re_entered_while_paused(self, controller):
+        """A plot composites while paused — ApplySceneTask is ungated — but cannot pause again."""
+        self._setup(controller)
+        controller._paused.set()
+        self._run_one_plot(controller)
+
+        controller._display_manager.applied_setting.assert_not_called()
+        controller._display_manager.apply_display_scene.assert_called_once()
+        controller._display_manager.suspend.assert_not_called()
+
+    def test_resume_clears_the_applied_settings(self, controller):
+        """Resume takes the displays back, so the next apply writes unconditionally."""
+        self._setup(controller)
+        controller._display_manager.clear_applied = MagicMock()
+        controller._paused.set()
+        for t in _quit_after(_make_task(ResumeTask(), priority=1)):
+            controller._task_queue.put(t)
+
+        controller._work_loop()
+
+        controller._display_manager.clear_applied.assert_called_once()
+
+
 class TestWallpaperControllerEvaluate:
     """evaluate() – condition evaluation & resource dispatch."""
 
@@ -532,6 +631,7 @@ class TestWallpaperControllerTargetSetBranches:
         )
         controller._display_manager = MagicMock()
         controller._display_manager.update_display.return_value = []
+        controller._display_manager.active_display_ids = set()
         # Mirror the real apply_display_scene(), which composites (plot_canvas) at the end.
         controller._display_manager.apply_display_scene.side_effect = lambda: (
             controller._display_manager.plot_canvas()
@@ -845,3 +945,15 @@ class TestWallpaperControllerAtShutdown:
             matched_rule=None,
             priority=1,
         )
+
+    def test_forgets_the_applied_settings(self, controller):
+        """The shutdown apply is unconditional, so it must not read as a writer fight."""
+        _mock_config_store(controller, at_shutdown_target="shutdown_res")
+        with (
+            patch.object(controller, "add_update_scene_task"),
+            patch.object(controller._display_manager, "clear_applied") as mock_clear,
+            patch("threading.Event.wait"),
+        ):
+            controller.at_shutdown()
+
+        mock_clear.assert_called_once()

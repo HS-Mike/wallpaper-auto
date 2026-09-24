@@ -57,11 +57,17 @@ class DisplayState:
     original_scale: int
     original_wallpaper: tuple[WallpaperStyle, Path] | None = None
     canvas: tuple[WallpaperStyle, Path | Image.Image] | None = None
-    # Resolution/scale the app has applied; None = display still at its original
-    # value. Restore bookkeeping for stop()/remove_display(): only displays the
-    # app modified are restored.
+    # Restore bookkeeping: the app modified this display, so stop()/
+    # remove_display() restore it to the recorded original. None = the display
+    # is still at its original value.
     current_resolution: tuple[int, int] | None = None
     current_scale: int | None = None
+    # Resolution/scale the app last put in effect on this display — written, or
+    # found already live — as reported to the controller by applied_setting().
+    # A live value that differs from it means another writer reverted the app.
+    # Cleared by clear_applied() when the app is told to take the display back.
+    applied_resolution: tuple[int, int] | None = None
+    applied_scale: int | None = None
     # Resolution/scale recorded by update_display_scene() not yet applied by
     # apply_display_scene(). None = no scene pending; (None, None) still counts
     # as pending (a scene that restores both).
@@ -107,7 +113,10 @@ class DisplayManager:
     scale changes are session-only.  Either way the original values are
     recorded at :meth:`add_display`, each change snaps to a supported value
     from the cached capability, and the originals are restored on
-    :meth:`stop` or when a still-connected display is removed.
+    :meth:`stop` or when a still-connected display is removed.  The app is not
+    the only writer of a display's setting: :meth:`applied_setting` reports
+    what the app last put in effect so the controller can notice that another
+    writer reverted it, and stop asking this manager to write.
 
     **Thread-safety:** every public method is internally synchronized by a
     single ``_lock`` (monitor pattern) — callers never rely on threading
@@ -569,12 +578,57 @@ class DisplayManager:
         with self._lock:
             return self._apply_scale(self._displays[display_id], scale)
 
+    def applied_setting(self, display_id: DisplayId) -> tuple[tuple[int, int] | None, int | None]:
+        """Report the resolution and scale the app last put in effect.
+
+        The value is the snapped one the app applied, or found already live —
+        what the controller compares against :meth:`live_setting` to detect
+        that another writer reverted the app.  Both are None for a display the
+        app has not touched since the last :meth:`clear_applied`.
+
+        Args:
+            display_id: Opaque id of the display.
+
+        Returns:
+            ``(resolution, scale)``, each None when the app has none applied.
+        """
+        with self._lock:
+            state = self._displays[display_id]
+            return state.applied_resolution, state.applied_scale
+
+    def live_setting(self, display_id: DisplayId) -> tuple[tuple[int, int] | None, int | None]:
+        """Read the display's current resolution and scale from the system.
+
+        Args:
+            display_id: Opaque id of the display.
+
+        Returns:
+            ``(resolution, scale)``, each None (logged) when it cannot be read.
+        """
+        with self._lock:
+            device_name = self._displays[display_id].display_info.device_name
+        return get_display_resolution(device_name), get_display_scale(device_name)
+
+    def clear_applied(self) -> None:
+        """Forget the value the app put in effect on every display.
+
+        The app then applies the next scene unconditionally, instead of treating
+        the value it finds as another writer's revert of its own.  Called when
+        the app is told to take the displays back — on resume and on shutdown.
+        """
+        with self._lock:
+            for state in self._displays.values():
+                state.applied_resolution = None
+                state.applied_scale = None
+
     def _apply_resolution(self, state: DisplayState, width: int, height: int) -> bool:
         """Snap and apply a resolution, skipping the set when already there.
 
         A failed live read is never taken as "no change needed": the set is
-        attempted anyway, so a transient read failure still retries.  Must be
-        called with ``self._lock`` held.
+        attempted anyway, so a transient read failure still retries.  Either way
+        the resolved value is recorded in ``state.applied_resolution``, so
+        ``applied_setting`` always reports what the app last put in effect.
+        Must be called with ``self._lock`` held.
 
         Args:
             state: Display to modify.
@@ -597,10 +651,12 @@ class DisplayManager:
             )
         live = get_display_resolution(state.display_info.device_name)
         if live is not None and live == resolved:
+            state.applied_resolution = resolved
             return True
         ok = set_display_resolution(state.display_info.device_name, resolved[0], resolved[1])
         if ok:
             state.current_resolution = resolved
+            state.applied_resolution = resolved
             logger.info(f"display manager set resolution to {resolved[0]}*{resolved[1]}")
         return ok
 
@@ -608,8 +664,10 @@ class DisplayManager:
         """Snap and apply a DPI scale, skipping the set when already there.
 
         A failed live read is never taken as "no change needed": the set is
-        attempted anyway, so a transient read failure still retries.  Must be
-        called with ``self._lock`` held.
+        attempted anyway, so a transient read failure still retries.  Either way
+        the resolved value is recorded in ``state.applied_scale``, so
+        ``applied_setting`` always reports what the app last put in effect.
+        Must be called with ``self._lock`` held.
 
         Args:
             state: Display to modify.
@@ -633,6 +691,7 @@ class DisplayManager:
             )
         live = get_display_scale(state.display_info.device_name)
         if live is not None and live == resolved:
+            state.applied_scale = resolved
             return True
         ok = set_display_scale(
             state.display_info.device_name,
@@ -642,6 +701,7 @@ class DisplayManager:
         )
         if ok:
             state.current_scale = resolved
+            state.applied_scale = resolved
             logger.info(f"display manager set scale to {resolved}")
         return ok
 
