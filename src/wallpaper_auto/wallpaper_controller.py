@@ -2,7 +2,8 @@
 Main wallpaper controller.
 
 Coordinates the resource manager, trigger manager, and rule engine.
-Owns the work loop that processes mode-switch and resource-set tasks from the queue.
+Owns the work loop that processes mode-switch, pause/resume, and
+resource-set tasks from the queue.
 """
 
 from __future__ import annotations
@@ -22,10 +23,20 @@ from .resource.base_resource import BaseResource
 from .resource_manager import ResourceManager
 from .rule_engine import RuleEngine
 from .system_tray import TrayMenuItem, WallpaperSwitchSystemTray
-from .task import ApplySceneTask, Mode, ModeSwitchTask, QuitTask, Task, UpdateSceneTask
+from .task import (
+    ApplySceneTask,
+    Mode,
+    ModeSwitchTask,
+    PauseTask,
+    QuitTask,
+    ResumeTask,
+    Task,
+    UpdateSceneTask,
+)
 from .trigger.base_trigger import BaseTrigger
 from .trigger.display_trigger import DisplayTrigger
 from .trigger_manager import TriggerManager
+from .util.display_util import DisplayId
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +63,7 @@ class WallpaperController:
         # System tray
         self._tray: WallpaperSwitchSystemTray | None = None
         self._mode: Mode = Mode.UNSET
+        self._paused = threading.Event()
 
         self._display_trigger = DisplayTrigger()
         self._display_trigger.add_callback(self.at_display_change)
@@ -80,6 +92,14 @@ class WallpaperController:
                 self._task_queue.task_done()
                 break
 
+            elif isinstance(task, PauseTask):
+                self._pause()
+                task.mark_finish()
+
+            elif isinstance(task, ResumeTask):
+                self._resume()
+                task.mark_finish()
+
             elif isinstance(task, ModeSwitchTask):
                 if task.target_mode == Mode.AUTO:
                     self._trigger_manager.resume()
@@ -91,6 +111,14 @@ class WallpaperController:
                 logger.info(f"wallpaper controler mode set to {task.target_mode.name}")
                 self._mode = task.target_mode
                 self.update_system_tray()
+                task.mark_finish()
+
+            elif isinstance(task, UpdateSceneTask) and self._paused.is_set():
+                logger.debug(
+                    "UpdateSceneTask (id: %d) skipped: controller is paused. target %s",
+                    id(task),
+                    task.target,
+                )
                 task.mark_finish()
 
             elif isinstance(task, UpdateSceneTask):
@@ -146,8 +174,19 @@ class WallpaperController:
                     rendered = False
                     try:
                         self._display_manager.update_display()
-                        self._display_manager.apply_display_scene()
-                        rendered = True
+                        # ApplySceneTask is not gated, so a plot can still arrive
+                        # while paused; the pause is already in effect then.
+                        reverted = self._reverted_displays() if not self._paused.is_set() else []
+                        if reverted:
+                            # Another writer reverted a display setting the app
+                            # applied. Re-applying it is what closes the loop —
+                            # each write re-triggers the other — so release the
+                            # desktop instead and wait for a manual resume.
+                            logger.warning("display setting reverted by another writer; pausing")
+                            self.add_pause_task()
+                        else:
+                            self._display_manager.apply_display_scene()
+                            rendered = True
                     except Exception as e:
                         logger.exception(e)
                     if rendered:
@@ -163,6 +202,68 @@ class WallpaperController:
             self._task_queue.task_done()
 
         logger.debug("wallpaper controller work loop stop")
+
+    def _pause(self) -> None:
+        """Release the desktop and stop reacting to conditions.
+
+        The flag is set before the resources are demounted so no new scene work
+        starts while ``suspend()`` blocks joining cycling threads.  A demount
+        failure is not caught here: it propagates out of the work loop.
+        """
+        self._paused.set()
+        self._trigger_manager.pause()
+        self._display_manager.suspend()
+        self.update_system_tray()
+
+    def _resume(self) -> None:
+        """Leave the paused state and bring the active target back.
+
+        In AUTO mode the rules are re-evaluated, so conditions that changed
+        while paused are honoured.  In MANUAL mode the user's selection is
+        re-applied instead — evaluating would replace it with a rule target.
+        Either way the app takes the displays back: forgetting what it applied
+        lets it write again rather than reading the other writer's value as a
+        revert of its own.
+        """
+        self._paused.clear()
+        self._display_manager.clear_applied()
+        if self._mode == Mode.AUTO:
+            self._trigger_manager.resume()
+            self.evaluate()
+        else:
+            with self._active_lock:
+                target = self.active_target
+            if target is not None:
+                self.add_update_scene_task(target=target)
+        self.update_system_tray()
+
+    def _reverted_displays(self) -> list[DisplayId]:
+        """Return the displays whose live setting differs from what the app applied.
+
+        The app is not the only writer of a display's resolution and scale, and
+        every write re-triggers the other writer's, so a live value that differs
+        from the one the app put in effect means another writer reverted it and
+        the app must not write again.  A display the app has nothing applied to,
+        and a value that cannot be read, are never evidence of a revert.
+
+        Returns:
+            The reverted displays, possibly empty.
+        """
+        reverted: list[DisplayId] = []
+        for display_id in self._display_manager.active_display_ids:
+            applied = self._display_manager.applied_setting(display_id)
+            if applied == (None, None):
+                continue
+            live = self._display_manager.live_setting(display_id)
+            if any(a is not None and v is not None and a != v for a, v in zip(applied, live)):
+                logger.warning(
+                    "display %s reverted by another writer: applied %s, live %s",
+                    display_id,
+                    applied,
+                    live,
+                )
+                reverted.append(display_id)
+        return reverted
 
     def load_config(self, config_path: str) -> None:
         """Load and verify the YAML config, initializing managers accordingly.
@@ -208,11 +309,24 @@ class WallpaperController:
             self._mode,
             active_rule_name,
             active_target,
+            self._paused.is_set(),
         )
 
     def add_quit_task(self, priority: int | None = None) -> QuitTask:
         t = QuitTask()
         priority = 0 if priority is None else priority
+        self._task_queue.put((priority, next(self._task_counter), t))
+        return t
+
+    def add_pause_task(self, priority: int | None = None) -> PauseTask:
+        t = PauseTask()
+        priority = 1 if priority is None else priority
+        self._task_queue.put((priority, next(self._task_counter), t))
+        return t
+
+    def add_resume_task(self, priority: int | None = None) -> ResumeTask:
+        t = ResumeTask()
+        priority = 1 if priority is None else priority
         self._task_queue.put((priority, next(self._task_counter), t))
         return t
 
@@ -285,7 +399,7 @@ class WallpaperController:
     def set_tray(self, tray: WallpaperSwitchSystemTray) -> None:
         """Bind the system tray to the controller.
 
-        Registers the tray's mode/target/quit/update handlers against the
+        Registers the tray's mode/pause/target/quit/update handlers against the
         controller.
 
         Args:
@@ -296,10 +410,17 @@ class WallpaperController:
         def _set_mode(mode: Mode) -> None:
             self.add_set_mode_task(mode)
 
+        def _set_pause(paused: bool) -> None:
+            if paused:
+                self.add_pause_task()
+            else:
+                self.add_resume_task()
+
         def _set_target(target: str) -> None:
             self.add_update_scene_task(target=target)
 
         self._tray.bridge.register_set_mode_handler(_set_mode)
+        self._tray.bridge.register_set_pause_handler(_set_pause)
         self._tray.bridge.register_select_target_handler(_set_target)
         self._tray.bridge.register_quit_handler(self.stop)
         self._tray.bridge.register_update_ui_handler(self.update_system_tray)
@@ -309,10 +430,23 @@ class WallpaperController:
         if target is None:
             return
         logger.info(f"apply at shutdown target {target}")
-        update_task = self.add_update_scene_task(target=target, matched_rule=None, priority=1)
-        plot_task = self.add_apply_scene_task(priority=2)
-        update_task.wait(timeout=5)
-        plot_task.wait(timeout=5)
+        # Clear the pause so the shutdown target is applied even while paused;
+        # restore it afterwards, since WM_QUERYENDSESSION may be vetoed by
+        # another app and the service then keeps running.  Forget the applied
+        # settings too: this apply is unconditional, not a writer fight.
+        was_paused = self._paused.is_set()
+        self._paused.clear()
+        self._display_manager.clear_applied()
+        try:
+            update_task = self.add_update_scene_task(target=target, matched_rule=None, priority=1)
+            plot_task = self.add_apply_scene_task(priority=2)
+            update_task.wait(timeout=5)
+            plot_task.wait(timeout=5)
+        finally:
+            if was_paused:
+                self._paused.set()
+                # The update/plot branch already emitted paused=False.
+                self.update_system_tray()
 
     def start(self) -> None:
 
