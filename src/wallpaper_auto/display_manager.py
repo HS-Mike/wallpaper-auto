@@ -621,6 +621,49 @@ class DisplayManager:
                 state.applied_resolution = None
                 state.applied_scale = None
 
+    def display_event_is_own_change(self) -> bool:
+        """Report whether a display event carries only changes the app made itself.
+
+        A resolution/scale write the app performs fires ``WM_DISPLAYCHANGE``,
+        which re-enters the controller as if the topology had changed.  Every
+        difference a display event can carry that is *not* the app's own writing
+        makes this False, so the caller must still handle it:
+
+        * displays added or removed (a genuine hotplug),
+        * a display moved in the virtual desktop (the composite must re-flow),
+        * a live value differing from what the app applied (another writer
+          reverted it — the controller's pause path, not suppression).
+
+        Returns:
+            True when the event is entirely explained by the app's own applied
+            settings (nothing to do); False when it must be handled, or when
+            the live state cannot be read.
+        """
+        curr_display_info = get_display_info()
+        if curr_display_info is None:
+            return False
+        curr = {d.display_id: d for d in curr_display_info}
+        with self._lock:
+            if set(curr) != set(self._displays):
+                return False
+            stored_positions = {
+                display_id: state.display_info.position
+                for display_id, state in self._displays.items()
+            }
+        for display_id, display in curr.items():
+            if display.position != stored_positions[display_id]:
+                return False
+            try:
+                applied = self.applied_setting(display_id)
+                live = self.live_setting(display_id)
+            except KeyError:
+                # A display vanished between the snapshot and the read: a real
+                # topology change raced this check, so it is not an own change.
+                return False
+            if any(a is not None and v is not None and a != v for a, v in zip(applied, live)):
+                return False
+        return True
+
     def _apply_resolution(self, state: DisplayState, width: int, height: int) -> bool:
         """Snap and apply a resolution, skipping the set when already there.
 

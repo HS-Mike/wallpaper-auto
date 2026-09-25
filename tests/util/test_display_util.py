@@ -680,8 +680,15 @@ class TestMakeDisplayId:
         assert self._info(**override).display_id != self._info().display_id
 
     def test_ignores_volatile_snapshot_fields(self):
-        # Resolution/scale/position changes must not invalidate the id.
-        volatile = self._info(source_resolution=(1280, 720), scale=150, position=(100, 0))
+        # Resolution/scale/position changes must not invalidate the id.  A mode
+        # change moves source_resolution and target_resolution together, so both
+        # must be excluded or the id would flip-flop on every set.
+        volatile = self._info(
+            source_resolution=(1280, 720),
+            target_resolution=(1280, 720),
+            scale=150,
+            position=(100, 0),
+        )
         assert volatile.display_id == self._info().display_id
 
 

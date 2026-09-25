@@ -786,7 +786,12 @@ class TestWallpaperControllerAtDisplayChange:
         controller.active_target = "office"
         controller.active_rule = rule
 
-        with patch.object(controller, "add_update_scene_task") as mock_add:
+        with (
+            patch.object(controller, "add_update_scene_task") as mock_add,
+            patch.object(
+                controller._display_manager, "display_event_is_own_change", return_value=False
+            ),
+        ):
             controller.at_display_change(MagicMock())
 
         mock_add.assert_called_once_with(target="office", matched_rule=rule)
@@ -795,10 +800,32 @@ class TestWallpaperControllerAtDisplayChange:
         """With no target active yet, a display change just re-renders the composite."""
         controller.active_target = None
 
-        with patch.object(controller, "add_apply_scene_task") as mock_add:
+        with (
+            patch.object(controller, "add_apply_scene_task") as mock_add,
+            patch.object(
+                controller._display_manager, "display_event_is_own_change", return_value=False
+            ),
+        ):
             controller.at_display_change(MagicMock())
 
         mock_add.assert_called_once()
+
+    def test_at_display_change_ignores_own_setting(self, controller):
+        """A display event caused by the app's own resolution write is ignored."""
+        controller.active_target = "office"
+        controller.active_rule = MagicMock(spec=Rule)
+
+        with (
+            patch.object(controller, "add_update_scene_task") as mock_update,
+            patch.object(controller, "add_apply_scene_task") as mock_apply,
+            patch.object(
+                controller._display_manager, "display_event_is_own_change", return_value=True
+            ),
+        ):
+            controller.at_display_change(MagicMock())
+
+        mock_update.assert_not_called()
+        mock_apply.assert_not_called()
 
 
 class TestThreadSafeCounter:

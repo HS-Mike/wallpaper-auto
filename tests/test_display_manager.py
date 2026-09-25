@@ -1425,6 +1425,26 @@ class TestDisplayManagerUpdateDisplay:
         assert result is not None
         assert [d.monitor_device_path for d in result] == [_DEVICE_A]
 
+    def test_resolution_change_keeps_display_and_original(self):
+        """A mode change keeps the display_id, so update_display() leaves it alone."""
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        state_before = dm._displays[_did(_DEVICE_A)]
+        # Same identifiers, different resolution — what a mode change looks like.
+        displays = [_make_display(_DEVICE_A, 0, 0, 50, 50)]
+        with (
+            patch("wallpaper_auto.display_manager.get_display_info", return_value=displays),
+            patch("wallpaper_auto.display_manager.StaticWallpaper") as mock_static,
+        ):
+            result = dm.update_display()
+        assert result is not None
+        # Not a hotplug: no display added or removed, state and original kept.
+        mock_static.assert_not_called()
+        assert dm.active_display_ids == {_did(_DEVICE_A)}
+        state_after = dm._displays[_did(_DEVICE_A)]
+        assert state_after is state_before
+        assert state_after.original_resolution == (100, 100)
+
     def test_query_failure_returns_none_and_leaves_state(self):
         """get_display_info returning None → sync skipped, existing displays untouched."""
         dm = DisplayManager()
@@ -2196,6 +2216,103 @@ class TestDisplayManagerAppliedSetting:
         dm = DisplayManager()
         with pytest.raises(KeyError):
             getattr(dm, method)(DisplayId(999999))
+
+
+class TestDisplayManagerDisplayEventIsOwnChange:
+    """display_event_is_own_change — suppression of events the app caused itself."""
+
+    def test_own_resolution_change_is_ignored(self):
+        """A mode change that matches what the app applied is its own doing."""
+        dm = DisplayManager()
+        did, info = _add_with_capability(dm)
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+        ):
+            assert dm.set_display_resolution(did, 1280, 720) is True
+            resized = replace(info, source_resolution=(1280, 720), target_resolution=(1280, 720))
+            assert resized.display_id == did
+            with patch("wallpaper_auto.display_manager.get_display_info", return_value=[resized]):
+                assert dm.display_event_is_own_change() is True
+
+    def test_added_display_is_not_ignored(self):
+        dm = DisplayManager()
+        _add_with_capability(dm)
+        extra = _make_display(_DEVICE_B, 0, 0, 1920, 1080)
+        with patch("wallpaper_auto.display_manager.get_display_info", return_value=[extra]):
+            assert dm.display_event_is_own_change() is False
+
+    def test_moved_display_is_not_ignored(self):
+        """A display re-arranged in the virtual desktop needs a re-composite."""
+        dm = DisplayManager()
+        _did, info = _add_with_capability(dm)
+        moved = replace(info, position=(100, 0))
+        with patch("wallpaper_auto.display_manager.get_display_info", return_value=[moved]):
+            assert dm.display_event_is_own_change() is False
+
+    def test_reverted_setting_is_not_ignored(self):
+        """A live value differing from what the app applied is another writer's."""
+        dm = DisplayManager()
+        did, info = _add_with_capability(dm)
+        live = _LiveDisplay(resolution=(1920, 1080), scale=100)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.set_display_resolution",
+                side_effect=live.set_resolution,
+            ),
+        ):
+            dm.set_display_resolution(did, 1920, 1080)
+        live.resolution = (1280, 720)
+        with (
+            patch(
+                "wallpaper_auto.display_manager.get_display_resolution",
+                side_effect=live.get_resolution,
+            ),
+            patch(
+                "wallpaper_auto.display_manager.get_display_scale",
+                side_effect=live.get_scale,
+            ),
+            patch("wallpaper_auto.display_manager.get_display_info", return_value=[info]),
+        ):
+            assert dm.display_event_is_own_change() is False
+
+    def test_unreadable_snapshot_is_not_ignored(self):
+        dm = DisplayManager()
+        _add_with_capability(dm)
+        with patch("wallpaper_auto.display_manager.get_display_info", return_value=None):
+            assert dm.display_event_is_own_change() is False
+
+    def test_display_removed_mid_check_is_not_ignored(self):
+        """A display vanishing between the snapshot and the read is a real change."""
+        dm = DisplayManager()
+        did, info = _add_with_capability(dm)
+        real_applied = dm.applied_setting
+
+        def remove_then_read(display_id):
+            del dm._displays[display_id]
+            return real_applied(display_id)
+
+        with (
+            patch("wallpaper_auto.display_manager.get_display_info", return_value=[info]),
+            patch.object(dm, "applied_setting", side_effect=remove_then_read),
+        ):
+            assert dm.display_event_is_own_change() is False
+        assert did not in dm._displays
 
 
 class TestDisplayManagerScene:

@@ -372,7 +372,14 @@ class WallpaperController:
         desktop; a bare re-plot leaves the new display without a canvas, so
         Windows stretches the old composite across it. Falls back to a plain
         re-plot when no target is active yet.
+
+        A change the app caused itself by writing a resolution/scale is
+        ignored: re-applying on it would write the setting back and forth
+        forever with the other writer's message.
         """
+        if self._display_manager.display_event_is_own_change():
+            logger.debug("display change caused by our own setting; ignoring")
+            return
         logger.info("Detect display change.")
         with self._active_lock:
             target = self.active_target

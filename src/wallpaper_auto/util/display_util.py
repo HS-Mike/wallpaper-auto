@@ -407,8 +407,8 @@ def _make_display_id(display_info: DisplayInfo) -> DisplayId:
     id stays identical across resolution/scale changes.  It changes only when
     the monitor's identity changes (replug / topology shift) — the manager
     then re-adds the display with fresh identifiers, capability, and originals.
-    Volatile snapshot fields (``source_resolution``, ``scale``, ``position``)
-    are excluded deliberately.
+    Volatile snapshot fields (``source_resolution``, ``target_resolution``,
+    ``scale``, ``position``) are excluded deliberately.
     """
     return DisplayId(
         hash(
@@ -416,7 +416,6 @@ def _make_display_id(display_info: DisplayInfo) -> DisplayId:
                 display_info.device_name,
                 display_info.monitor_device_path,
                 display_info.model,
-                display_info.target_resolution,
                 (display_info.adapter_id.LowPart, display_info.adapter_id.HighPart),
                 display_info.source_id,
             )
