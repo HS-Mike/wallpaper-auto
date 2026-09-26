@@ -13,6 +13,7 @@ from wallpaper_auto.display_manager import DisplayManager, DisplayState
 from wallpaper_auto.models import CacheConfig, CacheResizeConfig, ConfigModel, ResourceConfig
 from wallpaper_auto.resource.base_resource import BaseResource
 from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
+from wallpaper_auto.resource_manager import ResourceManager, ResourceTransition
 from wallpaper_auto.util.display_util import (
     LUID,
     DisplayCapability,
@@ -72,6 +73,42 @@ def _make_resource(**overrides) -> MagicMock:
     for k, v in overrides.items():
         setattr(r, k, v)
     return r
+
+
+def _make_recording_resource_classes() -> tuple[type[BaseResource], type[BaseResource], list[str]]:
+    """Two distinct BaseResource subclasses recording lifecycle calls into one list."""
+    calls: list[str] = []
+    old_cls = type(
+        "OldRes",
+        (BaseResource,),
+        {
+            "mount": lambda s: calls.append("old.mount"),
+            "demount": lambda s: calls.append("old.demount"),
+        },
+    )
+    new_cls = type(
+        "NewRes",
+        (BaseResource,),
+        {
+            "mount": lambda s: calls.append("new.mount"),
+            "demount": lambda s: calls.append("new.demount"),
+        },
+    )
+    return old_cls, new_cls, calls
+
+
+def _raise_boom(old: BaseResource, new: BaseResource) -> None:
+    """Transition that always raises."""
+    raise RuntimeError("boom")
+
+
+def _recording_transition(calls: list[str], label: str) -> ResourceTransition:
+    """Build a transition that appends *label* to *calls* when it runs."""
+
+    def transition(old: BaseResource, new: BaseResource) -> None:
+        calls.append(label)
+
+    return transition
 
 
 def _put_canvas(
@@ -723,6 +760,77 @@ class TestDisplayManagerSuspend:
             dm.remove_display(_did(_DEVICE_A))
 
         resource.demount.assert_called_once()
+
+
+class TestDisplayManagerResourceTransition:
+    """update_resource() runs registered transitions before the swap lifecycle."""
+
+    def test_transition_runs_before_old_demount_and_new_mount(self):
+        old_cls, new_cls, calls = _make_recording_resource_classes()
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        with patch.dict(ResourceManager._resource_transitions, clear=True):
+            ResourceManager.register_transition(
+                old_cls, new_cls, _recording_transition(calls, "transition")
+            )
+            dm.update_resource(_did(_DEVICE_A), old_cls())
+            calls.clear()
+
+            dm.update_resource(_did(_DEVICE_A), new_cls())
+
+        assert calls == ["transition", "old.demount", "new.mount"]
+
+    def test_transition_runs_when_previous_resource_was_suspended(self):
+        old_cls, new_cls, calls = _make_recording_resource_classes()
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        with patch.dict(ResourceManager._resource_transitions, clear=True):
+            ResourceManager.register_transition(
+                old_cls, new_cls, _recording_transition(calls, "transition")
+            )
+            dm.update_resource(_did(_DEVICE_A), old_cls())
+            dm.suspend()
+            calls.clear()
+
+            dm.update_resource(_did(_DEVICE_A), new_cls())
+
+        assert calls == ["transition", "new.mount"]
+
+    def test_raising_transition_propagates_and_skips_the_swap_lifecycle(self):
+        old_cls, new_cls, calls = _make_recording_resource_classes()
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        new_resource = new_cls()
+        with patch.dict(ResourceManager._resource_transitions, clear=True):
+            ResourceManager.register_transition(old_cls, new_cls, _raise_boom)
+            dm.update_resource(_did(_DEVICE_A), old_cls())
+            calls.clear()
+
+            with pytest.raises(RuntimeError, match="boom"):
+                dm.update_resource(_did(_DEVICE_A), new_resource)
+
+        assert calls == []
+        assert dm._displays[_did(_DEVICE_A)].resource is new_resource
+
+    def test_transition_registered_for_another_pair_does_not_fire(self):
+        old_cls, new_cls, calls = _make_recording_resource_classes()
+        other_cls = type(
+            "OtherRes",
+            (BaseResource,),
+            {"mount": lambda s: None, "demount": lambda s: None},
+        )
+        dm = DisplayManager()
+        _add_display(dm, _DEVICE_A)
+        with patch.dict(ResourceManager._resource_transitions, clear=True):
+            ResourceManager.register_transition(
+                old_cls, other_cls, _recording_transition(calls, "fired")
+            )
+            dm.update_resource(_did(_DEVICE_A), old_cls())
+            calls.clear()
+
+            dm.update_resource(_did(_DEVICE_A), new_cls())
+
+        assert calls == ["old.demount", "new.mount"]
 
 
 @pytest.mark.usefixtures("_config_store_with_cache")

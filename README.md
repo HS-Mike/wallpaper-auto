@@ -634,6 +634,78 @@ resource:
 ```
 
 
+### Custom Resource Transition
+
+A transition is a hook on the handoff between two resource types. It runs **before** the outgoing resource is demounted and the incoming one is mounted, which is the only point where both are still alive — use it to release or hand over state that the incoming resource cannot share (closing an external player, dropping a shared handle, and so on).
+
+A transition is a callable with the signature `(old: BaseResource, new: BaseResource) -> None`, registered against the exact pair of classes it applies to. One name serves both registration forms:
+
+```python
+from wallpaper_auto import register_transition
+
+# Direct — registers immediately and returns None
+register_transition(EngineResource, StaticResource, release_engine)
+
+# Decorator — registers the function and returns it unchanged
+@register_transition(EngineResource, StaticResource)
+def release_engine(old, new):
+    ...
+```
+
+A method of the outgoing resource class works as the direct argument. It is invoked on the outgoing instance, so its first parameter binds to `old`:
+
+```python
+register_transition(EngineResource, StaticResource, EngineResource.on_handoff)
+# the method is called as: old.on_handoff(new)
+```
+
+**Rules of the hook:**
+
+- Matching is by **exact type pair**. A transition registered for `EngineResource -> StaticResource` does not fire when the outgoing resource is a subclass of `EngineResource`.
+- Multiple transitions may be registered for the same pair; they run in **registration order**.
+- Transitions run **once per display**: the manager creates one resource instance per connected display, so a single target switch fires the matching transition once for each display.
+- A transition that raises **propagates to the caller** and is never swallowed. The display is already recorded as using the incoming resource at that point, so a raising transition leaves the swap half-applied — treat it as part of the swap, not as optional cleanup.
+
+Transitions fire only on a resource-to-resource replacement. They do **not** fire when the app is paused, when a display is removed (that mounts a restored-wallpaper patch), when the app stops, or for a `cycle` resource's internal sub-resource rotation — only the outer pair applied to a display is observable.
+
+The `old` argument is the live instance that is about to be demounted, so its session state is valid to read there — for instance state, register the resource's own method as shown above. State that must survive across applies belongs at module or class level, since instances are never reused:
+
+```python
+from wallpaper_auto import BaseResource, register_transition, run
+
+class EngineResource(BaseResource):
+    """Runs a live wallpaper in an external process."""
+
+    def mount(self) -> None:
+        start_engine()
+
+    def demount(self) -> None:
+        stop_engine()
+
+
+class StaticResource(BaseResource):
+    """Applies a plain static image."""
+
+    def mount(self) -> None:
+        self.update_canvas("fill", "C:/Users/You/Pictures/static.jpg")
+        self.plot_canvas()
+
+    def demount(self) -> None:
+        pass
+
+
+@register_transition(EngineResource, StaticResource)
+def release_engine(old: BaseResource, new: BaseResource) -> None:
+    # Runs before old.demount() and new.mount()
+    stop_engine(force=True)
+
+run(
+    "config.yaml",
+    custom_resources={"engine": EngineResource, "static": StaticResource},
+)
+```
+
+
 ### Custom Trigger
 
 Custom Trigger must inherit from `BaseTrigger`.

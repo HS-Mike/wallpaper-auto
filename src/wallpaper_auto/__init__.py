@@ -5,7 +5,7 @@ Wallpaper Auto - Automatically switch Windows desktop wallpapers based on condit
 from .evaluator.base_evaluator import BaseEvaluator
 from .models import LogLevel
 from .resource.base_resource import BaseResource
-from .resource_manager import ResourceManager
+from .resource_manager import ResourceManager, ResourceTransition, register_transition
 from .rule_engine import RuleEngine
 from .trigger.base_trigger import BaseThreadTrigger, BaseTrigger
 from .trigger_manager import TriggerManager
@@ -78,10 +78,12 @@ __all__ = [
     "BaseTrigger",
     "BaseThreadTrigger",
     "BaseResource",
+    "ResourceTransition",
     "BaseEvaluator",
     "TriggerManager",
     "ResourceManager",
     "RuleEngine",
+    "register_transition",
     "init_config",
     "run",
     "display_capability",

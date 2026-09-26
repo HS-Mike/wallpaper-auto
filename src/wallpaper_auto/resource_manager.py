@@ -7,7 +7,9 @@ Handles registration of built-in and custom resource types.
 
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import overload
 
 from .config_store import ConfigStore
 from .models import ResourceConfig, SceneBinding
@@ -25,6 +27,10 @@ _BUILTIN_RESOURCES: dict[str, type[BaseResource]] = {
     "cycle": ResourceCycle,
     "wallpaper_engine": WallpaperEngineResource,
 }
+
+
+ResourceTransitionKey = tuple[type[BaseResource], type[BaseResource]]
+ResourceTransition = Callable[[BaseResource, BaseResource], None]
 
 
 @dataclass
@@ -48,11 +54,112 @@ class ResourceManager:
 
     _support_resources = _BUILTIN_RESOURCES.copy()
 
+    _resource_transitions: dict[ResourceTransitionKey, list[ResourceTransition]] = {}
+
     @classmethod
     def register_resource(cls, resource_name: str, resource: type[BaseResource]) -> None:
         if not issubclass(resource, BaseResource):
             raise ValueError("resource cls must inherit from BaseResource")
         cls._support_resources[resource_name] = resource
+
+    @overload
+    @classmethod
+    def register_transition(
+        cls,
+        old_cls: type[BaseResource],
+        new_cls: type[BaseResource],
+        func: ResourceTransition,
+    ) -> None: ...
+
+    @overload
+    @classmethod
+    def register_transition(
+        cls, old_cls: type[BaseResource], new_cls: type[BaseResource]
+    ) -> Callable[[ResourceTransition], ResourceTransition]: ...
+
+    @classmethod
+    def register_transition(
+        cls,
+        old_cls: type[BaseResource],
+        new_cls: type[BaseResource],
+        func: ResourceTransition | None = None,
+    ) -> Callable[[ResourceTransition], ResourceTransition] | None:
+        """Register a transition for an exact ``(old_cls, new_cls)`` pair.
+
+        Two forms share this name. **Direct** — pass the callable, including a
+        method of the outgoing resource class, which is invoked as
+        ``old.on_handoff(new)`` because the stored function's first parameter
+        binds to *old*::
+
+            ResourceManager.register_transition(
+                StaticWallpaper, ResourceCycle, StaticWallpaper.on_handoff
+            )
+
+        **Decorator** — omit the callable to get a decorator that registers the
+        function and returns it unchanged::
+
+            @ResourceManager.register_transition(StaticWallpaper, ResourceCycle)
+            def release_engine(old: BaseResource, new: BaseResource) -> None: ...
+
+        Registered functions are invoked in registration order by
+        :meth:`run_resource_transitions`, before the outgoing resource is
+        demounted and the incoming one is mounted. Matching is by exact type: a
+        transition registered for a base class does not fire for a subclass.
+
+        Args:
+            old_cls: Exact class of the outgoing resource.
+            new_cls: Exact class of the incoming resource.
+            func: Callable invoked with the outgoing and incoming instances, or
+                ``None`` to return a decorator instead.
+
+        Returns:
+            ``None`` when *func* is given; otherwise a decorator that registers
+            the decorated function and returns it unchanged.
+
+        Raises:
+            ValueError: *old_cls* or *new_cls* is not a ``BaseResource`` subclass.
+        """
+        if not issubclass(old_cls, BaseResource):
+            raise ValueError("old_cls must inherit from BaseResource")
+        if not issubclass(new_cls, BaseResource):
+            raise ValueError("new_cls must inherit from BaseResource")
+        if func is None:
+
+            def decorator(transition: ResourceTransition) -> ResourceTransition:
+                cls.register_transition(old_cls, new_cls, transition)
+                return transition
+
+            return decorator
+        cls._resource_transitions.setdefault((old_cls, new_cls), []).append(func)
+        return None
+
+    @classmethod
+    def run_resource_transitions(cls, old: BaseResource, new: BaseResource) -> None:
+        """Invoke every transition registered for ``(type(old), type(new))``.
+
+        Runs in registration order. Called by ``DisplayManager.update_resource``
+        before the outgoing resource is demounted and the incoming one is
+        mounted. A pair no swap ever produces is a silent no-op.
+
+        Args:
+            old: The outgoing resource instance.
+            new: The incoming resource instance.
+
+        Raises:
+            Exception: Any exception raised by a registered transition propagates
+                to the caller and is never swallowed.
+        """
+        funcs = cls._resource_transitions.get((type(old), type(new)))
+        if funcs is None:
+            return
+        for func in funcs:
+            logger.debug(
+                "resource transition %s: %s -> %s",
+                getattr(func, "__name__", repr(func)),
+                type(old).__name__,
+                type(new).__name__,
+            )
+            func(old, new)
 
     @staticmethod
     def evaluate_target(target: str, display_info: list[DisplayInfo]) -> list[DisplayScene]:
@@ -142,3 +249,6 @@ class ResourceManager:
                     result[display.display_id] = binding
                     break
         return result
+
+
+register_transition = ResourceManager.register_transition

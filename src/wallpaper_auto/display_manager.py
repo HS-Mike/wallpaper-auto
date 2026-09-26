@@ -18,6 +18,7 @@ from .config_store import ConfigStore
 from .image_cache import ImageCompressionCache, _resize_image
 from .resource.base_resource import BaseResource
 from .resource.static_wallpaper import StaticWallpaper
+from .resource_manager import ResourceManager
 from .util.display_util import (
     DisplayCapability,
     DisplayId,
@@ -518,8 +519,11 @@ class DisplayManager:
     def update_resource(self, display_id: DisplayId, resource: BaseResource) -> None:
         """Replace the active resource on a display with a new one.
 
-        Demounts the previous resource, binds the new one, and mounts it.  A
-        resource demounted by :meth:`suspend` is not demounted again.
+        Records *resource* as the display's active resource, runs any transition
+        registered for ``(type(prev), type(resource))``, then demounts the
+        previous resource and mounts the new one.  A resource demounted by
+        :meth:`suspend` is not demounted again; its transition still runs, so it
+        must tolerate an already-demounted *old*.
 
         Args:
             display_id: Opaque id of the display.
@@ -532,6 +536,9 @@ class DisplayManager:
             state.resource = resource
             state.is_patch = False
             state.suspended = False
+        # Outside the lock: user code, possibly slow or re-entrant — it may call
+        # back into a public method that takes the lock. Runs before demount.
+        ResourceManager.run_resource_transitions(prev, resource)
         if not was_suspended:
             prev.demount()  # outside lock (may join a cycling thread)
         resource.mount()  # outside lock (→ update_canvas takes the lock)
