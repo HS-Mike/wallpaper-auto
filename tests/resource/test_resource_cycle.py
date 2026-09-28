@@ -111,6 +111,20 @@ class TestResourceCycleLifecycle:
         cycle.demount()
         assert cycle._cycling_thread is None
 
+    def test_repeated_demount_does_not_touch_sub_resources_again(self, mock_sub_resources):
+        """A second demount is a no-op — the built-in handoff transition relies on it."""
+        cycle = ResourceCycle(resources=mock_sub_resources)
+        cycle._bind_display(_make_display())
+        cycle._plot_canvas = MagicMock()
+        cycle.mount()
+
+        cycle.demount()
+        counts = [r.demount.call_count for r in mock_sub_resources]
+
+        cycle.demount()
+
+        assert [r.demount.call_count for r in mock_sub_resources] == counts
+
     def test_mount_random_starts_at_random_index(self, mock_sub_resources):
         """With random=True, a different starting index may be selected."""
         cycle = ResourceCycle(resources=mock_sub_resources, random=True)

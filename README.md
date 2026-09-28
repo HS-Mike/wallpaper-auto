@@ -708,6 +708,21 @@ run(
 )
 ```
 
+**Handing the desktop over without a flash.** A transition is the only point where the incoming instance already exists while the outgoing one has not been demounted yet — `new.mount()` does not run until `old.demount()` returns. If the outgoing resource paints over the desktop (a live wallpaper in an external process, say), the previous composite stays visible until the worker loop applies the new one. Buffer the incoming image and composite it immediately to hand the desktop over first:
+
+```python
+@register_transition(EngineResource, StaticResource)
+def hand_over(old: BaseResource, new: BaseResource) -> None:
+    # `new.mount()` has not run yet, so buffer its image here and put it on
+    # screen before the engine releases the desktop.
+    new.update_canvas("fill", "C:/Users/You/Pictures/static.jpg")
+    new.immediate_plot_canvas()
+```
+
+Transitions run on the controller's worker loop, so `immediate_plot_canvas()` composites on that thread and may block the loop for the duration of the render. Whatever `new.mount()` buffers afterwards is applied as usual — a composite whose canvas is unchanged is skipped.
+
+This handover is built in for the pairs where it matters: `WallpaperEngineResource -> StaticWallpaper` and `ResourceCycle -> StaticWallpaper` (a cycle whose active sub-resource is the engine). The transition mounts the incoming static resource (buffering its image), demounts the outgoing one, then calls `immediate_plot_canvas()` to composite. The engine releases the desktop and the new image appears in the same breath, so the previous wallpaper is never visible during the (slow) engine close. Because the transition demounts the outgoing resource itself, `WallpaperEngineResource.demount()` is **idempotent** and the framework's lifecycle demount that follows returns without dispatching another `closeWallpaper`; `ResourceCycle.demount()` is a no-op once its cycling thread has been joined.
+
 
 ### Custom Trigger
 

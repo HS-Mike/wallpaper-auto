@@ -16,7 +16,10 @@ from .models import ResourceConfig, SceneBinding
 from .resource.base_resource import BaseResource
 from .resource.resource_cycle import ResourceCycle
 from .resource.static_wallpaper import StaticWallpaper
-from .resource.wallpaper_engine_resource import WallpaperEngineResource
+from .resource.wallpaper_engine_resource import (
+    WallpaperEngineResource,
+    register_builtin_transitions,
+)
 from .util.display_util import DisplayId, DisplayInfo
 
 logger = logging.getLogger(__name__)
@@ -252,3 +255,7 @@ class ResourceManager:
 
 
 register_transition = ResourceManager.register_transition
+
+# The built-in hand-over transitions are registered by the resource that owns
+# them, once ``ResourceManager`` exists (it is imported *by* this module).
+register_builtin_transitions()

@@ -3,6 +3,7 @@
 import getpass
 import json
 import subprocess
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,14 +14,18 @@ import pytest
 import win32event
 
 from wallpaper_auto.resource import wallpaper_engine_resource as we_mod
+from wallpaper_auto.resource.resource_cycle import ResourceCycle
+from wallpaper_auto.resource.static_wallpaper import StaticWallpaper
 from wallpaper_auto.resource.wallpaper_engine_resource import (
     WallpaperEngineApp,
     WallpaperEngineResource,
     _find_running_wallpaper_engines,
     find_wallpaper_engine_executables_in_library,
     get_steam_libraries,
+    hand_over_to_static,
     resolve_wallpaper_engine_executables,
 )
+from wallpaper_auto.resource_manager import ResourceManager
 from wallpaper_auto.util.display_util import LUID, DisplayInfo
 
 _DEVICE_PATH = r"\\?\DISPLAY#TEST#{test-device}"
@@ -982,3 +987,95 @@ class TestWallpaperEngineResourceDemount:
         resource.demount()
 
         app.close_wallpaper.assert_called_once_with(monitor=_DEVICE_PATH)
+
+    def test_second_demount_dispatches_no_close(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A repeat demount is a no-op, so the framework's lifecycle demount costs nothing."""
+        app = MagicMock()
+        monkeypatch.setattr(WallpaperEngineResource, "app", app)
+        resource = WallpaperEngineResource(path="scene")
+        resource._bind_display(_make_display())
+
+        resource.demount()
+        resource.demount()
+
+        app.close_wallpaper.assert_called_once_with(monitor=_DEVICE_PATH)
+
+    def test_failed_close_still_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The flag is set only after a successful close, so a failure can be retried."""
+        app = MagicMock()
+        app.close_wallpaper.side_effect = [RuntimeError("boom"), None]
+        monkeypatch.setattr(WallpaperEngineResource, "app", app)
+        resource = WallpaperEngineResource(path="scene")
+        resource._bind_display(_make_display())
+
+        with pytest.raises(RuntimeError, match="boom"):
+            resource.demount()
+        resource.demount()
+
+        assert app.close_wallpaper.call_count == 2
+
+
+class TestBuiltinStaticHandoffTransition:
+    """The built-in hand-over transition owned by this module."""
+
+    def test_registered_for_the_engine_to_static_pair(self) -> None:
+        assert (
+            hand_over_to_static
+            in ResourceManager._resource_transitions[(WallpaperEngineResource, StaticWallpaper)]
+        )
+
+    def test_mounts_static_then_composites_then_demounts_engine(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Order is: buffer the incoming image, composite it, wait, release the engine."""
+        calls: list[str] = []
+        engine = WallpaperEngineResource("C:/x/scene.pkg")
+        static = StaticWallpaper(style="fill", path="C:/x/img.png")
+        monkeypatch.setattr(time, "sleep", lambda _seconds: calls.append("sleep"))
+        monkeypatch.setattr(static, "mount", lambda: calls.append("static.mount"))
+        monkeypatch.setattr(engine, "demount", lambda: calls.append("engine.demount"))
+        monkeypatch.setattr(
+            static,
+            "immediate_plot_canvas",
+            lambda: calls.append("static.immediate_plot_canvas"),
+        )
+
+        ResourceManager.run_resource_transitions(engine, static)
+
+        assert calls == [
+            "static.mount",
+            "static.immediate_plot_canvas",
+            "sleep",
+            "engine.demount",
+        ]
+
+    def test_registered_for_the_cycle_to_static_pair(self) -> None:
+        assert (
+            hand_over_to_static
+            in ResourceManager._resource_transitions[(ResourceCycle, StaticWallpaper)]
+        )
+
+    def test_cycle_handoff_mounts_static_then_composites_then_demounts_cycle(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cycle containing the engine takes the same handoff on its way out."""
+        calls: list[str] = []
+        cycle = ResourceCycle([StaticWallpaper(style="fill", path="C:/x/a.png")])
+        static = StaticWallpaper(style="fill", path="C:/x/img.png")
+        monkeypatch.setattr(time, "sleep", lambda _seconds: calls.append("sleep"))
+        monkeypatch.setattr(static, "mount", lambda: calls.append("static.mount"))
+        monkeypatch.setattr(cycle, "demount", lambda: calls.append("cycle.demount"))
+        monkeypatch.setattr(
+            static,
+            "immediate_plot_canvas",
+            lambda: calls.append("static.immediate_plot_canvas"),
+        )
+
+        ResourceManager.run_resource_transitions(cycle, static)
+
+        assert calls == [
+            "static.mount",
+            "static.immediate_plot_canvas",
+            "sleep",
+            "cycle.demount",
+        ]

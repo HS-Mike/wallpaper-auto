@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 import winreg
 from pathlib import Path
 from typing import ClassVar
@@ -19,6 +20,8 @@ from ..util.process_util import (
 )
 from ..util.singleton_meta import SingletonMeta
 from .base_resource import BaseResource
+from .resource_cycle import ResourceCycle
+from .static_wallpaper import StaticWallpaper
 
 logger = logging.getLogger(__name__)
 
@@ -466,6 +469,7 @@ class WallpaperEngineResource(BaseResource):
     def __init__(self, path: Path | str) -> None:
         super().__init__()
         self.image_path = Path(path)
+        self._demounted: bool = False
 
     @classmethod
     def _ensure_app(cls) -> WallpaperEngineApp:
@@ -505,6 +509,12 @@ class WallpaperEngineResource(BaseResource):
     def demount(self) -> None:
         """Close the wallpaper on the bound display, leaving other monitors alone.
 
+        Idempotent: the built-in engine-to-static transition demounts the engine
+        itself and the framework's lifecycle demounts it again right after.  A
+        second ``closeWallpaper`` would cost a CLI round trip and could undo the
+        composite the transition applied in between, so a repeat call returns
+        without dispatching anything.
+
         Raises:
             RuntimeError: The shared app was never initialized, or no display is
                 bound. Both are unreachable through the lifecycle
@@ -512,6 +522,8 @@ class WallpaperEngineResource(BaseResource):
                 and it initializes the app and binds the display — so either one
                 means an internal error rather than "nothing to close".
         """
+        if self._demounted:
+            return
         if WallpaperEngineResource.app is None:
             raise RuntimeError("wallpaper engine app not initialized")
         if self.display is None:
@@ -519,3 +531,54 @@ class WallpaperEngineResource(BaseResource):
         WallpaperEngineResource.app.close_wallpaper(
             monitor=self.display.monitor_device_path,
         )
+        self._demounted = True
+
+
+def hand_over_to_static(old: BaseResource, new: BaseResource) -> None:
+    """Put the incoming static wallpaper on screen before the engine releases the desktop.
+
+    Registered by :mod:`wallpaper_auto.resource_manager` for the exact pairs
+    ``(WallpaperEngineResource, StaticWallpaper)`` and
+    ``(ResourceCycle, StaticWallpaper)`` — it lives here, next to the engine
+    lifecycle it drives.  This module does not import ``resource_manager``: the
+    resource modules are imported *by* it, so importing it back at the top level
+    would be a cycle (the same reason ``resource_cycle`` defers its import).
+
+    The engine paints over the desktop, so the framework's own order — demount
+    the engine, then mount the incoming resource, whose image stays buffered
+    until the worker loop composites it — leaves the previous wallpaper visible
+    for the whole (slow) engine close.  Mounting the incoming resource here
+    buffers and composites its image first, waits for the engine CLI to take
+    effect, and only then demounts the engine, so the engine releases the
+    desktop straight onto the new image.
+
+    Args:
+        old: The outgoing engine resource, demounted here.
+        new: The incoming static resource, mounted and composited here.
+    """
+    new.mount()
+    new.immediate_plot_canvas()
+    time.sleep(2)  # wait wallpaper apply to task effect
+    old.demount()
+
+
+def register_builtin_transitions() -> None:
+    """Register the built-in hand-over transitions.
+
+    Called by :mod:`wallpaper_auto.resource_manager` at import time, so the
+    registration lives with the resource it belongs to.  The import is deferred
+    because this module is imported *by* ``resource_manager``; referring to it at
+    module level would be a cycle, the same reason ``resource_cycle`` defers its
+    import.
+
+    Both outgoing resources are demounted by ``hand_over_to_static`` and then
+    demounted again by the framework, so their ``demount`` must be idempotent:
+    ``WallpaperEngineResource`` flags it explicitly, and ``ResourceCycle`` is
+    already a no-op once its thread has been joined.
+    """
+    from ..resource_manager import ResourceManager  # noqa: PLC0415
+
+    ResourceManager.register_transition(
+        WallpaperEngineResource, StaticWallpaper, hand_over_to_static
+    )
+    ResourceManager.register_transition(ResourceCycle, StaticWallpaper, hand_over_to_static)
