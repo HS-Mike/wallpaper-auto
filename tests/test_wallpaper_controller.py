@@ -96,11 +96,17 @@ class TestWallpaperControllerInit:
             "register_plot_canvas",
             lambda cb: registered.setdefault("plot_canvas", cb),
         )
+        monkeypatch.setattr(
+            BaseResource,
+            "register_immediate_plot_canvas",
+            lambda cb: registered.setdefault("immediate_plot_canvas", cb),
+        )
 
         controller = WallpaperController()
 
         assert registered["update_canvas"] == controller._display_manager.update_canvas
         assert registered["plot_canvas"] == controller.add_apply_scene_task
+        assert registered["immediate_plot_canvas"] == controller._display_manager.plot_canvas
 
 
 class TestWallpaperControllerLoadConfig:

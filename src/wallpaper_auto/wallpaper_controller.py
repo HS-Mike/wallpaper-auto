@@ -56,6 +56,7 @@ class WallpaperController:
         self._display_manager: DisplayManager = DisplayManager()
         BaseResource.register_update_canvas(self._display_manager.update_canvas)
         BaseResource.register_plot_canvas(self.add_apply_scene_task)
+        BaseResource.register_immediate_plot_canvas(self._display_manager.plot_canvas)
         self._trigger_manager: TriggerManager = TriggerManager()
         self._trigger_manager.add_callback(self.evaluate)
         self._rule_engine: RuleEngine = RuleEngine()

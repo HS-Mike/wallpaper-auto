@@ -81,6 +81,8 @@ Each display prepares its wallpaper at those settings
 
 The Windows COM `IDesktopWallpaper` API only allows a uniform style across all displays. To support per-display wallpaper style settings, the app applies wallpapers as a single SPAN wallpaper rather than one per monitor. Each display's prepared image is laid out into one canvas (each with its proposed style) that stretches across the entire virtual desktop, so Windows sees a single wallpaper covering all monitors.
 
+Applying a scene buffers each monitor's image and then composites that canvas: `plot_canvas()` defers the composite to the controller's worker loop, while `immediate_plot_canvas()` composites on the calling thread (see the custom resource section below).
+
 The app also applies **resolution** and **scale** alongside the wallpaper. You cannot assign arbitrary resolution or scale values to a display — they must fall within the display's supported capability options.
 
 Each display's original wallpaper, resolution, and DPI scale are captured when the display is added, and its supported resolution/scale modes are cached for snapping on apply. On stop or display removal, every display is reverted to its recorded originals (wallpaper, resolution, and scale). Note: if a new display is plugged in during app runtime, Windows cannot capture its original wallpaper setting because the app's single SPAN wallpaper overrides it — a black background is set as the fallback in that case.
@@ -565,18 +567,19 @@ class CustomResource(BaseResource):
 run("config.yaml", custom_resources={"custom": CustomResource})
 ```
 
-**BaseResource** has 4 important methods: 2 lifecycle notification methods (``mount()`` and ``demount()``) and 2 wallpaper canvas manage methods (``update_canvas(style, image)`` and ``plot_canvas()``).
+**BaseResource** has 5 important methods: 2 lifecycle notification methods (``mount()`` and ``demount()``) and 3 wallpaper canvas manage methods (``update_canvas(style, image)``, ``plot_canvas()`` and ``immediate_plot_canvas()``).
 
 `mount()` and `demount()` are lifecycle **notifications** — they signal that the resource has entered or left the active window. Do not execute time-consuming processes in these methods. Otherwise, this will block the application's worker loop. Run the work in a thread instead.
 
 A custom resource never sets the wallpaper directly. It buffers an image for its bound monitor and asks the system to composite it:
 
 - **`update_canvas(style, image)`** — buffer an image for the resource's monitor. `style` is a `WallpaperStyle` (e.g. `fill`, `fit`); `image` is a `Path` or a PIL `Image`. Buffering alone does **not** apply the wallpaper.
-- **`plot_canvas()`** — request a composite of the buffered canvas. In the running app this is enqueued to the controller's worker loop rather than composited synchronously, so it is safe to call from any thread.
+- **`plot_canvas()`** — request a composite of the buffered canvas. In the running app this is enqueued to the controller's worker loop rather than composited synchronously, so it is safe to call from any thread and returns immediately.
+- **`immediate_plot_canvas()`** — composite the buffered canvas **now, on the calling thread**, instead of deferring it to the worker loop. It is the synchronous counterpart to `plot_canvas()`: it returns only once the wallpaper is applied, so the caller blocks for the duration of the composite. Like `plot_canvas()`, it applies whatever `update_canvas()` has buffered, so buffer first.
 
-In fact, you are free to call `update_canvas()` and `plot_canvas()` in between the lifecycle. In ``ResourceCycle``, there is a dedicated thread that starts in `mount()` and joins in `demount()` to manage the wallpaper rotation dynamically. Under a trusted environment, you can even execute bash scripts to get richer customized features. 
+In fact, you are free to call `update_canvas()` and `plot_canvas()` (or `immediate_plot_canvas()`) in between the lifecycle. In ``ResourceCycle``, there is a dedicated thread that starts in `mount()` and joins in `demount()` to manage the wallpaper rotation dynamically. Under a trusted environment, you can even execute bash scripts to get richer customized features.
 
-At runtime, a resource can inspect the display it is bound to through `self.display` (a `DisplayInfo` set before `mount()`). This is an **instance attribute**: the manager sets it on each instance when it binds that instance to a monitor (before `mount()`), so every instance tracks its own bound display — unlike the class-wide `update_canvas()` / `plot_canvas()` callbacks, which are uniform across all instances.
+At runtime, a resource can inspect the display it is bound to through `self.display` (a `DisplayInfo` set before `mount()`). This is an **instance attribute**: the manager sets it on each instance when it binds that instance to a monitor (before `mount()`), so every instance tracks its own bound display — unlike the class-wide `update_canvas()` / `plot_canvas()` / `immediate_plot_canvas()` callbacks, which are uniform across all instances.
 
 **WARNING:** Resource instances are **not reused**. Each time a target is applied, the manager creates a fresh instance per connected display, binds it to a single monitor (accessible via `self.display`), and calls `mount()` once and `demount()` once. Expect a **different instance across each wallpaper apply session and per display**.
 
