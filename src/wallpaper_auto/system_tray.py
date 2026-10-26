@@ -339,7 +339,9 @@ class WallpaperSwitchSystemTray:
 
         signal.signal(signal.SIGINT, handle_sigint)
 
-        sys.exit(self._app.exec())
+        return_code = self._app.exec()
+        logger.debug("system tray exec returned %s", return_code)
+        sys.exit(return_code)
 
 
 def create_dot_icon(color: QColor, size: int = 10) -> QIcon:
