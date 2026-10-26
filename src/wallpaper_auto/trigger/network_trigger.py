@@ -35,6 +35,42 @@ class Overlapped(ctypes.Structure):
     ]
 
 
+KERNEL32.CreateEventW.argtypes = [
+    wintypes.LPVOID,
+    wintypes.BOOL,
+    wintypes.BOOL,
+    wintypes.LPCWSTR,
+]
+KERNEL32.CreateEventW.restype = wintypes.HANDLE
+KERNEL32.SetEvent.argtypes = [wintypes.HANDLE]
+KERNEL32.SetEvent.restype = wintypes.BOOL
+KERNEL32.CloseHandle.argtypes = [wintypes.HANDLE]
+KERNEL32.CloseHandle.restype = wintypes.BOOL
+KERNEL32.WaitForMultipleObjects.argtypes = [
+    wintypes.DWORD,
+    ctypes.POINTER(wintypes.HANDLE),
+    wintypes.BOOL,
+    wintypes.DWORD,
+]
+KERNEL32.WaitForMultipleObjects.restype = wintypes.DWORD
+KERNEL32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+KERNEL32.WaitForSingleObject.restype = wintypes.DWORD
+
+IPHLPAPI.NotifyAddrChange.argtypes = [
+    ctypes.POINTER(wintypes.HANDLE),
+    ctypes.POINTER(Overlapped),
+]
+IPHLPAPI.NotifyAddrChange.restype = wintypes.DWORD
+IPHLPAPI.CancelIPChangeNotify.argtypes = [ctypes.POINTER(Overlapped)]
+IPHLPAPI.CancelIPChangeNotify.restype = wintypes.BOOL
+
+
+_INFINITE = 0xFFFFFFFF
+# How long to wait for a cancelled NotifyAddrChange to report completion,
+# keeping the OVERLAPPED and event alive until the kernel is done with them.
+_CANCEL_WAIT_MS = 1000
+
+
 class NetworkTrigger(BaseThreadTrigger):
     def __init__(self) -> None:
         super().__init__()
@@ -77,6 +113,11 @@ class NetworkTrigger(BaseThreadTrigger):
         handle = wintypes.HANDLE()
 
         handles = (wintypes.HANDLE * 2)(net_event, self._exit_event)
+        # Whether the NotifyAddrChange registered in the current iteration is
+        # still outstanding.  The kernel writes the completion into ``overlap``
+        # and signals ``net_event``: neither may be freed/closed until it is
+        # done with them.
+        pending = False
 
         try:
             while not self.stop_event.is_set():
@@ -84,10 +125,12 @@ class NetworkTrigger(BaseThreadTrigger):
                 if res != 0 and res != 997:
                     logger.error(f"NotifyAddrChange registration failed: {res}")
                     break
+                pending = res == 997
 
-                result = KERNEL32.WaitForMultipleObjects(2, handles, False, -1)
+                result = KERNEL32.WaitForMultipleObjects(2, handles, False, _INFINITE)
 
                 if result == 0:
+                    pending = False
                     time.sleep(0.2)
                     current_gateways = self._get_network_fingerprint()
                     if current_gateways != self._last_gateways:
@@ -98,7 +141,17 @@ class NetworkTrigger(BaseThreadTrigger):
                         self.current_ssid = None
                 elif result == 1:
                     break
+                else:
+                    logger.error(f"WaitForMultipleObjects failed: {result}")
+                    break
         finally:
+            # An outstanding registration would outlive this frame and complete
+            # into freed memory (or signal a closed event), an access violation
+            # outside Python that kills the process without running atexit.
+            # Cancel it and let the cancellation report completion first.
+            if pending:
+                IPHLPAPI.CancelIPChangeNotify(ctypes.byref(overlap))
+                KERNEL32.WaitForSingleObject(net_event, _CANCEL_WAIT_MS)
             KERNEL32.CloseHandle(net_event)
 
     def start(self) -> None:
