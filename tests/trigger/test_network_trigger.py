@@ -120,9 +120,7 @@ class TestNetworkTriggerRun:
 
         mock_kernel32.WaitForMultipleObjects.assert_not_called()
 
-    def test_run_raises_on_wait_failure(
-        self, mock_kernel32, mock_iphlpapi, mock_pythoncom
-    ) -> None:
+    def test_run_raises_on_wait_failure(self, mock_kernel32, mock_iphlpapi, mock_pythoncom) -> None:
         """Run raises when WaitForMultipleObjects reports WAIT_FAILED"""
         mock_kernel32.CreateEventW.return_value = 0xCAFE
         mock_iphlpapi.NotifyAddrChange.return_value = 0
