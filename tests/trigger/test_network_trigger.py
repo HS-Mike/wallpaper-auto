@@ -105,19 +105,36 @@ class TestNetworkTriggerRun:
 
                 mock_trigger.assert_not_called()
 
-    def test_run_breaks_on_notify_addr_change_error(
+    def test_run_raises_on_notify_addr_change_error(
         self, mock_kernel32, mock_iphlpapi, mock_pythoncom
     ) -> None:
-        """Run breaks loop when NotifyAddrChange returns an unexpected error"""
+        """Run raises when NotifyAddrChange returns an unexpected error"""
         mock_kernel32.CreateEventW.return_value = 0xCAFE
         mock_iphlpapi.NotifyAddrChange.return_value = 1  # error (not 0 or 997)
         trigger = NetworkTrigger()
         trigger._exit_event = 0xBEEF
 
         with patch.object(trigger, "_get_network_fingerprint", return_value=set()):
-            trigger.run()
+            with pytest.raises(OSError):
+                trigger.run()
 
-            mock_kernel32.WaitForMultipleObjects.assert_not_called()
+        mock_kernel32.WaitForMultipleObjects.assert_not_called()
+
+    def test_run_raises_on_wait_failure(
+        self, mock_kernel32, mock_iphlpapi, mock_pythoncom
+    ) -> None:
+        """Run raises when WaitForMultipleObjects reports WAIT_FAILED"""
+        mock_kernel32.CreateEventW.return_value = 0xCAFE
+        mock_iphlpapi.NotifyAddrChange.return_value = 0
+        mock_kernel32.WaitForMultipleObjects.return_value = 0xFFFFFFFF
+        trigger = NetworkTrigger()
+        trigger._exit_event = 0xBEEF
+
+        with patch.object(trigger, "_get_network_fingerprint", return_value=set()):
+            with pytest.raises(OSError):
+                trigger.run()
+
+        mock_kernel32.CloseHandle.assert_called_once_with(0xCAFE)
 
     def test_lifecycle_and_com_cleanup(self, mock_kernel32, mock_iphlpapi, mock_pythoncom) -> None:
         """COM init/uninit is called during run"""

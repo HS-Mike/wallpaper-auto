@@ -123,8 +123,7 @@ class NetworkTrigger(BaseThreadTrigger):
             while not self.stop_event.is_set():
                 res = IPHLPAPI.NotifyAddrChange(ctypes.byref(handle), ctypes.byref(overlap))
                 if res != 0 and res != 997:
-                    logger.error(f"NotifyAddrChange registration failed: {res}")
-                    break
+                    raise ctypes.WinError(res)
                 pending = res == 997
 
                 result = KERNEL32.WaitForMultipleObjects(2, handles, False, _INFINITE)
@@ -142,8 +141,7 @@ class NetworkTrigger(BaseThreadTrigger):
                 elif result == 1:
                     break
                 else:
-                    logger.error(f"WaitForMultipleObjects failed: {result}")
-                    break
+                    raise ctypes.WinError()
         finally:
             # An outstanding registration would outlive this frame and complete
             # into freed memory (or signal a closed event), an access violation
