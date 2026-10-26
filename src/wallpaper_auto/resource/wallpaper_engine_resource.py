@@ -422,9 +422,9 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
             raise KeyError("wallpaper engine config: no 'monitordetection' in the user section")
         original = user_section["monitordetection"]
         if original == "devicepath":
-            logger.debug("wallpaper engine monitordetection: already 'devicepath', no change")
+            logger.debug("wallpaper engine monitordetection config is already 'devicepath'")
             return False
-        logger.debug(f"wallpaper engine monitordetection: {original!r} -> 'devicepath'")
+        logger.debug(f"wallpaper engine monitordetection config {original!r} -> 'devicepath'")
         user_section["monitordetection"] = "devicepath"
         self.config_path.write_text(
             json.dumps(config_data, indent="\t"),
@@ -446,9 +446,6 @@ class WallpaperEngineApp(metaclass=SingletonMeta):
             json.JSONDecodeError: The config.json is not valid JSON.
         """
         if self._original_monitor_detection is None:
-            logger.debug(
-                "wallpaper engine monitordetection restore: no original captured, skipping"
-            )
             return
         config_data = json.loads(self.config_path.read_text(encoding="utf-8"))
         user_section = config_data[getpass.getuser()]["general"]["user"]
