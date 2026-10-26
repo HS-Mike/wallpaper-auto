@@ -58,7 +58,7 @@ def get_steam_libraries() -> list[Path]:
                     path_obj = Path(install_path)
                     if path_obj.exists():
                         steam_paths.add(path_obj.resolve())
-        except WindowsError:
+        except OSError:
             continue
 
     # 2. check common default installation directories on every drive
