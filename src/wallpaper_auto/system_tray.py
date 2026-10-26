@@ -304,7 +304,12 @@ class WallpaperSwitchSystemTray:
 
         self._menu.addSeparator()
 
-        pause_action = QAction("resume" if paused else "pause", self._menu)
+        pause_action = QAction(self._menu)
+        if paused is True:
+            pause_action.setText("resume")
+            pause_action.setIcon(create_dot_icon(get_color("#FF2525FF")))
+        else:
+            pause_action.setText("pause")
         pause_action.triggered.connect(lambda: self.bridge.request_set_pause(not paused))
         self._menu.addAction(pause_action)
 
