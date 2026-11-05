@@ -112,12 +112,14 @@ class DisplayManager:
 
     Resolution changes persist to the registry (``CDS_UPDATEREGISTRY``);
     scale changes are session-only.  Either way the original values are
-    recorded at :meth:`add_display`, each change snaps to a supported value
-    from the cached capability, and the originals are restored on
-    :meth:`stop` or when a still-connected display is removed.  The app is not
-    the only writer of a display's setting: :meth:`applied_setting` reports
-    what the app last put in effect so the controller can notice that another
-    writer reverted it, and stop asking this manager to write.
+    recorded at :meth:`add_display`, each change snaps to a supported value,
+    and the originals are restored on :meth:`stop` or when a still-connected
+    display is removed.  A resolution change snaps from the capability cached
+    at :meth:`add_display`; a scale change re-queries the capability because
+    the recommended scale it steps from depends on the current mode.  The app
+    is not the only writer of a display's setting: :meth:`applied_setting`
+    reports what the app last put in effect so the controller can notice that
+    another writer reverted it, and stop asking this manager to write.
 
     **Thread-safety:** every public method is internally synchronized by a
     single ``_lock`` (monitor pattern) — callers never rely on threading
@@ -569,10 +571,11 @@ class DisplayManager:
         """Set a display's DPI scale, snapping to a supported step.
 
         The requested percentage is snapped to the nearest supported scale from
-        the display's cached capability (a warning is logged when they differ),
-        then applied as a relative step from the reference scale.  Nothing is
-        applied when the display is already at the resolved scale, as reported
-        by the live display state.  The change is session-only.
+        the display's capability, re-queried for the current mode (a warning is
+        logged when they differ), then applied as a relative step from that
+        mode's recommended scale.  Nothing is applied when the display is
+        already at the resolved scale, as reported by the live display state.
+        The change is session-only.
 
         Args:
             display_id: Opaque id of the display.
@@ -581,6 +584,10 @@ class DisplayManager:
         Returns:
             True on success or when no change is needed, False (logged) when
             the display is unknown or the system call failed.
+
+        Raises:
+            OSError: The capability query failed.
+            ValueError: The queried reference scale is out of range.
         """
         with self._lock:
             return self._apply_scale(self._displays[display_id], scale)
@@ -713,9 +720,17 @@ class DisplayManager:
     def _apply_scale(self, state: DisplayState, scale: int) -> bool:
         """Snap and apply a DPI scale, skipping the set when already there.
 
-        A failed live read is never taken as "no change needed": the set is
-        attempted anyway, so a transient read failure still retries.  Either way
-        the resolved value is recorded in ``state.applied_scale``, so
+        A relative ``scaleRel`` step is measured from the recommended scale of
+        the *current* display mode, and that recommendation changes with the
+        resolution (e.g. the same step is 150% at 1080p but 200% at 4K).  The
+        capability is therefore re-queried here instead of using the value
+        cached at :meth:`add_display`; a stale reference would turn the step
+        into a different percentage.  A query failure propagates so the caller
+        sees it instead of applying a wrong step.
+
+        Otherwise a failed live read is never taken as "no change needed": the
+        set is attempted anyway, so a transient read failure still retries.
+        Either way the resolved value is recorded in ``state.applied_scale``, so
         ``applied_setting`` always reports what the app last put in effect.
         Must be called with ``self._lock`` held.
 
@@ -726,12 +741,22 @@ class DisplayManager:
         Returns:
             True on success or when the display is already at the resolved
             value, False (logged) when the system call failed.
+
+        Raises:
+            OSError: The capability query failed.
+            ValueError: The queried reference scale is out of range.
         """
-        scale_rel = resolve_target_scale_step(
-            state.capability.reference_scale, scale, state.capability.scale
+        capability = get_display_capability(
+            state.display_info.device_name,
+            state.display_info.adapter_id,
+            state.display_info.source_id,
+            raise_error=True,
         )
-        reference_index = state.capability.scale.index(state.capability.reference_scale)
-        resolved = state.capability.scale[reference_index + scale_rel]
+        assert capability is not None
+        state.capability = capability
+        scale_rel = resolve_target_scale_step(capability.reference_scale, scale, capability.scale)
+        reference_index = capability.scale.index(capability.reference_scale)
+        resolved = capability.scale[reference_index + scale_rel]
         if resolved != scale:
             logger.warning(
                 "scale %d%% not supported on %s; snapping to %d%%",
