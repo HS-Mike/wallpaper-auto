@@ -9,12 +9,14 @@ the :meth:`~BaseResource.mount` / :meth:`~BaseResource.demount` lifecycle.
 Each resource is bound to a monitor (via :meth:`_bind_display`) and
 buffers wallpaper through a class-wide :class:`UpdateCanvasProtocol` callback
 (:meth:`update_canvas`).  Dynamic resources request a composite through the
-class-wide :class:`PlotCanvasProtocol` callback (:meth:`plot_canvas`); both
+class-wide :class:`PlotCanvasProtocol` callback (:meth:`plot_canvas`), or
+composite synchronously through :meth:`immediate_plot_canvas`; all three
 callbacks are registered once by the ``WallpaperController``.
 """
 
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -79,6 +81,10 @@ class BaseResource(ABC):
     #: ``WallpaperController`` (it is uniform across all resource instances).
     _plot_canvas: PlotCanvasProtocol | None = None
 
+    #: Class-wide synchronous-composite callback, registered once by the
+    #: ``WallpaperController`` (it is uniform across all resource instances).
+    _immediate_plot_canvas: Callable[[], None] | None = None
+
     @classmethod
     def register_update_canvas(cls, update_canvas: UpdateCanvasProtocol) -> None:
         """Register the class-wide buffer callback.
@@ -104,6 +110,19 @@ class BaseResource(ABC):
         class attribute would be bound as a method when accessed on an instance.
         """
         cls._plot_canvas = plot_canvas
+
+    @classmethod
+    def register_immediate_plot_canvas(cls, immediate_plot_canvas: Callable[[], None]) -> None:
+        """Register the class-wide synchronous-composite callback.
+
+        The callback is the same for every resource (it composites the buffered
+        canvas on the calling thread), so it is bound once at class level rather
+        than per instance.
+
+        Pass a bound method or callable object — a plain function stored as a
+        class attribute would be bound as a method when accessed on an instance.
+        """
+        cls._immediate_plot_canvas = immediate_plot_canvas
 
     def __init__(self) -> None:
         self.display: DisplayInfo | None = None
@@ -140,6 +159,22 @@ class BaseResource(ABC):
         if self._plot_canvas is None:
             raise RuntimeError("plot_canvas not bound")
         self._plot_canvas()
+
+    def immediate_plot_canvas(self) -> None:
+        """Composite the buffered canvas immediately, on the calling thread.
+
+        The synchronous counterpart to :meth:`plot_canvas`: it composites and
+        applies the wallpaper before returning, instead of deferring the request
+        to the controller's worker loop.  A resource uses it when the image must
+        be on screen before the next statement runs — for instance a transition
+        handing the desktop over before the outgoing resource is demounted.
+
+        It applies whatever :meth:`update_canvas` has already buffered, so buffer
+        first.  No display needs to be bound: the composite spans every monitor.
+        """
+        if self._immediate_plot_canvas is None:
+            raise RuntimeError("immediate_plot_canvas not bound")
+        self._immediate_plot_canvas()
 
     @abstractmethod
     def mount(self) -> None:
@@ -187,4 +222,6 @@ class BaseResource(ABC):
             logger.debug("resource update canvas request called on %s", self._format_identity())
         elif name == "plot_canvas":
             logger.debug("resource plot canvas request called on %s", self._format_identity())
+        elif name == "immediate_plot_canvas":
+            logger.debug("resource immediate plot canvas called on %s", self._format_identity())
         return super().__getattribute__(name)

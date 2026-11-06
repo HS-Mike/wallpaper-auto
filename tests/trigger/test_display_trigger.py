@@ -98,7 +98,7 @@ _DISPLAY_INFO_A_RESIZED = DisplayInfo(
     model="U2719D",
     source_resolution=(2560, 1440),
     position=(0, 0),
-    target_resolution=(1920, 1080),
+    target_resolution=(2560, 1440),
     adapter_id=LUID(1, 2),
     source_id=3,
     scale=100,
@@ -177,10 +177,16 @@ class TestDisplayTriggerMsgProc:
 
         mock_display_deps["get_display_info"].return_value = [_DISPLAY_INFO_A_RESIZED]
 
-        with patch.object(trigger, "trigger") as mock_trigger:
+        with (
+            patch.object(trigger, "trigger") as mock_trigger,
+            patch.object(trigger, "_log_display_changes") as mock_log,
+        ):
             result = trigger._msg_proc(0, win32con.WM_SETTINGCHANGE, 0, 0)
 
         mock_trigger.assert_called_once()
+        # A mode change keeps the display_id, so it is not a plug/unplug and
+        # must not be reported as a removal plus addition of the same monitor.
+        mock_log.assert_not_called()
         assert trigger._prev_display == frozenset({_DISPLAY_INFO_A_RESIZED})
         assert result == 0
 

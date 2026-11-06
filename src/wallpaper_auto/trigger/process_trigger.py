@@ -26,7 +26,6 @@ exits, reuse the path recorded when the same PID was observed starting.
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
@@ -61,7 +60,7 @@ class ProcessEvent:
     exe_name: str  # basename of the process executable, original WMI casing preserved
     pid: int  # process ID at the time of the event
     event_type: ProcessEventType  # whether the event was a process start or stop
-    exe_path: str | None = None  # full path via WMI ``ExecutablePath`` or Win32 fallback
+    exe_path: Path | None = None  # full path via WMI ``ExecutablePath`` or Win32 fallback
 
 
 class ProcessTrigger(BaseThreadTrigger):
@@ -87,7 +86,7 @@ class ProcessTrigger(BaseThreadTrigger):
         super().__init__()
 
         basenames: set[str] = set()
-        full_paths: set[str] = set()
+        full_paths: set[Path] = set()
 
         for item in exe_names:
             s = str(item).strip()
@@ -99,13 +98,15 @@ class ProcessTrigger(BaseThreadTrigger):
             if p.parent == Path(".") or str(p.parent) == "":
                 basenames.add(p.name.lower())
             else:
-                full_paths.add(os.path.normpath(os.path.normcase(s)))
+                full_paths.add(p)
 
         if not basenames and not full_paths:
             raise ValueError("exe_names must contain at least one non-empty executable identifier")
 
         self.exe_names: list[str] = sorted(basenames)
-        self.exe_paths: list[str] = sorted(full_paths)
+        # ``Path`` equality and hashing normcase on Windows, so full paths are
+        # compared case-insensitively without an explicit normalization step.
+        self.exe_paths: list[Path] = sorted(full_paths)
         self.last_event: ProcessEvent | None = None
 
     def _build_wql(self) -> str:
@@ -129,7 +130,7 @@ class ProcessTrigger(BaseThreadTrigger):
         quote = "'"
         conditions = " OR ".join(
             f"TargetInstance.Name = '{name.replace(quote, quote * 2)}'"
-            for name in set(self.exe_names) | {Path(p).name.lower() for p in self.exe_paths}
+            for name in set(self.exe_names) | {p.name.lower() for p in self.exe_paths}
         )
         return (
             f"SELECT * FROM __InstanceOperationEvent WITHIN {DEFAULT_WITHIN_SECONDS} "
@@ -152,7 +153,7 @@ class ProcessTrigger(BaseThreadTrigger):
             # stopped event can't query the path (the handle is gone) and WMI
             # may omit ``ExecutablePath`` on deletion, so the path recorded at
             # start is reused to keep full-path matching working for stops.
-            seen_paths: dict[int, str] = {}
+            seen_paths: dict[int, Path] = {}
 
             while not self.stop_event.is_set():
                 try:
@@ -174,11 +175,12 @@ class ProcessTrigger(BaseThreadTrigger):
                     # since the process handle closes on exit. Started events
                     # cache the resolved path by PID; stopped events that lack
                     # one reuse the cached path and always drop the entry.
-                    exe_path = getattr(event, "ExecutablePath", None)
+                    wmi_path = getattr(event, "ExecutablePath", None)
+                    exe_path: Path | None = Path(wmi_path) if wmi_path else None
                     if event_type == ProcessEventType.STARTED:
-                        if not exe_path:
+                        if exe_path is None:
                             exe_path = get_executable_path(pid)
-                        if exe_path:
+                        if exe_path is not None:
                             seen_paths[pid] = exe_path
                     else:
                         exe_path = exe_path or seen_paths.pop(pid, None)
@@ -186,9 +188,7 @@ class ProcessTrigger(BaseThreadTrigger):
                     # Skip unless the event matches a watched basename (any
                     # path) or a watched full path. An unresolved path never
                     # matches a full-path entry.
-                    matches = exe_name.lower() in self.exe_names or (
-                        exe_path and os.path.normpath(os.path.normcase(exe_path)) in self.exe_paths
-                    )
+                    matches = exe_name.lower() in self.exe_names or exe_path in self.exe_paths
                     if not matches:
                         continue
 

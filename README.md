@@ -81,6 +81,8 @@ Each display prepares its wallpaper at those settings
 
 The Windows COM `IDesktopWallpaper` API only allows a uniform style across all displays. To support per-display wallpaper style settings, the app applies wallpapers as a single SPAN wallpaper rather than one per monitor. Each display's prepared image is laid out into one canvas (each with its proposed style) that stretches across the entire virtual desktop, so Windows sees a single wallpaper covering all monitors.
 
+Applying a scene buffers each monitor's image and then composites that canvas: `plot_canvas()` defers the composite to the controller's worker loop, while `immediate_plot_canvas()` composites on the calling thread (see the custom resource section below).
+
 The app also applies **resolution** and **scale** alongside the wallpaper. You cannot assign arbitrary resolution or scale values to a display — they must fall within the display's supported capability options.
 
 Each display's original wallpaper, resolution, and DPI scale are captured when the display is added, and its supported resolution/scale modes are cached for snapping on apply. On stop or display removal, every display is reverted to its recorded originals (wallpaper, resolution, and scale). Note: if a new display is plugged in during app runtime, Windows cannot capture its original wallpaper setting because the app's single SPAN wallpaper overrides it — a black background is set as the fallback in that case.
@@ -565,18 +567,19 @@ class CustomResource(BaseResource):
 run("config.yaml", custom_resources={"custom": CustomResource})
 ```
 
-**BaseResource** has 4 important methods: 2 lifecycle notification methods (``mount()`` and ``demount()``) and 2 wallpaper canvas manage methods (``update_canvas(style, image)`` and ``plot_canvas()``).
+**BaseResource** has 5 important methods: 2 lifecycle notification methods (``mount()`` and ``demount()``) and 3 wallpaper canvas manage methods (``update_canvas(style, image)``, ``plot_canvas()`` and ``immediate_plot_canvas()``).
 
 `mount()` and `demount()` are lifecycle **notifications** — they signal that the resource has entered or left the active window. Do not execute time-consuming processes in these methods. Otherwise, this will block the application's worker loop. Run the work in a thread instead.
 
 A custom resource never sets the wallpaper directly. It buffers an image for its bound monitor and asks the system to composite it:
 
 - **`update_canvas(style, image)`** — buffer an image for the resource's monitor. `style` is a `WallpaperStyle` (e.g. `fill`, `fit`); `image` is a `Path` or a PIL `Image`. Buffering alone does **not** apply the wallpaper.
-- **`plot_canvas()`** — request a composite of the buffered canvas. In the running app this is enqueued to the controller's worker loop rather than composited synchronously, so it is safe to call from any thread.
+- **`plot_canvas()`** — request a composite of the buffered canvas. In the running app this is enqueued to the controller's worker loop rather than composited synchronously, so it is safe to call from any thread and returns immediately.
+- **`immediate_plot_canvas()`** — composite the buffered canvas **now, on the calling thread**, instead of deferring it to the worker loop. It is the synchronous counterpart to `plot_canvas()`: it returns only once the wallpaper is applied, so the caller blocks for the duration of the composite. Like `plot_canvas()`, it applies whatever `update_canvas()` has buffered, so buffer first.
 
-In fact, you are free to call `update_canvas()` and `plot_canvas()` in between the lifecycle. In ``ResourceCycle``, there is a dedicated thread that starts in `mount()` and joins in `demount()` to manage the wallpaper rotation dynamically. Under a trusted environment, you can even execute bash scripts to get richer customized features. 
+In fact, you are free to call `update_canvas()` and `plot_canvas()` (or `immediate_plot_canvas()`) in between the lifecycle. In ``ResourceCycle``, there is a dedicated thread that starts in `mount()` and joins in `demount()` to manage the wallpaper rotation dynamically. Under a trusted environment, you can even execute bash scripts to get richer customized features.
 
-At runtime, a resource can inspect the display it is bound to through `self.display` (a `DisplayInfo` set before `mount()`). This is an **instance attribute**: the manager sets it on each instance when it binds that instance to a monitor (before `mount()`), so every instance tracks its own bound display — unlike the class-wide `update_canvas()` / `plot_canvas()` callbacks, which are uniform across all instances.
+At runtime, a resource can inspect the display it is bound to through `self.display` (a `DisplayInfo` set before `mount()`). This is an **instance attribute**: the manager sets it on each instance when it binds that instance to a monitor (before `mount()`), so every instance tracks its own bound display — unlike the class-wide `update_canvas()` / `plot_canvas()` / `immediate_plot_canvas()` callbacks, which are uniform across all instances.
 
 **WARNING:** Resource instances are **not reused**. Each time a target is applied, the manager creates a fresh instance per connected display, binds it to a single monitor (accessible via `self.display`), and calls `mount()` once and `demount()` once. Expect a **different instance across each wallpaper apply session and per display**.
 
@@ -632,6 +635,93 @@ resource:
       query: "mountain"
       style: fill
 ```
+
+
+### Custom Resource Transition
+
+A transition is a hook on the handoff between two resource types. It runs **before** the outgoing resource is demounted and the incoming one is mounted, which is the only point where both are still alive — use it to release or hand over state that the incoming resource cannot share (closing an external player, dropping a shared handle, and so on).
+
+A transition is a callable with the signature `(old: BaseResource, new: BaseResource) -> None`, registered against the exact pair of classes it applies to. One name serves both registration forms:
+
+```python
+from wallpaper_auto import register_transition
+
+# Direct — registers immediately and returns None
+register_transition(EngineResource, StaticResource, release_engine)
+
+# Decorator — registers the function and returns it unchanged
+@register_transition(EngineResource, StaticResource)
+def release_engine(old, new):
+    ...
+```
+
+A method of the outgoing resource class works as the direct argument. It is invoked on the outgoing instance, so its first parameter binds to `old`:
+
+```python
+register_transition(EngineResource, StaticResource, EngineResource.on_handoff)
+# the method is called as: old.on_handoff(new)
+```
+
+**Rules of the hook:**
+
+- Matching is by **exact type pair**. A transition registered for `EngineResource -> StaticResource` does not fire when the outgoing resource is a subclass of `EngineResource`.
+- Multiple transitions may be registered for the same pair; they run in **registration order**.
+- Transitions run **once per display**: the manager creates one resource instance per connected display, so a single target switch fires the matching transition once for each display.
+- A transition that raises **propagates to the caller** and is never swallowed. The display is already recorded as using the incoming resource at that point, so a raising transition leaves the swap half-applied — treat it as part of the swap, not as optional cleanup.
+
+Transitions fire only on a resource-to-resource replacement. They do **not** fire when the app is paused, when a display is removed (that mounts a restored-wallpaper patch), when the app stops, or for a `cycle` resource's internal sub-resource rotation — only the outer pair applied to a display is observable.
+
+The `old` argument is the live instance that is about to be demounted, so its session state is valid to read there — for instance state, register the resource's own method as shown above. State that must survive across applies belongs at module or class level, since instances are never reused:
+
+```python
+from wallpaper_auto import BaseResource, register_transition, run
+
+class EngineResource(BaseResource):
+    """Runs a live wallpaper in an external process."""
+
+    def mount(self) -> None:
+        start_engine()
+
+    def demount(self) -> None:
+        stop_engine()
+
+
+class StaticResource(BaseResource):
+    """Applies a plain static image."""
+
+    def mount(self) -> None:
+        self.update_canvas("fill", "C:/Users/You/Pictures/static.jpg")
+        self.plot_canvas()
+
+    def demount(self) -> None:
+        pass
+
+
+@register_transition(EngineResource, StaticResource)
+def release_engine(old: BaseResource, new: BaseResource) -> None:
+    # Runs before old.demount() and new.mount()
+    stop_engine(force=True)
+
+run(
+    "config.yaml",
+    custom_resources={"engine": EngineResource, "static": StaticResource},
+)
+```
+
+**Handing the desktop over without a flash.** A transition is the only point where the incoming instance already exists while the outgoing one has not been demounted yet — `new.mount()` does not run until `old.demount()` returns. If the outgoing resource paints over the desktop (a live wallpaper in an external process, say), the previous composite stays visible until the worker loop applies the new one. Buffer the incoming image and composite it immediately to hand the desktop over first:
+
+```python
+@register_transition(EngineResource, StaticResource)
+def hand_over(old: BaseResource, new: BaseResource) -> None:
+    # `new.mount()` has not run yet, so buffer its image here and put it on
+    # screen before the engine releases the desktop.
+    new.update_canvas("fill", "C:/Users/You/Pictures/static.jpg")
+    new.immediate_plot_canvas()
+```
+
+Transitions run on the controller's worker loop, so `immediate_plot_canvas()` composites on that thread and may block the loop for the duration of the render. Whatever `new.mount()` buffers afterwards is applied as usual — a composite whose canvas is unchanged is skipped.
+
+This handover is built in for the pairs where it matters: `WallpaperEngineResource -> StaticWallpaper` and `ResourceCycle -> StaticWallpaper` (a cycle whose active sub-resource is the engine). The transition mounts the incoming static resource (buffering its image), demounts the outgoing one, then calls `immediate_plot_canvas()` to composite. The engine releases the desktop and the new image appears in the same breath, so the previous wallpaper is never visible during the (slow) engine close. Because the transition demounts the outgoing resource itself, `WallpaperEngineResource.demount()` is **idempotent** and the framework's lifecycle demount that follows returns without dispatching another `closeWallpaper`; `ResourceCycle.demount()` is a no-op once its cycling thread has been joined.
 
 
 ### Custom Trigger

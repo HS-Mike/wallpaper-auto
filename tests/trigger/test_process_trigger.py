@@ -1,6 +1,7 @@
 """Tests for trigger/process_trigger.py — Windows process lifecycle monitoring via WMI."""
 
 from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -97,17 +98,17 @@ class TestProcessTriggerInit:
         )
 
         assert trigger.exe_names == ["mspaint.exe", "notepad.exe"]
-        assert trigger.exe_paths == ["c:\\windows\\system32\\notepad.exe"]
+        assert trigger.exe_paths == [Path("C:\\Windows\\System32\\notepad.exe")]
 
-    def test_path_normalization_lowercases_and_uses_backslashes(self) -> None:
-        """Path entries are lowercased and forward slashes converted to backslashes."""
+    def test_path_entries_match_regardless_of_case_and_separators(self) -> None:
+        """Full-path entries are stored as ``Path``, whose equality is case-insensitive."""
         trigger = ProcessTrigger(
             exe_names=["C:/Program Files/SomeApp/App.EXE", "D:/Tools/TOOL.EXE"]
         )
 
         assert trigger.exe_paths == [
-            "c:\\program files\\someapp\\app.exe",
-            "d:\\tools\\tool.exe",
+            Path("c:\\program files\\someapp\\app.exe"),
+            Path("d:\\tools\\tool.exe"),
         ]
 
     def test_names_are_lowercased_and_deduped(self) -> None:
@@ -241,7 +242,7 @@ class TestProcessTriggerRun:
             exe_name="Notepad.exe",
             pid=4321,
             event_type=ProcessEventType.STARTED,
-            exe_path="C:\\Windows\\System32\\Notepad.exe",
+            exe_path=Path("C:\\Windows\\System32\\Notepad.exe"),
         )
 
     def test_deletion_event_fires_as_stopped(self, mock_pythoncom: MagicMock) -> None:
@@ -345,7 +346,7 @@ class TestProcessTriggerRun:
             patch("wallpaper_auto.trigger.process_trigger.wmi.WMI") as mock_wmi_cls,
             patch(
                 "wallpaper_auto.trigger.process_trigger.get_executable_path",
-                return_value="C:\\Windows\\System32\\notepad.exe",
+                return_value=Path("C:\\Windows\\System32\\notepad.exe"),
             ) as mock_get_path,
         ):
             _run_until_first_callback(trigger, event, mock_wmi_cls)
@@ -353,7 +354,7 @@ class TestProcessTriggerRun:
         mock_get_path.assert_called_once_with(4321)
         assert len(callback_calls) == 1
         assert trigger.last_event is not None
-        assert trigger.last_event.exe_path == "C:\\Windows\\System32\\notepad.exe"
+        assert trigger.last_event.exe_path == Path("C:\\Windows\\System32\\notepad.exe")
 
     def test_deletion_event_does_not_call_win32_fallback(self, mock_pythoncom: MagicMock) -> None:
         """Stopped events skip the Win32 fallback (the handle is already gone)."""
@@ -371,7 +372,7 @@ class TestProcessTriggerRun:
             patch("wallpaper_auto.trigger.process_trigger.wmi.WMI") as mock_wmi_cls,
             patch(
                 "wallpaper_auto.trigger.process_trigger.get_executable_path",
-                return_value="C:\\Windows\\System32\\notepad.exe",
+                return_value=Path("C:\\Windows\\System32\\notepad.exe"),
             ) as mock_get_path,
         ):
             watcher = MagicMock(side_effect=[event, RuntimeError("forced exit")])
@@ -409,7 +410,7 @@ class TestProcessTriggerRun:
             patch("wallpaper_auto.trigger.process_trigger.wmi.WMI") as mock_wmi_cls,
             patch(
                 "wallpaper_auto.trigger.process_trigger.get_executable_path",
-                return_value="C:\\Windows\\System32\\notepad.exe",
+                return_value=Path("C:\\Windows\\System32\\notepad.exe"),
             ) as mock_get_path,
         ):
             watcher = MagicMock(side_effect=[start_event, stop_event, wmi.x_wmi_timed_out()])
@@ -420,7 +421,7 @@ class TestProcessTriggerRun:
         mock_get_path.assert_called_once_with(4321)
         assert trigger.last_event is not None
         assert trigger.last_event.event_type == ProcessEventType.STOPPED
-        assert trigger.last_event.exe_path == "C:\\Windows\\System32\\notepad.exe"
+        assert trigger.last_event.exe_path == Path("C:\\Windows\\System32\\notepad.exe")
 
     def test_deletion_event_with_wmi_path_fires_for_full_path_match(
         self, mock_pythoncom: MagicMock

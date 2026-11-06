@@ -18,6 +18,7 @@ from .config_store import ConfigStore
 from .image_cache import ImageCompressionCache, _resize_image
 from .resource.base_resource import BaseResource
 from .resource.static_wallpaper import StaticWallpaper
+from .resource_manager import ResourceManager
 from .util.display_util import (
     DisplayCapability,
     DisplayId,
@@ -57,15 +58,24 @@ class DisplayState:
     original_scale: int
     original_wallpaper: tuple[WallpaperStyle, Path] | None = None
     canvas: tuple[WallpaperStyle, Path | Image.Image] | None = None
-    # Resolution/scale the app has applied; None = display still at its original
-    # value. Restore bookkeeping for stop()/remove_display(), and the idempotency
-    # short-circuit in the setters.
+    # Restore bookkeeping: the app modified this display, so stop()/
+    # remove_display() restore it to the recorded original. None = the display
+    # is still at its original value.
     current_resolution: tuple[int, int] | None = None
     current_scale: int | None = None
+    # Resolution/scale the app last put in effect on this display — written, or
+    # found already live — as reported to the controller by applied_setting().
+    # A live value that differs from it means another writer reverted the app.
+    # Cleared by clear_applied() when the app is told to take the display back.
+    applied_resolution: tuple[int, int] | None = None
+    applied_scale: int | None = None
     # Resolution/scale recorded by update_display_scene() not yet applied by
     # apply_display_scene(). None = no scene pending; (None, None) still counts
     # as pending (a scene that restores both).
     pending: tuple[tuple[int, int] | None, int | None] | None = None
+    # suspend() demounted the resource on purpose and mounted nothing in its
+    # place. The wallpaper stays as last composited until a scene is applied.
+    suspended: bool = False
 
 
 class DisplayManager:
@@ -96,13 +106,20 @@ class DisplayManager:
     The "patch" mechanism tracks whether a display is showing its original
     (pre-app) wallpaper (``is_patch == True``) or a resource the app set.
     This ensures original wallpapers are restored when the app stops or
-    a display is removed.
+    a display is removed.  :meth:`suspend` — the app-level pause — demounts
+    every resource without mounting a replacement, leaving the last composite
+    on screen until a scene is applied again.
 
     Resolution changes persist to the registry (``CDS_UPDATEREGISTRY``);
     scale changes are session-only.  Either way the original values are
-    recorded at :meth:`add_display`, each change snaps to a supported value
-    from the cached capability, and the originals are restored on
-    :meth:`stop` or when a still-connected display is removed.
+    recorded at :meth:`add_display`, each change snaps to a supported value,
+    and the originals are restored on :meth:`stop` or when a still-connected
+    display is removed.  A resolution change snaps from the capability cached
+    at :meth:`add_display`; a scale change re-queries the capability because
+    the recommended scale it steps from depends on the current mode.  The app
+    is not the only writer of a display's setting: :meth:`applied_setting`
+    reports what the app last put in effect so the controller can notice that
+    another writer reverted it, and stop asking this manager to write.
 
     **Thread-safety:** every public method is internally synchronized by a
     single ``_lock`` (monitor pattern) — callers never rely on threading
@@ -119,6 +136,9 @@ class DisplayManager:
     def __init__(self) -> None:
         self._displays: dict[DisplayId, DisplayState] = {}
         self._wallpaper_applied: bool = False
+        # Hash of the buffer/geometry behind the currently applied composite.
+        # None = the composite on screen is not one the app just wrote.
+        self._applied_canvas_hash: int | None = None
         self._image_cache: ImageCompressionCache | None = None
         self._lock = threading.Lock()
         # Dedicated mutex for the time-based composite suffix, so concurrent
@@ -217,7 +237,34 @@ class DisplayManager:
                         self._black_wallpaper_path(),
                     )
                 self._wallpaper_applied = False
+                self._applied_canvas_hash = None
         logger.info("display manager stop: done")
+
+    def suspend(self) -> None:
+        """Demount every display's resource without applying a replacement.
+
+        Drops the resolution/scale recorded but not yet applied, so a composite
+        rendered while suspended can no longer set display settings.  Each
+        display's active resource is demounted — stopping cycling threads and
+        closing Wallpaper Engine wallpapers — and nothing is mounted in its
+        place: the last composite stays on screen until a scene is applied,
+        which mounts a fresh resource in :meth:`update_resource`.  Idempotent;
+        patch displays are left alone.
+        """
+        with self._lock:
+            for state in self._displays.values():
+                state.pending = None
+            active = [
+                (state, state.resource)
+                for state in self._displays.values()
+                if not state.is_patch and not state.suspended
+            ]
+        for state, resource in active:
+            resource.demount()  # outside lock (may join a cycling thread)
+            # Flag only after its own demount returned, so a raising demount
+            # leaves the display retryable instead of permanently suspended.
+            with self._lock:
+                state.suspended = True
 
     def update_display(self) -> list[DisplayInfo] | None:
         """Detect monitor hotplug events and add/remove displays accordingly.
@@ -343,7 +390,8 @@ class DisplayManager:
                 del self._displays[display_id]
                 return
             resource_to_demount = state.resource
-            demount_resource = True
+            # A resource already demounted by suspend() must not be demounted twice.
+            demount_resource = not state.suspended
             if state.original_wallpaper is None:
                 # Hotplugged display with a resource: drop it; a re-plug re-adds
                 # via add_display().  Restore res/scale while it may still be
@@ -473,7 +521,11 @@ class DisplayManager:
     def update_resource(self, display_id: DisplayId, resource: BaseResource) -> None:
         """Replace the active resource on a display with a new one.
 
-        Demounts the previous resource, binds the new one, and mounts it.
+        Records *resource* as the display's active resource, runs any transition
+        registered for ``(type(prev), type(resource))``, then demounts the
+        previous resource and mounts the new one.  A resource demounted by
+        :meth:`suspend` is not demounted again; its transition still runs, so it
+        must tolerate an already-demounted *old*.
 
         Args:
             display_id: Opaque id of the display.
@@ -482,9 +534,15 @@ class DisplayManager:
         with self._lock:
             state = self._displays[display_id]
             prev = state.resource
+            was_suspended = state.suspended
             state.resource = resource
             state.is_patch = False
-        prev.demount()  # outside lock (may join a cycling thread)
+            state.suspended = False
+        # Outside the lock: user code, possibly slow or re-entrant — it may call
+        # back into a public method that takes the lock. Runs before demount.
+        ResourceManager.run_resource_transitions(prev, resource)
+        if not was_suspended:
+            prev.demount()  # outside lock (may join a cycling thread)
         resource.mount()  # outside lock (→ update_canvas takes the lock)
 
     def set_display_resolution(self, display_id: DisplayId, width: int, height: int) -> bool:
@@ -492,9 +550,10 @@ class DisplayManager:
 
         The requested ``(width, height)`` is snapped to the nearest supported
         resolution from the display's cached capability; a warning is logged
-        when the resolved value differs from the request.  The change is
-        persisted to the registry (``CDS_UPDATEREGISTRY``) and the pre-change
-        resolution is recorded so it can be restored.
+        when the resolved value differs from the request.  Nothing is applied
+        when the display is already at the resolved value, as reported by the
+        live display state.  The change is persisted to the registry
+        (``CDS_UPDATEREGISTRY``).
 
         Args:
             display_id: Opaque id of the display.
@@ -502,71 +561,224 @@ class DisplayManager:
             height: Requested pixel height.
 
         Returns:
-            True on success, False (logged) when the display is unknown, its
-            metadata is unavailable, or the system call failed.
+            True on success or when no change is needed, False (logged) when
+            the display is unknown or the system call failed.
         """
         with self._lock:
-            state = self._displays[display_id]
-            resolved = resolve_target_resolution((width, height), list(state.capability.resolution))
-            if resolved != (width, height):
-                logger.warning(
-                    "resolution %dx%d not supported on %s; snapping to %dx%d",
-                    width,
-                    height,
-                    state.display_info.monitor_device_path,
-                    resolved[0],
-                    resolved[1],
-                )
-            if state.current_resolution == resolved:
-                return True
-            ok = set_display_resolution(state.display_info.device_name, resolved[0], resolved[1])
-            if ok:
-                state.current_resolution = resolved
-                logger.info(f"display manager set resolution to {resolved[0]}*{resolved[1]}")
-            return ok
+            return self._apply_resolution(self._displays[display_id], width, height)
 
     def set_display_scale(self, display_id: DisplayId, scale: int) -> bool:
         """Set a display's DPI scale, snapping to a supported step.
 
         The requested percentage is snapped to the nearest supported scale from
-        the display's cached capability (a warning is logged when they differ),
-        then applied as a relative step from the reference scale.  The change
-        is session-only and the pre-change scale is recorded for restore.
+        the display's capability, re-queried for the current mode (a warning is
+        logged when they differ), then applied as a relative step from that
+        mode's recommended scale.  Nothing is applied when the display is
+        already at the resolved scale, as reported by the live display state.
+        The change is session-only.
 
         Args:
             display_id: Opaque id of the display.
             scale: Requested scale percentage (e.g. 150).
 
         Returns:
-            True on success, False (logged) when the display is unknown, has no
-            cached capability, or the system call failed.
+            True on success or when no change is needed, False (logged) when
+            the display is unknown or the system call failed.
+
+        Raises:
+            OSError: The capability query failed.
+            ValueError: The queried reference scale is out of range.
+        """
+        with self._lock:
+            return self._apply_scale(self._displays[display_id], scale)
+
+    def applied_setting(self, display_id: DisplayId) -> tuple[tuple[int, int] | None, int | None]:
+        """Report the resolution and scale the app last put in effect.
+
+        The value is the snapped one the app applied, or found already live —
+        what the controller compares against :meth:`live_setting` to detect
+        that another writer reverted the app.  Both are None for a display the
+        app has not touched since the last :meth:`clear_applied`.
+
+        Args:
+            display_id: Opaque id of the display.
+
+        Returns:
+            ``(resolution, scale)``, each None when the app has none applied.
         """
         with self._lock:
             state = self._displays[display_id]
-            scale_rel = resolve_target_scale_step(
-                state.capability.reference_scale, scale, state.capability.scale
+            return state.applied_resolution, state.applied_scale
+
+    def live_setting(self, display_id: DisplayId) -> tuple[tuple[int, int] | None, int | None]:
+        """Read the display's current resolution and scale from the system.
+
+        Args:
+            display_id: Opaque id of the display.
+
+        Returns:
+            ``(resolution, scale)``, each None (logged) when it cannot be read.
+        """
+        with self._lock:
+            device_name = self._displays[display_id].display_info.device_name
+        return get_display_resolution(device_name), get_display_scale(device_name)
+
+    def clear_applied(self) -> None:
+        """Forget the value the app put in effect on every display.
+
+        The app then applies the next scene unconditionally, instead of treating
+        the value it finds as another writer's revert of its own.  Called when
+        the app is told to take the displays back — on resume and on shutdown.
+        """
+        with self._lock:
+            for state in self._displays.values():
+                state.applied_resolution = None
+                state.applied_scale = None
+
+    def display_event_is_own_change(self) -> bool:
+        """Report whether a display event carries only changes the app made itself.
+
+        A resolution/scale write the app performs fires ``WM_DISPLAYCHANGE``,
+        which re-enters the controller as if the topology had changed.  Every
+        difference a display event can carry that is *not* the app's own writing
+        makes this False, so the caller must still handle it:
+
+        * displays added or removed (a genuine hotplug),
+        * a display moved in the virtual desktop (the composite must re-flow),
+        * a live value differing from what the app applied (another writer
+          reverted it — the controller's pause path, not suppression).
+
+        Returns:
+            True when the event is entirely explained by the app's own applied
+            settings (nothing to do); False when it must be handled, or when
+            the live state cannot be read.
+        """
+        curr_display_info = get_display_info()
+        if curr_display_info is None:
+            return False
+        curr = {d.display_id: d for d in curr_display_info}
+        with self._lock:
+            if set(curr) != set(self._displays):
+                return False
+            stored_positions = {
+                display_id: state.display_info.position
+                for display_id, state in self._displays.items()
+            }
+        for display_id, display in curr.items():
+            if display.position != stored_positions[display_id]:
+                return False
+            try:
+                applied = self.applied_setting(display_id)
+                live = self.live_setting(display_id)
+            except KeyError:
+                # A display vanished between the snapshot and the read: a real
+                # topology change raced this check, so it is not an own change.
+                return False
+            if any(a is not None and v is not None and a != v for a, v in zip(applied, live)):
+                return False
+        return True
+
+    def _apply_resolution(self, state: DisplayState, width: int, height: int) -> bool:
+        """Snap and apply a resolution, skipping the set when already there.
+
+        A failed live read is never taken as "no change needed": the set is
+        attempted anyway, so a transient read failure still retries.  Either way
+        the resolved value is recorded in ``state.applied_resolution``, so
+        ``applied_setting`` always reports what the app last put in effect.
+        Must be called with ``self._lock`` held.
+
+        Args:
+            state: Display to modify.
+            width: Requested pixel width.
+            height: Requested pixel height.
+
+        Returns:
+            True on success or when the display is already at the resolved
+            value, False (logged) when the system call failed.
+        """
+        resolved = resolve_target_resolution((width, height), list(state.capability.resolution))
+        if resolved != (width, height):
+            logger.warning(
+                "resolution %dx%d not supported on %s; snapping to %dx%d",
+                width,
+                height,
+                state.display_info.monitor_device_path,
+                resolved[0],
+                resolved[1],
             )
-            reference_index = state.capability.scale.index(state.capability.reference_scale)
-            resolved = state.capability.scale[reference_index + scale_rel]
-            if resolved != scale:
-                logger.warning(
-                    "scale %d%% not supported on %s; snapping to %d%%",
-                    scale,
-                    state.display_info.monitor_device_path,
-                    resolved,
-                )
-            if state.current_scale == resolved:
-                return True
-            ok = set_display_scale(
-                state.display_info.device_name,
-                state.display_info.adapter_id,
-                state.display_info.source_id,
-                scale_rel,
+        live = get_display_resolution(state.display_info.device_name)
+        if live is not None and live == resolved:
+            state.applied_resolution = resolved
+            return True
+        ok = set_display_resolution(state.display_info.device_name, resolved[0], resolved[1])
+        if ok:
+            state.current_resolution = resolved
+            state.applied_resolution = resolved
+            logger.info(f"display manager set resolution to {resolved[0]}*{resolved[1]}")
+        return ok
+
+    def _apply_scale(self, state: DisplayState, scale: int) -> bool:
+        """Snap and apply a DPI scale, skipping the set when already there.
+
+        A relative ``scaleRel`` step is measured from the recommended scale of
+        the *current* display mode, and that recommendation changes with the
+        resolution (e.g. the same step is 150% at 1080p but 200% at 4K).  The
+        capability is therefore re-queried here instead of using the value
+        cached at :meth:`add_display`; a stale reference would turn the step
+        into a different percentage.  A query failure propagates so the caller
+        sees it instead of applying a wrong step.
+
+        Otherwise a failed live read is never taken as "no change needed": the
+        set is attempted anyway, so a transient read failure still retries.
+        Either way the resolved value is recorded in ``state.applied_scale``, so
+        ``applied_setting`` always reports what the app last put in effect.
+        Must be called with ``self._lock`` held.
+
+        Args:
+            state: Display to modify.
+            scale: Requested scale percentage.
+
+        Returns:
+            True on success or when the display is already at the resolved
+            value, False (logged) when the system call failed.
+
+        Raises:
+            OSError: The capability query failed.
+            ValueError: The queried reference scale is out of range.
+        """
+        capability = get_display_capability(
+            state.display_info.device_name,
+            state.display_info.adapter_id,
+            state.display_info.source_id,
+            raise_error=True,
+        )
+        assert capability is not None
+        state.capability = capability
+        scale_rel = resolve_target_scale_step(capability.reference_scale, scale, capability.scale)
+        reference_index = capability.scale.index(capability.reference_scale)
+        resolved = capability.scale[reference_index + scale_rel]
+        if resolved != scale:
+            logger.warning(
+                "scale %d%% not supported on %s; snapping to %d%%",
+                scale,
+                state.display_info.monitor_device_path,
+                resolved,
             )
-            if ok:
-                state.current_scale = resolved
-                logger.info(f"display manager set scale to {resolved}")
-            return ok
+        live = get_display_scale(state.display_info.device_name)
+        if live is not None and live == resolved:
+            state.applied_scale = resolved
+            return True
+        ok = set_display_scale(
+            state.display_info.device_name,
+            state.display_info.adapter_id,
+            state.display_info.source_id,
+            scale_rel,
+        )
+        if ok:
+            state.current_scale = resolved
+            state.applied_scale = resolved
+            logger.info(f"display manager set scale to {resolved}")
+        return ok
 
     def _restore_resolution(self, state: DisplayState) -> None:
         """Revert a display's resolution to its original value.
@@ -581,17 +793,8 @@ class DisplayManager:
         """
         if state.current_resolution is None:
             return
-        ok = set_display_resolution(
-            state.display_info.device_name,
-            state.original_resolution[0],
-            state.original_resolution[1],
-        )
-        if ok:
+        if self._apply_resolution(state, *state.original_resolution):
             state.current_resolution = None
-            logger.info(
-                f"display manager restore resolution to "
-                f"{state.original_resolution[0]}*{state.original_resolution[1]}"
-            )
         else:
             logger.warning(
                 "cannot restore resolution on %s: display may be disconnected",
@@ -611,20 +814,8 @@ class DisplayManager:
         """
         if state.current_scale is None:
             return
-        scale_rel = resolve_target_scale_step(
-            state.capability.reference_scale,
-            state.original_scale,
-            state.capability.scale,
-        )
-        ok = set_display_scale(
-            state.display_info.device_name,
-            state.display_info.adapter_id,
-            state.display_info.source_id,
-            scale_rel,
-        )
-        if ok:
+        if self._apply_scale(state, state.original_scale):
             state.current_scale = None
-            logger.info(f"display manager restore scale to {state.original_scale}")
         else:
             logger.warning(
                 "cannot restore scale on %s: display may be disconnected",
@@ -759,6 +950,10 @@ class DisplayManager:
     def _composite_and_apply(self) -> None:
         """Composite the buffered images and apply the result as wallpaper.
 
+        Returns early when the buffer and the connected displays' geometry are
+        unchanged since the last apply (see :meth:`_canvas_hash`): that would
+        rewrite identical bytes and re-apply the same image.
+
         Must be called with ``self._lock`` held.
         """
         buffer: dict[DisplayId, tuple[WallpaperStyle, Path | Image.Image]] = {
@@ -769,6 +964,11 @@ class DisplayManager:
 
         displays = get_display_info()
         if displays is None:
+            return
+
+        canvas_hash = self._canvas_hash(buffer, displays)
+        if canvas_hash == self._applied_canvas_hash:
+            logger.debug("canvas composite skipped: unchanged")
             return
 
         canvas = self._build_canvas(buffer, displays)
@@ -791,7 +991,64 @@ class DisplayManager:
         with com_session():
             set_wallpaper_style(WallpaperStyle.SPAN)
             set_wallpaper(None, temp_path)
+        self._applied_canvas_hash = canvas_hash
         logger.info("canvas composite applied")
+
+    def _canvas_hash(
+        self,
+        buffer: dict[DisplayId, tuple[WallpaperStyle, Path | Image.Image]],
+        displays: list[DisplayInfo],
+    ) -> int:
+        """Return a hash of the inputs :meth:`_build_canvas` composites from.
+
+        One record per buffered entry — its display's current geometry paired
+        with the image buffered for it.  Entries keep ``buffer``'s insertion
+        order and every entry is included, even one whose display is not
+        connected: :meth:`_build_canvas` pastes in that order (overlapping
+        monitors resolve by it) and picks the first ``SPAN`` entry from the
+        whole buffer.  The geometry comes from *displays*, not from the
+        (possibly stale) ``state.display_info``.
+
+        Equal hashes mean the same composite would be written, with one blind
+        spot: a buffered ``Path`` is recorded as ``(path, size, mtime)`` and its
+        content is never read, so an edit that preserves both the file size and
+        the modification time goes undetected and its composite is not
+        re-applied.  A buffered ``Image`` is recorded from its pixels instead.
+
+        Must be called with ``self._lock`` held.
+
+        Args:
+            buffer: Per-monitor buffered ``(style, image)`` entries.
+            displays: Current display topology snapshot.
+
+        Returns:
+            A hash of the records described above.
+        """
+
+        def _image_signature(image: Path | Image.Image) -> tuple[str, int, int] | str | int:
+            if isinstance(image, Path):
+                try:
+                    stat = image.stat()
+                except OSError:
+                    # Transient (file replaced/removed mid-plot): fall back to
+                    # the path alone rather than raising out of the composite.
+                    return str(image)
+                return (str(image), stat.st_size, stat.st_mtime_ns)
+            return hash((image.mode, image.size, image.tobytes()))
+
+        display_map = {d.display_id: d for d in displays}
+        entries = tuple(
+            (
+                display_id,
+                style,
+                _image_signature(image),
+                (display.position, display.source_resolution)
+                if (display := display_map.get(display_id)) is not None
+                else None,
+            )
+            for display_id, (style, image) in buffer.items()
+        )
+        return hash(entries)
 
     def _build_canvas(
         self,

@@ -105,19 +105,34 @@ class TestNetworkTriggerRun:
 
                 mock_trigger.assert_not_called()
 
-    def test_run_breaks_on_notify_addr_change_error(
+    def test_run_raises_on_notify_addr_change_error(
         self, mock_kernel32, mock_iphlpapi, mock_pythoncom
     ) -> None:
-        """Run breaks loop when NotifyAddrChange returns an unexpected error"""
+        """Run raises when NotifyAddrChange returns an unexpected error"""
         mock_kernel32.CreateEventW.return_value = 0xCAFE
         mock_iphlpapi.NotifyAddrChange.return_value = 1  # error (not 0 or 997)
         trigger = NetworkTrigger()
         trigger._exit_event = 0xBEEF
 
         with patch.object(trigger, "_get_network_fingerprint", return_value=set()):
-            trigger.run()
+            with pytest.raises(OSError):
+                trigger.run()
 
-            mock_kernel32.WaitForMultipleObjects.assert_not_called()
+        mock_kernel32.WaitForMultipleObjects.assert_not_called()
+
+    def test_run_raises_on_wait_failure(self, mock_kernel32, mock_iphlpapi, mock_pythoncom) -> None:
+        """Run raises when WaitForMultipleObjects reports WAIT_FAILED"""
+        mock_kernel32.CreateEventW.return_value = 0xCAFE
+        mock_iphlpapi.NotifyAddrChange.return_value = 0
+        mock_kernel32.WaitForMultipleObjects.return_value = 0xFFFFFFFF
+        trigger = NetworkTrigger()
+        trigger._exit_event = 0xBEEF
+
+        with patch.object(trigger, "_get_network_fingerprint", return_value=set()):
+            with pytest.raises(OSError):
+                trigger.run()
+
+        mock_kernel32.CloseHandle.assert_called_once_with(0xCAFE)
 
     def test_lifecycle_and_com_cleanup(self, mock_kernel32, mock_iphlpapi, mock_pythoncom) -> None:
         """COM init/uninit is called during run"""
@@ -134,6 +149,44 @@ class TestNetworkTriggerRun:
             mock_pythoncom.CoUninitialize.assert_called_once()
             # CloseHandle is called for net_event in finally block
             mock_kernel32.CloseHandle.assert_called_once()
+
+    def test_cancels_a_pending_notification_before_closing_its_event(
+        self, mock_kernel32, mock_iphlpapi, mock_pythoncom
+    ) -> None:
+        """A registration still outstanding at exit is cancelled while still valid.
+
+        The kernel completes a pending ``NotifyAddrChange`` into the OVERLAPPED
+        and signals its event: freeing/closing them first corrupts memory and
+        crashes the process with no Python traceback.
+        """
+        mock_kernel32.CreateEventW.return_value = 0xCAFE
+        mock_iphlpapi.NotifyAddrChange.return_value = 997  # ERROR_IO_PENDING
+        mock_kernel32.WaitForMultipleObjects.return_value = 1  # exit event
+        trigger = NetworkTrigger()
+        trigger._exit_event = 0xBEEF
+
+        with patch.object(trigger, "_get_network_fingerprint", return_value=set()):
+            trigger.run()
+
+        mock_iphlpapi.CancelIPChangeNotify.assert_called_once()
+        mock_kernel32.WaitForSingleObject.assert_called_once_with(0xCAFE, 1000)
+        mock_kernel32.CloseHandle.assert_called_once_with(0xCAFE)
+
+    def test_does_not_cancel_a_completed_notification(
+        self, mock_kernel32, mock_iphlpapi, mock_pythoncom
+    ) -> None:
+        """Nothing is cancelled when the registration already completed."""
+        mock_kernel32.CreateEventW.return_value = 0xCAFE
+        mock_iphlpapi.NotifyAddrChange.return_value = 0  # completed immediately
+        mock_kernel32.WaitForMultipleObjects.return_value = 1  # exit event
+        trigger = NetworkTrigger()
+        trigger._exit_event = 0xBEEF
+
+        with patch.object(trigger, "_get_network_fingerprint", return_value=set()):
+            trigger.run()
+
+        mock_iphlpapi.CancelIPChangeNotify.assert_not_called()
+        mock_kernel32.WaitForSingleObject.assert_not_called()
 
 
 class TestNetworkTriggerFingerprint:

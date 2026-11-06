@@ -67,6 +67,10 @@ class TestInitState:
         monkeypatch.setattr(BaseResource, "_plot_canvas", None)
         assert MockResource()._plot_canvas is None
 
+    def test_immediate_plot_canvas_is_none(self, monkeypatch) -> None:
+        monkeypatch.setattr(BaseResource, "_immediate_plot_canvas", None)
+        assert MockResource()._immediate_plot_canvas is None
+
 
 class TestBindDisplay:
     def test_bind_sets_display(self) -> None:
@@ -176,6 +180,40 @@ class TestPlotCanvas:
         assert instance_calls == ["instance"]
 
 
+class TestImmediatePlotCanvas:
+    def test_dispatches_to_class_callback(self, monkeypatch) -> None:
+        called: list[bool] = []
+        # staticmethod wrapper — a plain function stored on the class would be
+        # bound as a method on instance access.
+        monkeypatch.setattr(
+            BaseResource,
+            "_immediate_plot_canvas",
+            staticmethod(lambda: called.append(True)),
+        )
+        MockResource().immediate_plot_canvas()
+        assert called == [True]
+
+    def test_raises_when_callback_unbound(self, monkeypatch) -> None:
+        monkeypatch.setattr(BaseResource, "_immediate_plot_canvas", None)
+        r = MockResource()
+        with pytest.raises(RuntimeError, match="immediate_plot_canvas not bound"):
+            r.immediate_plot_canvas()
+
+    def test_instance_can_override_class_callback(self, monkeypatch) -> None:
+        class_calls: list[str] = []
+        monkeypatch.setattr(
+            BaseResource,
+            "_immediate_plot_canvas",
+            lambda: class_calls.append("class"),
+        )
+        r = MockResource()
+        instance_calls: list[str] = []
+        r._immediate_plot_canvas = lambda: instance_calls.append("instance")
+        r.immediate_plot_canvas()
+        assert class_calls == []
+        assert instance_calls == ["instance"]
+
+
 class TestRegisterCanvasCallbacks:
     def test_register_update_canvas_sets_class_attribute(self, monkeypatch) -> None:
         monkeypatch.setattr(BaseResource, "_update_canvas", None)
@@ -198,3 +236,12 @@ class TestRegisterCanvasCallbacks:
 
         BaseResource.register_plot_canvas(cb)
         assert BaseResource._plot_canvas is cb
+
+    def test_register_immediate_plot_canvas_sets_class_attribute(self, monkeypatch) -> None:
+        monkeypatch.setattr(BaseResource, "_immediate_plot_canvas", None)
+
+        def cb() -> None:
+            return None
+
+        BaseResource.register_immediate_plot_canvas(cb)
+        assert BaseResource._immediate_plot_canvas is cb

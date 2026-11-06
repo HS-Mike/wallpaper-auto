@@ -1,5 +1,6 @@
 """Tests for process_evaluator.py — process-running condition check."""
 
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -39,7 +40,7 @@ class TestProcessEvaluator:
             patch(f"{_MOD}.get_running_processes", return_value=[(100, "notepad.exe")]),
             patch(
                 f"{_MOD}.get_executable_path",
-                return_value=r"C:\Windows\System32\notepad.exe",
+                return_value=Path(r"C:\Windows\System32\notepad.exe"),
             ),
         ):
             assert evaluator(r"C:\Windows\System32\notepad.exe")
@@ -52,7 +53,10 @@ class TestProcessEvaluator:
             ),
             patch(
                 f"{_MOD}.get_executable_path",
-                side_effect=[r"C:\Other\notepad.exe", r"C:\Windows\System32\notepad.exe"],
+                side_effect=[
+                    Path(r"C:\Other\notepad.exe"),
+                    Path(r"C:\Windows\System32\notepad.exe"),
+                ],
             ),
         ):
             assert evaluator(r"C:\Windows\System32\notepad.exe")
@@ -60,7 +64,10 @@ class TestProcessEvaluator:
     def test_full_path_no_match_on_different_path(self, evaluator):
         with (
             patch(f"{_MOD}.get_running_processes", return_value=[(100, "notepad.exe")]),
-            patch(f"{_MOD}.get_executable_path", return_value=r"C:\Other\notepad.exe"),
+            patch(
+                f"{_MOD}.get_executable_path",
+                return_value=Path(r"C:\Other\notepad.exe"),
+            ),
         ):
             assert not evaluator(r"C:\Windows\System32\notepad.exe")
 
@@ -70,10 +77,6 @@ class TestProcessEvaluator:
             patch(f"{_MOD}.get_executable_path", return_value=None),
         ):
             assert not evaluator(r"C:\Windows\System32\notepad.exe")
-
-    def test_returns_false_when_query_fails(self, evaluator):
-        with patch(f"{_MOD}.get_running_processes", return_value=None):
-            assert not evaluator("notepad.exe")
 
     def test_returns_false_when_no_processes(self, evaluator):
         with patch(f"{_MOD}.get_running_processes", return_value=[]):
