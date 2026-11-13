@@ -11,13 +11,12 @@ requires-python = ">=3.12"
 authors = [
     { name = "Mike", email = "houlin.mike@gmail.com" }
 ]
-license = { text = "MIT" }
+license = "MIT"
 keywords = ["wallpaper", "desktop", "windows", "automation"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
     "Environment :: Win32 (MS Windows)",
     "Typing :: Typed",
@@ -55,7 +54,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-wallpaper_auto = ["icon.svg"]
+wallpaper_auto = ["icon.svg", "py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
